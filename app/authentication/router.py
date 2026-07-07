@@ -13,7 +13,7 @@ from app.authentication.schemas.auth import (
 )
 from app.authentication.services.auth_service import AuthService
 from app.container import Container
-from app.core.response import BasicResponse, error_response, success_response
+from app.core.response import BasicResponse
 from app.core.security import bearer_scheme, get_current_user
 from app.utils.errors import EmailAlreadyExistsError, UserNotFoundError
 
@@ -30,7 +30,7 @@ async def register(
 ) -> BasicResponse:
     try:
         user = await service.register(name=data.name, email=data.email)
-        return success_response(
+        return BasicResponse(
             data={
                 "id": str(user.id),
                 "name": user.name,
@@ -42,13 +42,13 @@ async def register(
             status_code=status.HTTP_201_CREATED,
         )
     except EmailAlreadyExistsError:
-        return error_response(
+        return BasicResponse(
             error="Email already registered",
             status_code=status.HTTP_409_CONFLICT,
         )
     except Exception:
         logger.exception("Unexpected error during registration")
-        return error_response(
+        return BasicResponse(
             error="Internal server error",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
@@ -62,18 +62,18 @@ async def login(
 ) -> BasicResponse:
     try:
         token = await service.login(email=data.email)
-        return success_response(
+        return BasicResponse(
             data={"access_token": token, "token_type": "bearer"},
             message="Login successful",
         )
     except UserNotFoundError:
-        return error_response(
+        return BasicResponse(
             error="Invalid credentials",
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     except Exception:
         logger.exception("Unexpected error during login")
-        return error_response(
+        return BasicResponse(
             error="Internal server error",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
@@ -88,10 +88,10 @@ async def logout(
 ) -> BasicResponse:
     try:
         await service.logout(credentials.credentials)
-        return success_response(message="Logged out successfully")
+        return BasicResponse(message="Logged out successfully")
     except Exception:
         logger.exception("Unexpected error during logout")
-        return error_response(
+        return BasicResponse(
             error="Internal server error",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
@@ -102,7 +102,7 @@ async def change_face_id(
     data: FaceIdRequest,
     _: Annotated[User, Depends(get_current_user)],
 ) -> BasicResponse:
-    return error_response(
+    return BasicResponse(
         error="Changing face id is not implemented yet",
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
     )
@@ -113,7 +113,7 @@ async def set_new_face_id(
     data: FaceIdRequest,
     _: Annotated[User, Depends(get_current_user)],
 ) -> BasicResponse:
-    return error_response(
+    return BasicResponse(
         error="Setting a new face id is not implemented yet",
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
     )
