@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.authentication.router import router as auth_router
 from app.config import Settings
 from app.container import Container
+from app.core.response import BasicResponse, success_response
 from app.logging_config import configure_logging
-from app.middleware import SecurityHeadersMiddleware
+from app.core.middleware import SecurityHeadersMiddleware
 
 
 @asynccontextmanager
@@ -47,8 +48,8 @@ def create_app() -> FastAPI:
     api_router = APIRouter(prefix="/api")
 
     @api_router.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health() -> BasicResponse:
+        return success_response(data={"status": "ok"})
 
     api_router.include_router(auth_router)
     app.include_router(api_router)
