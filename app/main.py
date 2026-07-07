@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import Settings
@@ -42,9 +42,13 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(SecurityHeadersMiddleware)
 
-    @app.get("/health")
+    api_router = APIRouter(prefix="/api")
+
+    @api_router.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    app.include_router(api_router)
 
     logger.info("%s started", settings.app_name)
     return app
