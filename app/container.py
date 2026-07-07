@@ -11,7 +11,10 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import sessionmaker
 
+from app.authentication.repository import UserRepository
+from app.authentication.services import AuthService
 from app.config import Settings
+from app.core.redis import RedisClient
 
 
 def init_sync_engine(database_url: str) -> Iterator[Engine]:
@@ -57,10 +60,6 @@ async def init_async_redis(redis_url: str) -> AsyncIterator[Redis]:
 class Container(containers.DeclarativeContainer):
     """Application dependency container."""
 
-    wiring_config = containers.WiringConfiguration(
-        packages=["app"],
-    )
-
     settings = providers.Singleton(Settings)
 
     sync_redis = providers.Resource(
@@ -91,4 +90,21 @@ class Container(containers.DeclarativeContainer):
     async_session_factory = providers.Singleton(
         init_async_session_factory,
         engine=async_engine,
+    )
+
+    user_repository = providers.Factory(
+        UserRepository,
+        session_factory=async_session_factory,
+    )
+
+    redis_client = providers.Factory(
+        RedisClient,
+        redis=async_redis,
+    )
+
+    auth_service = providers.Factory(
+        AuthService,
+        repository=user_repository,
+        redis=redis_client,
+        settings=settings,
     )

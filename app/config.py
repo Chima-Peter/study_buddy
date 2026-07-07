@@ -14,3 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/face_recognition"
     sync_database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/face_recognition"
     redis_url: str = "redis://localhost:6379/0"
+
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60

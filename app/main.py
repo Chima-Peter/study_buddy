@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.authentication.router import router as auth_router
 from app.config import Settings
 from app.container import Container
 from app.logging_config import configure_logging
@@ -21,15 +22,16 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     container = Container()
+    container.wire(packages=["app"])
     settings: Settings = container.settings()
 
     configure_logging(settings.log_level)
     logger = logging.getLogger(__name__)
 
     app = FastAPI(
-      title=settings.app_name, 
-      debug=settings.debug, 
-      lifespan=lifespan
+        title=settings.app_name,
+        debug=settings.debug,
+        lifespan=lifespan
     )
     app.container = container
 
@@ -48,6 +50,7 @@ def create_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    api_router.include_router(auth_router)
     app.include_router(api_router)
 
     logger.info("%s started", settings.app_name)

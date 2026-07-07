@@ -11,12 +11,15 @@ dependencies = [
     "fastapi>=0.139.0",
     "psycopg2-binary>=2.9.12",
     "pydantic-settings>=2.14.2",
+    "pydantic[email]>=2.13.4",
+    "pyjwt>=2.13.0",
     "redis>=8.0.1",
     "sqlalchemy[asyncio]>=2.0.51",
     "uvicorn[standard]>=0.50.2",
 ]
 
 [tool.pylint.typecheck]
-# alembic.op members (execute, create_table, ...) are attached at runtime,
-# so static analysis can't see them.
-ignored-modules = ["alembic.op"]
+# Members these packages expose can't be seen by static analysis:
+# - alembic.op attaches execute/create_table/... at runtime
+# - dependency_injector is a compiled C extension (containers/providers.*)
+ignored-modules = ["alembic.op", "dependency_injector"]
