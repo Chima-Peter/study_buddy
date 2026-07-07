@@ -1,7 +1,4 @@
-import uuid
-from datetime import datetime
-
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, EmailStr
 
 
 class RegisterRequest(BaseModel):
@@ -13,24 +10,13 @@ class LoginRequest(BaseModel):
     email: EmailStr
 
 
-class UserRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    name: str
-    email: EmailStr
-    created_at: datetime
-    updated_at: datetime
-
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
+    def to_dict(self) -> dict:
+        return {"access_token": self.access_token, "token_type": self.token_type}
+
 
 class FaceIdRequest(BaseModel):
     face_id: str
-
-
-class MessageResponse(BaseModel):
-    detail: str

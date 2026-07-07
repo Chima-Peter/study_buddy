@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from app.authentication.models.user import User
+from app.authentication.models.user import UserModel
 from app.authentication.repository.user_repository import UserRepository
 from app.config import Settings
 from app.core.redis import RedisClient
@@ -25,9 +25,12 @@ class AuthService:
         self.redis = redis
         self.settings = settings
 
-    async def register(self, name: str, email: str) -> User:
+    async def register(self, name: str, email: str) -> tuple[UserModel, str]:
+        """Register a new user and issue a JWT token."""
         try:
-            return await self.repository.create(name=name, email=email)
+            user = await self.repository.create(name=name, email=email)
+            token = self._issue_token(user)
+            return user, token
         except DuplicateEmailError as e:
             raise EmailAlreadyExistsError(email) from e
 
@@ -37,7 +40,7 @@ class AuthService:
             raise UserNotFoundError(email)
         return self._issue_token(user)
 
-    async def get_user(self, user_id: uuid.UUID) -> User | None:
+    async def get_user(self, user_id: uuid.UUID) -> UserModel | None:
         return await self.repository.get_by_id(user_id)
 
     async def logout(self, token: str) -> None:
@@ -53,7 +56,7 @@ class AuthService:
     async def is_blacklisted(self, token: str) -> bool:
         return await self.redis.exists(f"{BLACKLIST_PREFIX}{token}")
 
-    def _issue_token(self, user: User) -> str:
+    def _issue_token(self, user: UserModel) -> str:
         return generate_token(
             subject=str(user.id),
             secret=self.settings.jwt_secret,

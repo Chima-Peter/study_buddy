@@ -5,7 +5,7 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, status
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.authentication.models.user import User
+from app.authentication.models.user import UserModel
 from app.authentication.schemas.auth import (
     FaceIdRequest,
     LoginRequest,
@@ -29,14 +29,12 @@ async def register(
     service: AuthService = Depends(Provide[Container.auth_service]),
 ) -> BasicResponse:
     try:
-        user = await service.register(name=data.name, email=data.email)
+        user, token = await service.register(name=data.name, email=data.email)
         return BasicResponse(
             data={
-                "id": str(user.id),
-                "name": user.name,
-                "email": user.email,
-                "created_at": user.created_at.isoformat(),
-                "updated_at": user.updated_at.isoformat(),
+                "user": user.to_dict(),
+                "access_token": token,
+                "token_type": "bearer",
             },
             message="User registered successfully",
             status_code=status.HTTP_201_CREATED,
@@ -83,7 +81,7 @@ async def login(
 @inject
 async def logout(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[UserModel, Depends(get_current_user)],
     service: AuthService = Depends(Provide[Container.auth_service]),
 ) -> BasicResponse:
     try:
@@ -100,7 +98,7 @@ async def logout(
 @router.post("/change-face-id")
 async def change_face_id(
     data: FaceIdRequest,
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[UserModel, Depends(get_current_user)],
 ) -> BasicResponse:
     return BasicResponse(
         error="Changing face id is not implemented yet",
@@ -111,7 +109,7 @@ async def change_face_id(
 @router.post("/set-new-face-id")
 async def set_new_face_id(
     data: FaceIdRequest,
-    _: Annotated[User, Depends(get_current_user)],
+    _: Annotated[UserModel, Depends(get_current_user)],
 ) -> BasicResponse:
     return BasicResponse(
         error="Setting a new face id is not implemented yet",

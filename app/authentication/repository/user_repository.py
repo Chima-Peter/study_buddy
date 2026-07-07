@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.authentication.models.user import User
+from app.authentication.models.user import UserDBModel, UserModel
 from app.utils.errors import DuplicateEmailError, UserCreateError
 
 
@@ -18,10 +18,10 @@ class UserRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self.session_factory = session_factory
 
-    async def create(self, name: str, email: str) -> User:
+    async def create(self, name: str, email: str) -> UserModel:
         async with self.session_factory() as session:
-            user = User(name=name, email=email)
-            session.add(user)
+            db_user = UserDBModel(name=name, email=email)
+            session.add(db_user)
             try:
                 await session.commit()
             except IntegrityError as e:
@@ -29,16 +29,18 @@ class UserRepository:
                 if "unique" in str(e.orig).lower() or "duplicate" in str(e.orig).lower():
                     raise DuplicateEmailError(email) from e
                 raise UserCreateError(str(e)) from e
-            await session.refresh(user)
-            return user
+            await session.refresh(db_user)
+            return UserModel.from_db(db_user)
 
-    async def get_by_email(self, email: str) -> User | None:
+    async def get_by_email(self, email: str) -> UserModel | None:
         async with self.session_factory() as session:
             result = await session.execute(
-                select(User).where(User.email == email)
+                select(UserDBModel).where(UserDBModel.email == email)
             )
-            return result.scalar_one_or_none()
+            db_user = result.scalar_one_or_none()
+            return UserModel.from_db(db_user) if db_user else None
 
-    async def get_by_id(self, user_id: uuid.UUID) -> User | None:
+    async def get_by_id(self, user_id: uuid.UUID) -> UserModel | None:
         async with self.session_factory() as session:
-            return await session.get(User, user_id)
+            db_user = await session.get(UserDBModel, user_id)
+            return UserModel.from_db(db_user) if db_user else None

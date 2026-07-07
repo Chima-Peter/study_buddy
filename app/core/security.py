@@ -5,7 +5,7 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.authentication.models.user import User
+from app.authentication.models.user import UserModel
 from app.authentication.services.auth_service import AuthService
 from app.container import Container
 from app.utils.jwt import verify_token
@@ -17,7 +17,7 @@ bearer_scheme = HTTPBearer()
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     service: AuthService = Depends(Provide[Container.auth_service]),
-) -> User:
+) -> UserModel:
     token = credentials.credentials
     payload = verify_token(
         token, service.settings.jwt_secret, service.settings.jwt_algorithm

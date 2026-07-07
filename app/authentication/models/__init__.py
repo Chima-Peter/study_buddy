@@ -1,3 +1,3 @@
-from app.authentication.models.user import User
+from app.authentication.models.user import UserDBModel, UserModel
 
-__all__ = ["User"]
+__all__ = ["UserDBModel", "UserModel"]
