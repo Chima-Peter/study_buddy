@@ -1,13 +1,13 @@
 from app.authentication.schemas.auth import (
-    FaceIdRequest,
     LoginRequest,
     RegisterRequest,
-    TokenResponse,
+    LoginResponse,
+    UserResponse,
 )
 
 __all__ = [
-    "FaceIdRequest",
     "LoginRequest",
     "RegisterRequest",
-    "TokenResponse",
+    "LoginResponse",
+    "UserResponse",
 ]

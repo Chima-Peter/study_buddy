@@ -1,10 +1,10 @@
-import uuid
-from datetime import datetime
-from typing import TYPE_CHECKING, Self
+import uuid_utils
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr
-from sqlalchemy import DateTime, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer
+from sqlalchemy import String, func, UUID
+from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -13,66 +13,56 @@ if TYPE_CHECKING:
     from app.authentication.schemas.auth import RegisterRequest
 
 
-class UserDBModel(Base):
-    """SQLAlchemy database model for users table."""
-
-    __tablename__ = "users"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        primary_key=True,
-        server_default=func.gen_random_uuid(),
-    )
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
-    )
-
-
 class UserModel(BaseModel):
     """Pydantic model for User - handles conversions between schemas and DB model."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    name: str
+    id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
+    name: str = Field(min_length=3, max_length=255)
     email: EmailStr
-    created_at: datetime
-    updated_at: datetime
+    hashed_password: str = Field(min_length=8, max_length=255)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc()))
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc()))
 
-    @classmethod
-    def from_db(cls, db_model: UserDBModel) -> Self:
-        """Convert SQLAlchemy model to Pydantic model."""
-        return cls.model_validate(db_model)
+    def serialize_datetime(self, value: datetime) -> str:
+        return value.isoformat()
 
-    def to_db(self) -> UserDBModel:
-        """Convert Pydantic model to SQLAlchemy model."""
-        return UserDBModel(
-            id=self.id,
-            name=self.name,
-            email=self.email,
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-        )
+    @field_serializer("created_at", "updated_at")
+    def serialize_dates(self, value: datetime, _info) -> str:
+        return self.serialize_datetime(value)
 
-    @classmethod
-    def from_register_request(cls, schema: "RegisterRequest", db_model: UserDBModel) -> Self:
-        """Create UserModel from register request after DB creation."""
-        return cls.from_db(db_model)
-
-    def to_dict(self) -> dict:
-        """Convert to dictionary for JSON serialization."""
+    def model_dump_for_db(self) -> dict[str, Any]:
         return {
-            "id": str(self.id),
+            "id": self.id,
             "name": self.name,
             "email": self.email,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
+            "hashed_password": self.hashed_password,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
         }
+
+
+class UserDBModel(Base):
+    """SQLAlchemy database model for users table."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(
+        UUID,
+        primary_key=True,
+        server_default=func.gen_random_uuid(),
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+    )

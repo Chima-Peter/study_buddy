@@ -1,5 +1,3 @@
-import uuid
-
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -18,19 +16,19 @@ class UserRepository:
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]):
         self.session_factory = session_factory
 
-    async def create(self, name: str, email: str) -> UserModel:
+    async def create(self, user: UserModel) -> UserModel:
         async with self.session_factory() as session:
-            db_user = UserDBModel(name=name, email=email)
+            db_user = UserDBModel(**user.model_dump_for_db())
             session.add(db_user)
             try:
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
                 if "unique" in str(e.orig).lower() or "duplicate" in str(e.orig).lower():
-                    raise DuplicateEmailError(email) from e
+                    raise DuplicateEmailError(user.email) from e
                 raise UserCreateError(str(e)) from e
             await session.refresh(db_user)
-            return UserModel.from_db(db_user)
+            return UserModel.model_validate(db_user)
 
     async def get_by_email(self, email: str) -> UserModel | None:
         async with self.session_factory() as session:
@@ -38,9 +36,13 @@ class UserRepository:
                 select(UserDBModel).where(UserDBModel.email == email)
             )
             db_user = result.scalar_one_or_none()
-            return UserModel.from_db(db_user) if db_user else None
+            if db_user is None:
+                return None
+            return UserModel.model_validate(db_user)
 
-    async def get_by_id(self, user_id: uuid.UUID) -> UserModel | None:
+    async def get_by_id(self, user_id: str) -> UserModel | None:
         async with self.session_factory() as session:
             db_user = await session.get(UserDBModel, user_id)
-            return UserModel.from_db(db_user) if db_user else None
+            if db_user is None:
+                return None
+            return UserModel.model_validate(db_user)

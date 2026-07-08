@@ -7,7 +7,6 @@ from fastapi.security import HTTPAuthorizationCredentials
 
 from app.authentication.models.user import UserModel
 from app.authentication.schemas.auth import (
-    FaceIdRequest,
     LoginRequest,
     RegisterRequest,
 )
@@ -16,6 +15,7 @@ from app.container import Container
 from app.core.response import BasicResponse
 from app.core.security import bearer_scheme, get_current_user
 from app.utils.errors import EmailAlreadyExistsError, UserNotFoundError
+from app.utils.errors.auth import InvalidCredentialsError
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +29,9 @@ async def register(
     service: AuthService = Depends(Provide[Container.auth_service]),
 ) -> BasicResponse:
     try:
-        user, token = await service.register(name=data.name, email=data.email)
+        response = await service.register(data)
         return BasicResponse(
-            data={
-                "user": user.to_dict(),
-                "access_token": token,
-                "token_type": "bearer",
-            },
+            data=response.model_dump(),
             message="User registered successfully",
             status_code=status.HTTP_201_CREATED,
         )
@@ -59,18 +55,18 @@ async def login(
     service: AuthService = Depends(Provide[Container.auth_service]),
 ) -> BasicResponse:
     try:
-        token = await service.login(email=data.email)
+        response = await service.login(request=data)
         return BasicResponse(
-            data={"access_token": token, "token_type": "bearer"},
+            data=response.model_dump(),
             message="Login successful",
         )
-    except UserNotFoundError:
+    except (InvalidCredentialsError, UserNotFoundError) as e:
         return BasicResponse(
-            error="Invalid credentials",
+            error="Incorrect password or email",
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
-    except Exception:
-        logger.exception("Unexpected error during login")
+    except Exception as e:
+        logger.exception(f"Unexpected error during login: {e}")
         return BasicResponse(
             error="Internal server error",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -93,25 +89,3 @@ async def logout(
             error="Internal server error",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-
-
-@router.post("/change-face-id")
-async def change_face_id(
-    data: FaceIdRequest,
-    _: Annotated[UserModel, Depends(get_current_user)],
-) -> BasicResponse:
-    return BasicResponse(
-        error="Changing face id is not implemented yet",
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-    )
-
-
-@router.post("/set-new-face-id")
-async def set_new_face_id(
-    data: FaceIdRequest,
-    _: Annotated[UserModel, Depends(get_current_user)],
-) -> BasicResponse:
-    return BasicResponse(
-        error="Setting a new face id is not implemented yet",
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-    )
