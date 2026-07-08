@@ -13,9 +13,6 @@ from app.core.middleware import SecurityHeadersMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await app.container.init_resources()
-    settings: Settings = app.container.settings()
-    logger = app.container.logging()
-    logger.info("%s started", settings.app_name)
     try:
         yield
     finally:

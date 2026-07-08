@@ -18,7 +18,7 @@ from app.authentication.services import AuthService
 from app.config import Settings
 from app.core.rabbitmq import RabbitMQ
 from app.core.redis import RedisClient
-from app.logging_config import get_named_logger, init_logging
+from app.logging_config import init_logging
 
 
 def init_sync_engine(database_url: str) -> Iterator[Engine]:
@@ -80,8 +80,8 @@ async def init_async_rabbitmq_queue(channel: aio_pika.Channel, queue_name: str) 
 async def init_async_rabbitmq(rabbitmq_url: str) -> AsyncIterator[RabbitMQResources]:
     connection = await aio_pika.connect_robust(rabbitmq_url)
     channel = await connection.channel(
-      publisher_confirms=True,
-      on_return_raises=True,
+        publisher_confirms=True,
+        on_return_raises=True,
     )
     await channel.set_qos(prefetch_count=10)
 
@@ -104,15 +104,9 @@ class Container(containers.DeclarativeContainer):
 
     settings = providers.Singleton(Settings)
 
-    logging = providers.Resource(
+    logger = providers.Resource(
         init_logging,
         log_level=settings.provided.log_level,
-    )
-
-    rabbitmq_logger = providers.Factory(
-        get_named_logger,
-        name="app.core.rabbitmq",
-        app_logger=logging,
     )
 
     sync_redis = providers.Resource(
@@ -153,11 +147,13 @@ class Container(containers.DeclarativeContainer):
     user_repository = providers.Factory(
         UserRepository,
         session_factory=async_session_factory,
+        logger=logger,
     )
 
     redis_client = providers.Factory(
         RedisClient,
         redis=async_redis,
+        logger=logger,
     )
 
     rabbitmq = providers.Factory(
@@ -165,7 +161,7 @@ class Container(containers.DeclarativeContainer):
         channel=rabbitmq_resources.provided.channel,
         email_queue=rabbitmq_resources.provided.email_queue,
         document_queue=rabbitmq_resources.provided.document_queue,
-        logger=rabbitmq_logger,
+        logger=logger,
     )
 
     auth_service = providers.Factory(
@@ -173,4 +169,5 @@ class Container(containers.DeclarativeContainer):
         repository=user_repository,
         redis=redis_client,
         settings=settings,
+        logger=logger,
     )

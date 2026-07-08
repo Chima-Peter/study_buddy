@@ -1,5 +1,5 @@
-import uuid
 from datetime import datetime, timezone
+from logging import Logger
 
 from app.authentication.models.user import UserModel
 from app.authentication.repository.user_repository import UserRepository
@@ -16,21 +16,23 @@ BLACKLIST_PREFIX = "blacklist:"
 
 
 class AuthService:
-    """Authentication business logic.
-
-    Face-id verification will gate token issuance later; for now login is a
-    normal email lookup that issues a JWT directly.
-    """
+    """Authentication business logic."""
 
     def __init__(
-        self, repository: UserRepository, redis: RedisClient, settings: Settings
+        self,
+        repository: UserRepository,
+        redis: RedisClient,
+        settings: Settings,
+        logger: Logger,
     ):
         self.repository = repository
         self.redis = redis
         self.settings = settings
+        self._logger = logger
 
     async def register(self, request: RegisterRequest) -> LoginResponse:
         """Register a new user and issue a JWT token."""
+        self._logger.info("Register attempt email=%s", request.email)
         try:
             password_hash = hash_password(request.password)
             user = UserModel(
@@ -40,6 +42,7 @@ class AuthService:
             )
             user = await self.repository.create(user)
             token = self._issue_token(user)
+            self._logger.info("Register success user_id=%s email=%s", user.id, user.email)
             return LoginResponse(
                 user=UserResponse(
                     id=user.id,
@@ -51,16 +54,22 @@ class AuthService:
                 token=token,
             )
         except DuplicateEmailError as e:
-            raise EmailAlreadyExistsError(user.email) from e
+            self._logger.warning("Register failed - email exists: %s", request.email)
+            raise EmailAlreadyExistsError(request.email) from e
 
     async def login(self, request: LoginRequest) -> LoginResponse:
+        self._logger.info("Login attempt email=%s", request.email)
         user = await self.repository.get_by_email(request.email)
         if user is None:
+            self._logger.warning("Login failed - user not found: %s", request.email)
             raise UserNotFoundError(request.email)
 
         if not verify_password(request.password, user.hashed_password):
+            self._logger.warning("Login failed - invalid password: %s", request.email)
             raise InvalidCredentialsError(request.email)
+
         token = self._issue_token(user)
+        self._logger.info("Login success user_id=%s email=%s", user.id, user.email)
         return LoginResponse(
             user=UserResponse(
                 id=user.id,
@@ -101,10 +110,12 @@ class AuthService:
         payload = decode_token(
             token, self.settings.jwt_secret, self.settings.jwt_algorithm
         )
+        user_id = payload.get("sub")
         expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
         ttl = int((expires_at - datetime.now(timezone.utc)).total_seconds())
         if ttl > 0:
             await self.redis.set(f"{BLACKLIST_PREFIX}{token}", "1", ttl)
+            self._logger.info("Logout success user_id=%s", user_id)
 
     async def is_blacklisted(self, token: str) -> bool:
         return await self.redis.exists(f"{BLACKLIST_PREFIX}{token}")

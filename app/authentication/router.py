@@ -1,4 +1,4 @@
-import logging
+from logging import Logger
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
@@ -17,8 +17,6 @@ from app.core.security import bearer_scheme, get_current_user
 from app.utils.errors import EmailAlreadyExistsError, UserNotFoundError
 from app.utils.errors.auth import InvalidCredentialsError
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
@@ -27,6 +25,7 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 async def register(
     data: RegisterRequest,
     service: AuthService = Depends(Provide[Container.auth_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
         response = await service.register(data)
@@ -36,7 +35,7 @@ async def register(
             detail="Email already registered",
         )
     except Exception:
-        logger.exception("Unexpected error during registration")
+        logger.exception("Unexpected error during registration email=%s", data.email)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
@@ -54,6 +53,7 @@ async def register(
 async def login(
     data: LoginRequest,
     service: AuthService = Depends(Provide[Container.auth_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
         response = await service.login(request=data)
@@ -63,7 +63,7 @@ async def login(
             detail="Incorrect password or email",
         )
     except Exception:
-        logger.exception("Unexpected error during login")
+        logger.exception("Unexpected error during login email=%s", data.email)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
@@ -81,6 +81,7 @@ async def logout(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     _: Annotated[UserResponse, Depends(get_current_user)],
     service: AuthService = Depends(Provide[Container.auth_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
         await service.logout(credentials.credentials)
