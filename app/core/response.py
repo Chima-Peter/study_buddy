@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import status
+from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
 
 
@@ -38,3 +38,17 @@ class BasicResponse(JSONResponse):
             }
 
         super().__init__(content=content, status_code=status_code, **kwargs)
+
+
+def basic_response_from_http_exception(exc: HTTPException) -> BasicResponse:
+    detail = exc.detail
+    if isinstance(detail, str):
+        error = detail
+    elif isinstance(detail, list):
+        error = "; ".join(
+            item.get("msg", str(item)) if isinstance(item, dict) else str(item)
+            for item in detail
+        )
+    else:
+        error = str(detail)
+    return BasicResponse(error=error, status_code=exc.status_code)

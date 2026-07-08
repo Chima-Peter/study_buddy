@@ -1,13 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.authentication.router import router as auth_router
 from app.config import Settings
 from app.container import Container
-from app.core.response import BasicResponse
+from app.core.response import BasicResponse, basic_response_from_http_exception
 from app.logging_config import configure_logging
 from app.core.middleware import SecurityHeadersMiddleware
 
@@ -35,6 +35,12 @@ def create_app() -> FastAPI:
         lifespan=lifespan
     )
     app.container = container
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(
+        _request: Request, exc: HTTPException
+    ) -> BasicResponse:
+        return basic_response_from_http_exception(exc)
 
     app.add_middleware(
         CORSMiddleware,

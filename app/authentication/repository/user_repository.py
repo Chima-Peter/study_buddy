@@ -28,7 +28,7 @@ class UserRepository:
                     raise DuplicateEmailError(user.email) from e
                 raise UserCreateError(str(e)) from e
             await session.refresh(db_user)
-            return UserModel.model_validate(db_user)
+            return UserModel(**db_user.model_dump())
 
     async def get_by_email(self, email: str) -> UserModel | None:
         async with self.session_factory() as session:
@@ -38,11 +38,11 @@ class UserRepository:
             db_user = result.scalar_one_or_none()
             if db_user is None:
                 return None
-            return UserModel.model_validate(db_user)
+            return UserModel(**db_user.model_dump())
 
     async def get_by_id(self, user_id: str) -> UserModel | None:
         async with self.session_factory() as session:
             db_user = await session.get(UserDBModel, user_id)
             if db_user is None:
                 return None
-            return UserModel.model_validate(db_user)
+            return UserModel(**db_user.model_dump())

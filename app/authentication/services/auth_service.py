@@ -34,19 +34,21 @@ class AuthService:
         try:
             password_hash = hash_password(request.password)
             user = UserModel(
-              name=request.name,
-              email=request.email,
-              password_hash=password_hash,
+                name=request.name,
+                email=request.email,
+                hashed_password=password_hash,
             )
             user = await self.repository.create(user)
             token = self._issue_token(user)
             return LoginResponse(
-              id=user.id,
-              name=user.name,
-              email=user.email,
-              created_at=user.created_at,
-              updated_at=user.updated_at,
-              token=token,
+                user=UserResponse(
+                    id=user.id,
+                    name=user.name,
+                    email=user.email,
+                    created_at=user.created_at,
+                    updated_at=user.updated_at,
+                ),
+                token=token,
             )
         except DuplicateEmailError as e:
             raise EmailAlreadyExistsError(user.email) from e
@@ -57,28 +59,42 @@ class AuthService:
             raise UserNotFoundError(request.email)
 
         if not verify_password(request.password, user.hashed_password):
-          raise InvalidCredentialsError(request.email)
+            raise InvalidCredentialsError(request.email)
         token = self._issue_token(user)
         return LoginResponse(
-              id=user.id,
-              name=user.name,
-              email=user.email,
-              created_at=user.created_at,
-              updated_at=user.updated_at,
-              token=token,
-            )
+            user=UserResponse(
+                id=user.id,
+                name=user.name,
+                email=user.email,
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+            ),
+            token=token,
+        )
 
-    async def get_user(self, email: str) -> UserResponse:
+    async def get_user(self, email: str) -> UserResponse | None:
         user = await self.repository.get_by_email(email)
         if user is None:
-            raise UserNotFoundError(email)
+            return None
         return UserResponse(
-              id=user.id,
-              name=user.name,
-              email=user.email,
-              created_at=user.created_at,
-              updated_at=user.updated_at,
-            )
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+        )
+
+    async def get_user_by_id(self, user_id: str) -> UserResponse | None:
+        user = await self.repository.get_by_id(user_id)
+        if user is None:
+            return None
+        return UserResponse(
+            id=user.id,
+            name=user.name,
+            email=user.email,
+            created_at=user.created_at,
+            updated_at=user.updated_at,
+        )
 
     async def logout(self, token: str) -> None:
         """Blacklist a token in Redis until it would have expired."""

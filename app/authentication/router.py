@@ -2,10 +2,10 @@ import logging
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.authentication.models.user import UserModel
+from app.authentication.schemas import UserResponse
 from app.authentication.schemas.auth import (
     LoginRequest,
     RegisterRequest,
@@ -30,22 +30,23 @@ async def register(
 ) -> BasicResponse:
     try:
         response = await service.register(data)
-        return BasicResponse(
-            data=response.model_dump(),
-            message="User registered successfully",
-            status_code=status.HTTP_201_CREATED,
-        )
     except EmailAlreadyExistsError:
-        return BasicResponse(
-            error="Email already registered",
+        raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
         )
     except Exception:
         logger.exception("Unexpected error during registration")
-        return BasicResponse(
-            error="Internal server error",
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
         )
+
+    return BasicResponse(
+        data=response.model_dump(mode="json"),
+        message="User registered successfully",
+        status_code=status.HTTP_201_CREATED,
+    )
 
 
 @router.post("/login")
@@ -56,36 +57,38 @@ async def login(
 ) -> BasicResponse:
     try:
         response = await service.login(request=data)
-        return BasicResponse(
-            data=response.model_dump(),
-            message="Login successful",
-        )
-    except (InvalidCredentialsError, UserNotFoundError) as e:
-        return BasicResponse(
-            error="Incorrect password or email",
+    except (InvalidCredentialsError, UserNotFoundError):
+        raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect password or email",
         )
-    except Exception as e:
-        logger.exception(f"Unexpected error during login: {e}")
-        return BasicResponse(
-            error="Internal server error",
+    except Exception:
+        logger.exception("Unexpected error during login")
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
         )
+
+    return BasicResponse(
+        data=response.model_dump(mode="json"),
+        message="Login successful",
+    )
 
 
 @router.post("/logout")
 @inject
 async def logout(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
-    _: Annotated[UserModel, Depends(get_current_user)],
+    _: Annotated[UserResponse, Depends(get_current_user)],
     service: AuthService = Depends(Provide[Container.auth_service]),
 ) -> BasicResponse:
     try:
         await service.logout(credentials.credentials)
-        return BasicResponse(message="Logged out successfully")
     except Exception:
         logger.exception("Unexpected error during logout")
-        return BasicResponse(
-            error="Internal server error",
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
         )
+
+    return BasicResponse(message="Logged out successfully")

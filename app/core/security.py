@@ -1,11 +1,10 @@
-import uuid
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.authentication.models.user import UserModel
+from app.authentication.schemas import UserResponse
 from app.authentication.services.auth_service import AuthService
 from app.container import Container
 from app.utils.jwt import verify_token
@@ -17,7 +16,7 @@ bearer_scheme = HTTPBearer()
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     service: AuthService = Depends(Provide[Container.auth_service]),
-) -> UserModel:
+) -> UserResponse:
     token = credentials.credentials
     payload = verify_token(
         token, service.settings.jwt_secret, service.settings.jwt_algorithm
@@ -27,7 +26,7 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-    user = await service.get_user(uuid.UUID(payload["sub"]))
+    user = await service.get_user_by_id(payload["sub"])
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"

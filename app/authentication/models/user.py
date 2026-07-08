@@ -16,16 +16,14 @@ if TYPE_CHECKING:
 class UserModel(BaseModel):
     """Pydantic model for User - handles conversions between schemas and DB model."""
 
-    model_config = ConfigDict(from_attributes=True)
-
     id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
     name: str = Field(min_length=3, max_length=255)
     email: EmailStr
     hashed_password: str = Field(min_length=8, max_length=255)
     created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc()))
+        default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc()))
+        default_factory=lambda: datetime.now(timezone.utc))
 
     def serialize_datetime(self, value: datetime) -> str:
         return value.isoformat()
@@ -66,3 +64,13 @@ class UserDBModel(Base):
         TIMESTAMP(timezone=True),
         nullable=False,
     )
+
+    def model_dump(self) -> dict[str, Any]:
+        return {
+            "id": str(self.id),
+            "name": self.name,
+            "email": self.email,
+            "hashed_password": self.hashed_password,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }
