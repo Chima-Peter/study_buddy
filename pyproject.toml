@@ -1,5 +1,5 @@
 [project]
-name = "face-recognition-system"
+name = "ask-me"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -10,12 +10,14 @@ dependencies = [
     "dependency-injector>=4.49.1",
     "fastapi>=0.139.0",
     "httpx2>=2.5.0",
+    "passlib[bcrypt]>=1.7.4",
     "psycopg2-binary>=2.9.12",
     "pydantic-settings>=2.14.2",
     "pydantic[email]>=2.13.4",
     "pyjwt>=2.13.0",
     "redis>=8.0.1",
     "sqlalchemy[asyncio]>=2.0.51",
+    "uuid-utils>=0.16.2",
     "uvicorn[standard]>=0.50.2",
 ]
 
