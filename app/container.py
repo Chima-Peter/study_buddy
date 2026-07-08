@@ -1,5 +1,7 @@
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 
+import aio_pika
 import redis
 from dependency_injector import containers, providers
 from redis.asyncio import Redis, from_url
@@ -14,7 +16,9 @@ from sqlalchemy.orm import sessionmaker
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
+from app.core.rabbitmq import RabbitMQ
 from app.core.redis import RedisClient
+from app.logging_config import get_named_logger, init_logging
 
 
 def init_sync_engine(database_url: str) -> Iterator[Engine]:
@@ -29,6 +33,7 @@ def init_sync_engine(database_url: str) -> Iterator[Engine]:
 def init_sync_session_factory(engine: Engine) -> sessionmaker:
     return sessionmaker(bind=engine, expire_on_commit=False)
 
+
 async def init_async_engine(database_url: str) -> AsyncIterator[AsyncEngine]:
     """Create the async SQLAlchemy engine and dispose it on shutdown."""
     engine = create_async_engine(database_url, pool_pre_ping=True)
@@ -37,8 +42,10 @@ async def init_async_engine(database_url: str) -> AsyncIterator[AsyncEngine]:
     finally:
         await engine.dispose()
 
+
 def init_async_session_factory(engine: AsyncEngine) -> async_sessionmaker:
     return async_sessionmaker(bind=engine, expire_on_commit=False)
+
 
 def init_sync_redis(redis_url: str) -> Iterator[redis.Redis]:
     """Create the sync Redis client and close it on shutdown."""
@@ -47,6 +54,7 @@ def init_sync_redis(redis_url: str) -> Iterator[redis.Redis]:
         yield client
     finally:
         client.close()
+
 
 async def init_async_redis(redis_url: str) -> AsyncIterator[Redis]:
     """Create the async Redis client and close it on shutdown."""
@@ -57,10 +65,55 @@ async def init_async_redis(redis_url: str) -> AsyncIterator[Redis]:
         await client.aclose()
 
 
+@dataclass
+class RabbitMQResources:
+    channel: aio_pika.Channel
+    email_queue: aio_pika.Queue
+    document_queue: aio_pika.Queue
+
+
+async def init_async_rabbitmq_queue(channel: aio_pika.Channel, queue_name: str) -> aio_pika.Queue:
+    queue = await channel.declare_queue(name=queue_name, durable=True, arguments={"x-queue-type": "quorum"})
+    return queue
+
+
+async def init_async_rabbitmq(rabbitmq_url: str) -> AsyncIterator[RabbitMQResources]:
+    connection = await aio_pika.connect_robust(rabbitmq_url)
+    channel = await connection.channel(
+      publisher_confirms=True,
+      on_return_raises=True,
+    )
+    await channel.set_qos(prefetch_count=10)
+
+    email_queue = await init_async_rabbitmq_queue(channel, "mail_queue")
+    document_queue = await init_async_rabbitmq_queue(channel, "document_queue")
+
+    try:
+        yield RabbitMQResources(
+            channel=channel,
+            email_queue=email_queue,
+            document_queue=document_queue,
+        )
+    finally:
+        await channel.close()
+        await connection.close()
+
+
 class Container(containers.DeclarativeContainer):
     """Application dependency container."""
 
     settings = providers.Singleton(Settings)
+
+    logging = providers.Resource(
+        init_logging,
+        log_level=settings.provided.log_level,
+    )
+
+    rabbitmq_logger = providers.Factory(
+        get_named_logger,
+        name="app.core.rabbitmq",
+        app_logger=logging,
+    )
 
     sync_redis = providers.Resource(
         init_sync_redis,
@@ -92,6 +145,11 @@ class Container(containers.DeclarativeContainer):
         engine=async_engine,
     )
 
+    rabbitmq_resources = providers.Resource(
+        init_async_rabbitmq,
+        rabbitmq_url=settings.provided.rabbitmq_url,
+    )
+
     user_repository = providers.Factory(
         UserRepository,
         session_factory=async_session_factory,
@@ -100,6 +158,14 @@ class Container(containers.DeclarativeContainer):
     redis_client = providers.Factory(
         RedisClient,
         redis=async_redis,
+    )
+
+    rabbitmq = providers.Factory(
+        RabbitMQ,
+        channel=rabbitmq_resources.provided.channel,
+        email_queue=rabbitmq_resources.provided.email_queue,
+        document_queue=rabbitmq_resources.provided.document_queue,
+        logger=rabbitmq_logger,
     )
 
     auth_service = providers.Factory(

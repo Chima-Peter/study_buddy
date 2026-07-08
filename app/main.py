@@ -1,4 +1,3 @@
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -8,13 +7,15 @@ from app.authentication.router import router as auth_router
 from app.config import Settings
 from app.container import Container
 from app.core.response import BasicResponse, basic_response_from_http_exception
-from app.logging_config import configure_logging
 from app.core.middleware import SecurityHeadersMiddleware
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await app.container.init_resources()
+    settings: Settings = app.container.settings()
+    logger = app.container.logging()
+    logger.info("%s started", settings.app_name)
     try:
         yield
     finally:
@@ -25,9 +26,6 @@ def create_app() -> FastAPI:
     container = Container()
     container.wire(packages=["app"])
     settings: Settings = container.settings()
-
-    configure_logging(settings.log_level)
-    logger = logging.getLogger(__name__)
 
     app = FastAPI(
         title=settings.app_name,
@@ -60,7 +58,6 @@ def create_app() -> FastAPI:
     api_router.include_router(auth_router)
     app.include_router(api_router)
 
-    logger.info("%s started", settings.app_name)
     return app
 
 

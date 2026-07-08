@@ -1,1 +1,1 @@
-# AskMe
+# StudyBuddy
