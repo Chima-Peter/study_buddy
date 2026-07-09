@@ -1,3 +1,5 @@
+import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from logging import Logger
@@ -7,7 +9,6 @@ from aio_pika import Channel, DeliveryMode, Message, Queue
 from aio_pika.abc import AbstractIncomingMessage
 from aio_pika.exceptions import DeliveryError
 from fastapi import HTTPException
-import json
 import uuid_utils
 
 
@@ -63,7 +64,13 @@ class RabbitMQ:
 
     async def stop_consumers(self, consumers: list[RabbitMQConsumer]) -> None:
         for consumer in consumers:
-            await consumer.queue.cancel(consumer.tag)
+            try:
+                await asyncio.wait_for(
+                    consumer.queue.cancel(consumer.tag, nowait=True),
+                    timeout=2.0,
+                )
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
+                self._logger.debug("Consumer cancel interrupted tag=%s: %s", consumer.tag, e)
         self._logger.info("Stopped RabbitMQ consumers")
 
     async def _start_consumer(
@@ -84,4 +91,5 @@ class RabbitMQ:
 
         self._logger.info("Consuming from queue=%s", queue_name)
         tag = await queue.consume(callback, no_ack=False)
+        self._logger.info("Consumed from queue=%s with tag=%s", queue_name, tag)
         return RabbitMQConsumer(queue=queue, tag=tag)

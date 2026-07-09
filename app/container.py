@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 
@@ -16,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
+from app.core.handlers import Handlers
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer
 from app.core.redis import RedisClient
 from app.logging_config import init_logging
@@ -95,22 +97,28 @@ async def init_async_rabbitmq(rabbitmq_url: str) -> AsyncIterator[RabbitMQResour
             document_queue=document_queue,
         )
     finally:
-        await channel.close()
-        await connection.close()
+        try:
+            await asyncio.wait_for(channel.close(), timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
+        try:
+            await asyncio.wait_for(connection.close(), timeout=2.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+            pass
 
 
-# async def init_rabbitmq_consumers(
-#     rabbitmq: RabbitMQ,
-#     handlers: ConsumerHandlers,
-# ) -> AsyncIterator[list[RabbitMQConsumer]]:
-#     consumers = await rabbitmq.start_consumers(
-#         email_callback=handlers.handle_mail,
-#         document_callback=handlers.handle_document,
-#     )
-#     try:
-#         yield consumers
-#     finally:
-#         await rabbitmq.stop_consumers(consumers)
+async def init_rabbitmq_consumers(
+    rabbitmq: RabbitMQ,
+    handlers: Handlers,
+) -> AsyncIterator[list[RabbitMQConsumer]]:
+    active_consumers = await rabbitmq.start_consumers(
+        email_callback=handlers.handle_mail,
+        document_callback=handlers.handle_document,
+    )
+    try:
+        yield active_consumers
+    finally:
+        await rabbitmq.stop_consumers(active_consumers)
 
 
 class Container(containers.DeclarativeContainer):
@@ -178,12 +186,13 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
+    handlers = providers.Factory(Handlers)
 
-    # rabbitmq_consumers = providers.Resource(
-    #     init_rabbitmq_consumers,
-    #     rabbitmq=rabbitmq,
-    #     handlers=consumer_handlers,
-    # )
+    rabbitmq_consumers = providers.Resource(
+        init_rabbitmq_consumers,
+        rabbitmq=rabbitmq,
+        handlers=handlers,
+    )
 
     auth_service = providers.Factory(
         AuthService,
