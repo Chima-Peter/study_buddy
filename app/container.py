@@ -76,13 +76,21 @@ class RabbitMQResources:
     document_dlq_queue: aio_pika.Queue
 
 
+MAX_QUEUE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
 async def init_async_rabbitmq_queue(
     channel: aio_pika.Channel, queue_name: str
 ) -> tuple[aio_pika.Queue, aio_pika.Queue]:
     dlq = await channel.declare_queue(
         name=f"{queue_name}_dlq",
         durable=True,
-        arguments={"x-queue-type": "quorum"},
+        arguments={
+          "x-queue-type": "quorum",
+          "x-max-length": 10000,
+          "x-max-length-bytes": MAX_QUEUE_BYTES,
+          "x-message-ttl": 604800000,
+        },
     )
     queue = await channel.declare_queue(
         name=queue_name,
@@ -92,6 +100,7 @@ async def init_async_rabbitmq_queue(
             "x-dead-letter-exchange": "",
             "x-dead-letter-routing-key": f"{queue_name}_dlq",
             "x-delivery-limit": 3,
+            "x-max-length-bytes": MAX_QUEUE_BYTES,
         },
     )
     return queue, dlq
