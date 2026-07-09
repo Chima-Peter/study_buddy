@@ -71,12 +71,30 @@ async def init_async_redis(redis_url: str) -> AsyncIterator[Redis]:
 class RabbitMQResources:
     channel: aio_pika.Channel
     email_queue: aio_pika.Queue
+    email_dlq_queue: aio_pika.Queue
     document_queue: aio_pika.Queue
+    document_dlq_queue: aio_pika.Queue
 
 
-async def init_async_rabbitmq_queue(channel: aio_pika.Channel, queue_name: str) -> aio_pika.Queue:
-    queue = await channel.declare_queue(name=queue_name, durable=True, arguments={"x-queue-type": "quorum"})
-    return queue
+async def init_async_rabbitmq_queue(
+    channel: aio_pika.Channel, queue_name: str
+) -> tuple[aio_pika.Queue, aio_pika.Queue]:
+    dlq = await channel.declare_queue(
+        name=f"{queue_name}_dlq",
+        durable=True,
+        arguments={"x-queue-type": "quorum"},
+    )
+    queue = await channel.declare_queue(
+        name=queue_name,
+        durable=True,
+        arguments={
+            "x-queue-type": "quorum",
+            "x-dead-letter-exchange": "",
+            "x-dead-letter-routing-key": f"{queue_name}_dlq",
+            "x-delivery-limit": 3,
+        },
+    )
+    return queue, dlq
 
 
 async def init_async_rabbitmq(rabbitmq_url: str) -> AsyncIterator[RabbitMQResources]:
@@ -87,14 +105,16 @@ async def init_async_rabbitmq(rabbitmq_url: str) -> AsyncIterator[RabbitMQResour
     )
     await channel.set_qos(prefetch_count=10)
 
-    email_queue = await init_async_rabbitmq_queue(channel, "mail_queue")
-    document_queue = await init_async_rabbitmq_queue(channel, "document_queue")
+    email_queue, email_dlq_queue = await init_async_rabbitmq_queue(channel, "mail_queue")
+    document_queue, document_dlq_queue = await init_async_rabbitmq_queue(channel, "document_queue")
 
     try:
         yield RabbitMQResources(
             channel=channel,
             email_queue=email_queue,
+            email_dlq_queue=email_dlq_queue,
             document_queue=document_queue,
+            document_dlq_queue=document_dlq_queue,
         )
     finally:
         try:
@@ -114,6 +134,7 @@ async def init_rabbitmq_consumers(
     active_consumers = await rabbitmq.start_consumers(
         email_callback=handlers.handle_mail,
         document_callback=handlers.handle_document,
+        dlq_callback=handlers.handle_dead_letter_queue,
     )
     try:
         yield active_consumers
@@ -182,11 +203,16 @@ class Container(containers.DeclarativeContainer):
         RabbitMQ,
         channel=rabbitmq_resources.provided.channel,
         email_queue=rabbitmq_resources.provided.email_queue,
+        email_dlq_queue=rabbitmq_resources.provided.email_dlq_queue,
         document_queue=rabbitmq_resources.provided.document_queue,
+        document_dlq_queue=rabbitmq_resources.provided.document_dlq_queue,
         logger=logger,
     )
 
-    handlers = providers.Factory(Handlers)
+    handlers = providers.Factory(
+        Handlers,
+        logger=logger,
+    )
 
     rabbitmq_consumers = providers.Resource(
         init_rabbitmq_consumers,

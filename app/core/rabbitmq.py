@@ -19,10 +19,20 @@ class RabbitMQConsumer:
 
 
 class RabbitMQ:
-    def __init__(self, channel: Channel, email_queue: Queue, document_queue: Queue, logger: Logger):
+    def __init__(
+        self,
+        channel: Channel,
+        email_queue: Queue,
+        email_dlq_queue: Queue,
+        document_queue: Queue,
+        document_dlq_queue: Queue,
+        logger: Logger,
+    ):
         self.channel = channel
         self.email_queue = email_queue
+        self.email_dlq_queue = email_dlq_queue
         self.document_queue = document_queue
+        self.document_dlq_queue = document_dlq_queue
         self._logger = logger
 
     async def publish_message(self, queue_name: str, payload: dict, retry_count: int = 0):
@@ -56,11 +66,14 @@ class RabbitMQ:
         self,
         email_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
         document_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
+        dlq_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
     ) -> list[RabbitMQConsumer]:
         mail_consumer = await self._start_consumer("mail_queue", email_callback)
         document_consumer = await self._start_consumer("document_queue", document_callback)
+        mail_dlq_consumer = await self._start_consumer("mail_queue_dlq", dlq_callback)
+        document_dlq_consumer = await self._start_consumer("document_queue_dlq", dlq_callback)
         self._logger.info("Started RabbitMQ consumers")
-        return [mail_consumer, document_consumer]
+        return [mail_consumer, document_consumer, mail_dlq_consumer, document_dlq_consumer]
 
     async def stop_consumers(self, consumers: list[RabbitMQConsumer]) -> None:
         for consumer in consumers:
@@ -81,15 +94,18 @@ class RabbitMQ:
         match queue_name:
             case "mail_queue":
                 queue = self.email_queue
+            case "mail_queue_dlq":
+                queue = self.email_dlq_queue
             case "document_queue":
                 queue = self.document_queue
+            case "document_queue_dlq":
+                queue = self.document_dlq_queue
             case _:
                 raise HTTPException(
                     status_code=400,
                     detail=f"Invalid queue name: {queue_name}",
                 )
 
-        self._logger.info("Consuming from queue=%s", queue_name)
         tag = await queue.consume(callback, no_ack=False)
-        self._logger.info("Consumed from queue=%s with tag=%s", queue_name, tag)
+        self._logger.info("Consuming from queue=%s with tag=%s", queue_name, tag)
         return RabbitMQConsumer(queue=queue, tag=tag)
