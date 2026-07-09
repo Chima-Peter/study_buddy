@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
-from app.core.rabbitmq import RabbitMQ
+from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer
 from app.core.redis import RedisClient
 from app.logging_config import init_logging
 
@@ -99,6 +99,20 @@ async def init_async_rabbitmq(rabbitmq_url: str) -> AsyncIterator[RabbitMQResour
         await connection.close()
 
 
+# async def init_rabbitmq_consumers(
+#     rabbitmq: RabbitMQ,
+#     handlers: ConsumerHandlers,
+# ) -> AsyncIterator[list[RabbitMQConsumer]]:
+#     consumers = await rabbitmq.start_consumers(
+#         email_callback=handlers.handle_mail,
+#         document_callback=handlers.handle_document,
+#     )
+#     try:
+#         yield consumers
+#     finally:
+#         await rabbitmq.stop_consumers(consumers)
+
+
 class Container(containers.DeclarativeContainer):
     """Application dependency container."""
 
@@ -163,6 +177,13 @@ class Container(containers.DeclarativeContainer):
         document_queue=rabbitmq_resources.provided.document_queue,
         logger=logger,
     )
+
+
+    # rabbitmq_consumers = providers.Resource(
+    #     init_rabbitmq_consumers,
+    #     rabbitmq=rabbitmq,
+    #     handlers=consumer_handlers,
+    # )
 
     auth_service = providers.Factory(
         AuthService,
