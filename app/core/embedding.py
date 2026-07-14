@@ -43,6 +43,7 @@ class EmbeddingManager:
     def _load_model(self):
         try:
             self._model = SentenceTransformer(self.model_name)
+            self.logger.info(f"Embedding model: {self.model_name} ready")
         except Exception as e:
             self.logger.exception("Error loading model")
             raise e

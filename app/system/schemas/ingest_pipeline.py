@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Literal
+from typing import IO, Literal
 
 from fastapi import HTTPException, UploadFile, status
 from pydantic import BaseModel
@@ -33,25 +33,17 @@ ALLOWED_EXTENSIONS: dict[FileType, set[str]] = {
 }
 
 DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
-ALL_ALLOWED_EXTENSIONS = {ext for exts in ALLOWED_EXTENSIONS.values() for ext in exts}
-
-
-class IngestPipelineRequest(BaseModel):
-    file_type: FileType = "pdf"
+ALL_ALLOWED_EXTENSIONS = {
+    ext for exts in ALLOWED_EXTENSIONS.values() for ext in exts}
 
 
 def validate_upload(
     file: UploadFile,
-    file_type: FileType | None,
     max_bytes: int = DEFAULT_MAX_UPLOAD_BYTES,
 ) -> None:
     filename = file.filename or ""
     extension = Path(filename).suffix.lower()
-    allowed = (
-        ALLOWED_EXTENSIONS[file_type]
-        if file_type is not None
-        else ALL_ALLOWED_EXTENSIONS
-    )
+    allowed = ALL_ALLOWED_EXTENSIONS
 
     if extension not in allowed:
         raise HTTPException(
@@ -77,3 +69,11 @@ def validate_upload(
                 f"max allowed is {max_bytes} bytes"
             ),
         )
+
+
+class DocumentDetails(BaseModel):
+    filename: str
+    category: str
+    document_id: str
+    file: IO[bytes]
+    user_id: str

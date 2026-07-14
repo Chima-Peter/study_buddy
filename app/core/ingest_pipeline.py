@@ -11,6 +11,7 @@ from langchain_experimental.text_splitter import SemanticChunker
 
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
 from app.core.vector_store import VectorStore
+from app.system.schemas.ingest_pipeline import DocumentDetails
 
 
 class IngestPipeline:
@@ -28,10 +29,9 @@ class IngestPipeline:
 
     async def initiate_ingest_pipeline(
         self,
-        files: dict[str, IO[bytes]],
-        user_id: str,
+        files: list[DocumentDetails],
     ):
-        chunks = await self.process_files(files, user_id)
+        chunks = await self.process_files(files)
         if chunks is None or len(chunks) == 0:
             self.logger.warning("No documents to process")
             return {
@@ -100,32 +100,36 @@ class IngestPipeline:
         )
         return await loader.aload()
 
-    async def process_files(self, files: dict[str, IO[bytes]], user_id: str) -> list[Document]:
+    async def process_files(self, files: list[DocumentDetails]) -> list[Document]:
         all_documents: list[Document] = []
 
         self.logger.info(f"Found {len(files)} file(s)")
 
-        for filename, file in files.items():
+        for file in files:
             try:
-                hi_res_strategy = "hi_res" if filename.endswith(
+                hi_res_strategy = "hi_res" if file.filename.endswith(
                     (".png", ".jpg", ".jpeg")) else "fast"
 
                 file.seek(0)
-                document = await self.load_file(filename, file, hi_res_strategy)
+                document = await self.load_file(file.filename, file.file, hi_res_strategy)
 
-                for doc in document:
-                    doc.metadata["source"] = filename
-                    doc.metadata["user_id"] = user_id
+                for i, doc in enumerate(document):
+                    # fetch document details from database
+                    doc.metadata["source"] = file.filename
+                    doc.metadata["chunk_index"] = i
+                    doc.metadata["category"] = file.category
+                    doc.metadata["user_id"] = file.user_id
+                    doc.metadata["document_id"] = file.document_id
 
                 all_documents.extend(document)
 
                 self.logger.info(
-                    f"Loaded {len(document)} chunks from {filename}")
+                    f"Loaded {len(document)} chunks from {file.filename}")
             except Exception as e:
-                self.logger.exception(f"Error loading {filename}: {e}")
+                self.logger.exception(f"Error loading {file.filename}: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Error loading {filename}: {e}")
+                    detail=f"Error loading {file.filename}: {e}")
 
         self.logger.info(f"Loaded {len(all_documents)} documents")
         return all_documents
