@@ -7,6 +7,8 @@ from sqlalchemy.sql import select
 from app.system.models.documents import DocumentDBModel, DocumentModel
 from app.utils.errors.document import (
     DocumentCreateError,
+    DuplicateDocumentHashError,
+    DuplicateDocumentNameError,
     MissingUserForeignKeyError,
     handle_document_integrity_error,
 )
@@ -21,33 +23,70 @@ class DocumentRepository:
         self.session_factory = session_factory
         self.logger = logger
 
-    async def create(self, document: DocumentModel) -> DocumentModel:
+    async def create(self, documents: list[DocumentModel]) -> list[DocumentModel]:
+        if not documents:
+            return []
+
+        self._guard_unique_hashes(documents)
+
         async with self.session_factory() as session:
-            db_document = DocumentDBModel(**document.model_dump_for_db())
-            session.add(db_document)
+            db_documents = [
+                DocumentDBModel(**document.model_dump_for_db())
+                for document in documents
+            ]
+            session.add_all(db_documents)
             try:
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
+                user_id = documents[0].user_id
                 try:
                     handle_document_integrity_error(
-                        e, user_id=document.user_id, document_name=document.name
+                        e,
+                        user_id=user_id,
+                        documents=documents,
                     )
                 except MissingUserForeignKeyError:
                     self.logger.warning(
                         "Missing user foreign key user_id=%s",
-                        document.user_id,
+                        user_id,
                     )
+                    raise
+                except (DuplicateDocumentNameError, DuplicateDocumentHashError) as err:
+                    self.logger.warning("%s", err)
                     raise
                 except DocumentCreateError:
                     self.logger.exception(
-                        "Error creating document id=%s",
-                        document.id,
+                        "Error creating documents ids=%s",
+                        [document.id for document in documents],
                     )
                     raise
-            await session.refresh(db_document)
-            self.logger.info("Document created id=%s", document.id)
-            return DocumentModel(**db_document.model_dump())
+
+            for db_document in db_documents:
+                await session.refresh(db_document)
+
+            self.logger.info(
+                "Documents created ids=%s",
+                [db_document.id for db_document in db_documents],
+            )
+            return [
+                DocumentModel(**db_document.model_dump())
+                for db_document in db_documents
+            ]
+
+    def _guard_unique_hashes(self, documents: list[DocumentModel]) -> None:
+        seen: dict[tuple[str, str], str] = {}
+        for document in documents:
+            document_hash = (document.hash or "").strip()
+            if not document_hash:
+                continue
+            key = (document_hash, document.user_id)
+            if key in seen:
+                raise DuplicateDocumentHashError(
+                    document_hash,
+                    file_names=[seen[key], document.display_file_name],
+                )
+            seen[key] = document.display_file_name
 
     async def get_by_id(self, document_id: str) -> DocumentModel | None:
         async with self.session_factory() as session:
@@ -59,14 +98,15 @@ class DocumentRepository:
     async def get_by_user_id(self, user_id: str) -> list[DocumentModel]:
         async with self.session_factory() as session:
             result = await session.execute(
-                select(DocumentDBModel).where(DocumentDBModel.user_id == user_id)
+                select(DocumentDBModel).where(
+                    DocumentDBModel.user_id == user_id)
             )
             return [
                 DocumentModel(**db_document.model_dump())
                 for db_document in result.scalars().all()
             ]
 
-    async def update(self, document: DocumentModel) -> DocumentModel:
+    async def update(self,  document: DocumentModel) -> DocumentModel:
         async with self.session_factory() as session:
             db_document = await session.get(DocumentDBModel, document.id)
             if db_document is None:
@@ -81,7 +121,8 @@ class DocumentRepository:
                 await session.commit()
             except IntegrityError:
                 await session.rollback()
-                self.logger.exception("Error updating document id=%s", document.id)
+                self.logger.exception(
+                    "Error updating document id=%s", document.id)
                 raise
             await session.refresh(db_document)
             self.logger.info("Document updated id=%s", document.id)
@@ -98,7 +139,8 @@ class DocumentRepository:
                 await session.commit()
             except IntegrityError:
                 await session.rollback()
-                self.logger.exception("Error deleting document id=%s", document_id)
+                self.logger.exception(
+                    "Error deleting document id=%s", document_id)
                 raise
             self.logger.info("Document deleted id=%s", document_id)
             return True

@@ -73,10 +73,15 @@ def validate_upload(
         )
 
 
-class CreateDocumentRequest(BaseModel):
+@dataclass
+class CreateDocumentRequest:
     name: str
     category: str
+    file_name: str
+    file: IO[bytes]
+    hash: str
     description: Optional[str] = None
+    link: Optional[str] = None
 
 
 class UpdateDocumentRequest(BaseModel):
@@ -96,6 +101,8 @@ class DocumentResponse(BaseModel):
     name: str
     description: Optional[str]
     category: str
+    hash: Optional[str] = None
+    link: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

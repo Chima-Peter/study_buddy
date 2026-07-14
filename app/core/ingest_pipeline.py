@@ -29,7 +29,7 @@ class IngestPipeline:
 
     async def initiate_ingest_pipeline(
         self,
-        payload: IngestDocumentRequest,
+        payload: list[IngestDocumentRequest],
     ):
         chunks = await self.process_files(payload)
         if chunks is None or len(chunks) == 0:
@@ -100,36 +100,41 @@ class IngestPipeline:
         )
         return await loader.aload()
 
-    async def process_files(self, payload: IngestDocumentRequest) -> list[Document]:
+    async def process_files(self, payload: list[IngestDocumentRequest]) -> list[Document]:
         all_documents: list[Document] = []
 
-        self.logger.info(f"Processing {payload.file_name}")
+        for file in payload:
+            try:
+                self.logger.info(f"Processing {file.file_name}")
+                hi_res_strategy = "hi_res" if file.file_name.endswith(
+                    (".png", ".jpg", ".jpeg")) else "fast"
 
-        try:
-            hi_res_strategy = "hi_res" if payload.file_name.endswith(
-                (".png", ".jpg", ".jpeg")) else "fast"
+                file.file.seek(0)
+                document = await self.load_file(file.file_name, file.file, hi_res_strategy)
 
-            payload.file.seek(0)
-            document = await self.load_file(payload.file_name, payload.file, hi_res_strategy)
+                if document is None or len(document) == 0:
+                    self.logger.warning(
+                        f"No document found for {file.file_name}, trying hi_res strategy")
+                    document = await self.load_file(file.file_name, file.file, "hi_res")
 
-            for i, doc in enumerate(document):
-                # fetch document details from database
-                doc.metadata["source"] = payload.file_name
-                doc.metadata["chunk_index"] = i
-                doc.metadata["category"] = payload.category
-                doc.metadata["name"] = payload.name
-                doc.metadata["user_id"] = payload.user_id
-                doc.metadata["document_id"] = payload.document_id
+                for i, doc in enumerate(document):
+                    # fetch document details from database
+                    doc.metadata["source"] = file.file_name
+                    doc.metadata["chunk_index"] = i
+                    doc.metadata["category"] = file.category
+                    doc.metadata["name"] = file.name
+                    doc.metadata["user_id"] = file.user_id
+                    doc.metadata["document_id"] = file.document_id
 
-            all_documents.extend(document)
+                all_documents.extend(document)
 
-            self.logger.info(
-                f"Loaded {len(document)} chunks from {payload.file_name}")
-        except Exception as e:
-            self.logger.exception(f"Error loading {payload.file_name}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error loading {payload.file_name}: {e}")
+                self.logger.info(
+                    f"Loaded {len(document)} chunks from {file.file_name}")
+            except Exception as e:
+                self.logger.exception(f"Error loading {file.file_name}: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Error loading {file.file_name}: {e}")
 
         self.logger.info(f"Loaded {len(all_documents)} documents")
         return all_documents

@@ -18,10 +18,17 @@ class DocumentModel(BaseModel):
     description: Optional[str] = Field(max_length=2000, default="")
     category: str = Field(min_length=3, max_length=255)
     user_id: str = Field(min_length=36, max_length=36)
+    hash: Optional[str] = Field(max_length=255, default="")
+    link: Optional[str] = Field(max_length=255, default="")
+    file_name: Optional[str] = Field(default=None, exclude=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc))
+
+    @property
+    def display_file_name(self) -> str:
+        return self.file_name or self.name
 
     def serialize_datetime(self, value: datetime) -> str:
         return value.isoformat()
@@ -31,12 +38,15 @@ class DocumentModel(BaseModel):
         return self.serialize_datetime(value)
 
     def model_dump_for_db(self) -> dict:
+        document_hash = (self.hash or "").strip() or None
         return {
             "id": self.id,
             "name": self.name,
             "description": self.description,
             "category": self.category,
             "user_id": self.user_id,
+            "hash": document_hash,
+            "link": self.link,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -63,6 +73,9 @@ class DocumentModel(BaseModel):
             description=request.description,
             category=request.category,
             user_id=user_id,
+            hash=request.hash,
+            link=request.link,
+            file_name=request.file_name,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -73,6 +86,8 @@ class DocumentModel(BaseModel):
             name=self.name,
             description=self.description,
             category=self.category,
+            hash=self.hash,
+            link=self.link,
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
@@ -80,6 +95,9 @@ class DocumentModel(BaseModel):
 
 class DocumentDBModel(Base):
     __tablename__ = "documents"
+    __table_args__ = (
+        sa.UniqueConstraint("hash", "user_id", name="uq_documents_hash_user_id"),
+    )
 
     id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
@@ -91,6 +109,8 @@ class DocumentDBModel(Base):
         ForeignKey("users.id"),
         nullable=False,
     )
+    hash: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    link: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -109,6 +129,8 @@ class DocumentDBModel(Base):
             "name": self.name,
             "description": self.description,
             "category": self.category,
+            "hash": self.hash,
+            "link": self.link,
             "user_id": str(self.user_id),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

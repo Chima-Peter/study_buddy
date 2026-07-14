@@ -283,5 +283,6 @@ class Container(containers.DeclarativeContainer):
         DocumentService,
         repository=document_repository,
         logger=logger,
+        ingest_pipeline=ingest_pipeline_service,
         vector_store=vector_store,
     )

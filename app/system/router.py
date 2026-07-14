@@ -1,4 +1,6 @@
+import hashlib
 from logging import Logger
+from pathlib import Path
 from typing import Annotated, Optional
 
 from dependency_injector.wiring import Provide, inject
@@ -6,12 +8,10 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 
 from app.authentication.schemas import UserResponse
 from app.container import Container
-from app.core.ingest_pipeline import IngestPipeline
 from app.core.response import BasicResponse
 from app.core.security import get_current_user
 from app.system.schemas.document import (
     CreateDocumentRequest,
-    IngestDocumentRequest,
     PatchDocumentRequest,
     UpdateDocumentRequest,
     validate_upload,
@@ -19,39 +19,12 @@ from app.system.schemas.document import (
 from app.system.service.document import DocumentService
 from app.utils.errors.document import (
     DocumentCreateError,
+    DuplicateDocumentHashError,
     DuplicateDocumentNameError,
     MissingUserForeignKeyError,
 )
 
 system_router = APIRouter(prefix="/system", tags=["system"])
-
-
-# @system_router.post("/ingest-documents")
-# @inject
-# async def ingest_document(
-#     user: Annotated[UserResponse, Depends(get_current_user)],
-#     file: Annotated[UploadFile, File()],
-#     category: Annotated[str, Form()],
-#     ingest_pipeline: IngestPipeline = Depends(
-#         Provide[Container.ingest_pipeline_service]
-#     ),
-# ) -> BasicResponse:
-#     validate_upload(file)
-
-#     document_payload = IngestDocumentRequest(
-#         filename=file.filename or "",
-#         category=category,
-#         file=file.file,
-#         user_id=user.id,
-#     )
-
-#     await ingest_pipeline.initiate_ingest_pipeline(document_payload)
-
-#     return BasicResponse(
-#         status_code=status.HTTP_200_OK,
-#         message="Documents ingested successfully",
-#         data={},
-#     )
 
 
 @system_router.post("/documents", status_code=status.HTTP_201_CREATED)
@@ -60,36 +33,60 @@ async def create_document(
     name: Annotated[str, Form()],
     category: Annotated[str, Form()],
     user: Annotated[UserResponse, Depends(get_current_user)],
-    file: Annotated[UploadFile, File()],
+    files: Annotated[list[UploadFile], File()],
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
-    ingest_pipeline: IngestPipeline = Depends(
-        Provide[Container.ingest_pipeline_service]
-    ),
     description: Annotated[Optional[str], Form()] = None,
 ) -> BasicResponse:
     try:
-        request = CreateDocumentRequest(
-            name=name,
-            category=category,
-            description=description,
-        )
-        document = await service.create_document(request, user.id)
-    except MissingUserForeignKeyError:
+        if not files:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one file is required",
+            )
+
+        service_payload: list[CreateDocumentRequest] = []
+        for file in files:
+            validate_upload(file)
+            file_hash = hashlib.sha256(file.file.read()).hexdigest()
+            file.file.seek(0)
+
+            file_name = file.filename or name
+            document_name = name if len(files) == 1 else Path(file_name).stem or name
+            service_payload.append(
+                CreateDocumentRequest(
+                    name=document_name,
+                    category=category,
+                    description=description,
+                    hash=file_hash,
+                    file_name=file_name,
+                    file=file.file,
+                )
+            )
+
+        documents = await service.create_documents(service_payload, user.id)
+    except HTTPException:
+        raise
+    except MissingUserForeignKeyError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            detail=str(e),
         )
     except DuplicateDocumentNameError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
-    except DocumentCreateError:
+    except DuplicateDocumentHashError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except DocumentCreateError as e:
         logger.exception("Failed to create document user_id=%s", user.id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create document",
+            detail=str(e),
         )
     except Exception:
         logger.exception(
@@ -99,22 +96,9 @@ async def create_document(
             detail="Internal server error",
         )
 
-    validate_upload(file)
-
-    document_payload = IngestDocumentRequest(
-        file_name=file.filename or document.name,
-        category=document.category,
-        name=document.name,
-        file=file.file,
-        user_id=user.id,
-        document_id=document.id,
-    )
-
-    await ingest_pipeline.initiate_ingest_pipeline(document_payload)
-
     return BasicResponse(
-        data=document.model_dump(mode="json"),
-        message="Document created successfully",
+        data=[document.model_dump(mode="json") for document in documents],
+        message="Documents created successfully",
         status_code=status.HTTP_201_CREATED,
     )
 
