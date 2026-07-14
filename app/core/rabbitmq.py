@@ -107,5 +107,4 @@ class RabbitMQ:
                 )
 
         tag = await queue.consume(callback, no_ack=False)
-        self._logger.info("Consuming from queue=%s with tag=%s", queue_name, tag)
         return RabbitMQConsumer(queue=queue, tag=tag)

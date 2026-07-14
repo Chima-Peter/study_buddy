@@ -1,3 +1,4 @@
+from logging import Logger
 from typing import List
 
 import numpy as np
@@ -18,9 +19,10 @@ class SentenceTransformerEmbeddings(Embeddings):
 
 
 class EmbeddingManager:
-    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, logger: Logger, model_name: str = "all-MiniLM-L6-v2"):
         self.model_name = model_name
-        self.model = None
+        self.logger = logger
+        self._model = None
         self._load_model()
 
     def embed_documents(self, documents: List[Document]) -> np.ndarray:
@@ -28,30 +30,25 @@ class EmbeddingManager:
             raise ValueError("Model not loaded")
 
         texts = [doc.page_content for doc in documents]
-        embeddings = self.model.encode(texts)
-        print(
+        embeddings = self._model.encode(texts)
+        self.logger.info(
             f"Embedded {len(texts)} texts with shape {embeddings.shape} "
             f"and type {type(embeddings)}"
         )
         return embeddings
 
     def embed_query(self, query: str) -> np.ndarray:
-        return self.model.encode(query)
+        return self._model.encode(query)
 
     def _load_model(self):
         try:
-            self.model = SentenceTransformer(self.model_name)
+            self._model = SentenceTransformer(self.model_name)
         except Exception as e:
-            print(f"Error loading model: {e}")
-            raise
+            self.logger.exception("Error loading model")
+            raise e
 
-    def get_langchain_embeddings(self) -> SentenceTransformerEmbeddings:
-        return SentenceTransformerEmbeddings(self.model)
-
-
-if __name__ == "__main__":
-    embedding_manager = EmbeddingManager()
-    texts = ["Hello, world!", "This is a test", "This is another test"]
-    documents = [Document(page_content=text) for text in texts]
-    embeddings = embedding_manager.embed_documents(documents)
-    print(embeddings)
+    @property
+    def model(self) -> SentenceTransformer:
+        if self._model is None:
+            raise ValueError("Model not loaded")
+        return self._model

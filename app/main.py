@@ -8,6 +8,7 @@ from app.config import Settings
 from app.container import Container
 from app.core.response import BasicResponse, basic_response_from_http_exception
 from app.core.middleware import SecurityHeadersMiddleware
+from app.system.router import system_router
 
 
 @asynccontextmanager
@@ -27,7 +28,8 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         debug=settings.debug,
-        lifespan=lifespan
+        lifespan=lifespan,
+        docs_url="/api/docs",
     )
     app.container = container
 
@@ -53,6 +55,7 @@ def create_app() -> FastAPI:
         return BasicResponse(data={"status": "ok"})
 
     api_router.include_router(auth_router)
+    api_router.include_router(system_router)
     app.include_router(api_router)
 
     return app

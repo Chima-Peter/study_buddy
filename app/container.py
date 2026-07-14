@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
+from logging import Logger
 
 import aio_pika
 import redis
@@ -17,9 +18,12 @@ from sqlalchemy.orm import sessionmaker
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
+from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
 from app.core.handlers import Handlers
+from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer
 from app.core.redis import RedisClient
+from app.core.vector_store import VectorStore
 from app.logging_config import init_logging
 
 
@@ -86,10 +90,10 @@ async def init_async_rabbitmq_queue(
         name=f"{queue_name}_dlq",
         durable=True,
         arguments={
-          "x-queue-type": "quorum",
-          "x-max-length": 10000,
-          "x-max-length-bytes": MAX_QUEUE_BYTES,
-          "x-message-ttl": 604800000,
+            "x-queue-type": "quorum",
+            "x-max-length": 10000,
+            "x-max-length-bytes": MAX_QUEUE_BYTES,
+            "x-message-ttl": 604800000,
         },
     )
     queue = await channel.declare_queue(
@@ -106,12 +110,16 @@ async def init_async_rabbitmq_queue(
     return queue, dlq
 
 
-async def init_async_rabbitmq(rabbitmq_url: str) -> AsyncIterator[RabbitMQResources]:
-    connection = await aio_pika.connect_robust(rabbitmq_url)
-    channel = await connection.channel(
-        publisher_confirms=True,
-        on_return_raises=True,
-    )
+async def init_async_rabbitmq(rabbitmq_url: str, logger: Logger) -> AsyncIterator[RabbitMQResources]:
+    try:
+        connection = await aio_pika.connect_robust(rabbitmq_url)
+        channel = await connection.channel(
+            publisher_confirms=True,
+            on_return_raises=True,
+        )
+    except Exception as e:
+        logger.exception("Error connecting to RabbitMQ")
+        raise e
     await channel.set_qos(prefetch_count=10)
 
     email_queue, email_dlq_queue = await init_async_rabbitmq_queue(channel, "mail_queue")
@@ -194,6 +202,7 @@ class Container(containers.DeclarativeContainer):
     rabbitmq_resources = providers.Resource(
         init_async_rabbitmq,
         rabbitmq_url=settings.provided.rabbitmq_url,
+        logger=logger,
     )
 
     user_repository = providers.Factory(
@@ -235,4 +244,29 @@ class Container(containers.DeclarativeContainer):
         redis=redis_client,
         settings=settings,
         logger=logger,
+    )
+
+    embedding_manager = providers.Factory(
+      EmbeddingManager,
+      model_name="all-MiniLM-L6-v2",
+      logger=logger,
+    )
+
+    langchain_embeddings = providers.Factory(
+      SentenceTransformerEmbeddings,
+      model=embedding_manager.provided.model,
+    )
+
+    vector_store = providers.Factory(
+      VectorStore,
+      logger=logger,
+      collection_name="pdf_store",
+    )
+
+    ingest_pipeline_service = providers.Factory(
+      IngestPipeline,
+      logger=logger,
+      embedding_manager=embedding_manager,
+      semantic_embeddings=langchain_embeddings,
+      vector_store=vector_store,
     )

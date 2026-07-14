@@ -17,7 +17,7 @@ from app.core.security import bearer_scheme, get_current_user
 from app.utils.errors import EmailAlreadyExistsError, UserNotFoundError
 from app.utils.errors.auth import InvalidCredentialsError
 
-router = APIRouter(prefix="/auth", tags=["authentication"])
+router = APIRouter(prefix="/authentication", tags=["authentication"])
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

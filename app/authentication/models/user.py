@@ -9,9 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-if TYPE_CHECKING:
-    from app.authentication.schemas.auth import RegisterRequest
-
 
 class UserModel(BaseModel):
     """Pydantic model for User - handles conversions between schemas and DB model."""

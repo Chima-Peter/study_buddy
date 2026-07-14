@@ -1,3 +1,4 @@
+from logging import Logger
 import uuid
 from pathlib import Path
 from typing import List
@@ -7,17 +8,19 @@ import numpy as np
 from langchain_core.documents import Document
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-VECTOR_STORE_DIR = PROJECT_ROOT / "data" / "vector_store"
+VECTOR_STORE_DIR = PROJECT_ROOT / "vector_store"
 
 
 class VectorStore:
     def __init__(
         self,
+        logger: Logger,
         collection_name: str = "pdf_store",
         persist_directory: Path = VECTOR_STORE_DIR,
     ):
         self.collection_name = collection_name
         self.persist_directory = persist_directory
+        self.logger = logger
         self.client = None
         self.collection = None
         self._initialize_store()
@@ -33,7 +36,7 @@ class VectorStore:
                 "description": "Vector store for PDF documents",
             },
         )
-        print(
+        self.logger.info(
             f"Vector store initialized with collection: {self.collection_name}")
 
     def add_documents(self, documents: List[Document], embeddings: np.ndarray):
@@ -66,4 +69,4 @@ class VectorStore:
             embeddings=embeddings_list,
             metadatas=metadatas,
         )
-        print(f"Added {len(documents)} documents to vector store")
+        self.logger.info(f"Added {len(documents)} documents to vector store")
