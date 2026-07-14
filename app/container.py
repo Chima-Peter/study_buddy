@@ -246,18 +246,18 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
-    embedding_manager = providers.Factory(
+    embedding_manager = providers.Singleton(
       EmbeddingManager,
       model_name="all-MiniLM-L6-v2",
       logger=logger,
     )
 
-    langchain_embeddings = providers.Factory(
+    langchain_embeddings = providers.Singleton(
       SentenceTransformerEmbeddings,
       model=embedding_manager.provided.model,
     )
 
-    vector_store = providers.Factory(
+    vector_store = providers.Resource(
       VectorStore,
       logger=logger,
       collection_name="pdf_store",
