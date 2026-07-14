@@ -14,7 +14,7 @@ from app.system.router import system_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await app.container.init_resources()
-    await app.container.embedding_manager()
+    app.container.embedding_manager()
     try:
         yield
     finally:

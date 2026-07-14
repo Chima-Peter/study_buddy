@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Literal, Optional
@@ -99,8 +100,11 @@ class DocumentResponse(BaseModel):
     updated_at: datetime
 
 
-class IngestDocumentRequest(BaseModel):
-    filename: str
+@dataclass
+class IngestDocumentRequest:
+    name: str
+    file_name: str
     category: str
     file: IO[bytes]
     user_id: str
+    document_id: str

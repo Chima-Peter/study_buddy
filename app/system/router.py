@@ -1,5 +1,5 @@
 from logging import Logger
-from typing import Annotated
+from typing import Annotated, Optional
 
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -22,43 +22,54 @@ from app.utils.errors import DocumentCreateError, MissingUserForeignKeyError
 system_router = APIRouter(prefix="/system", tags=["system"])
 
 
-@system_router.post("/ingest-documents")
-@inject
-async def ingest_document(
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    file: Annotated[UploadFile, File()],
-    category: Annotated[str, Form()],
-    ingest_pipeline: IngestPipeline = Depends(
-        Provide[Container.ingest_pipeline_service]
-    ),
-) -> BasicResponse:
-    validate_upload(file)
+# @system_router.post("/ingest-documents")
+# @inject
+# async def ingest_document(
+#     user: Annotated[UserResponse, Depends(get_current_user)],
+#     file: Annotated[UploadFile, File()],
+#     category: Annotated[str, Form()],
+#     ingest_pipeline: IngestPipeline = Depends(
+#         Provide[Container.ingest_pipeline_service]
+#     ),
+# ) -> BasicResponse:
+#     validate_upload(file)
 
-    document_payload = IngestDocumentRequest(
-        filename=file.filename or "",
-        category=category,
-        file=file.file,
-        user_id=user.id,
-    )
+#     document_payload = IngestDocumentRequest(
+#         filename=file.filename or "",
+#         category=category,
+#         file=file.file,
+#         user_id=user.id,
+#     )
 
-    await ingest_pipeline.initiate_ingest_pipeline(document_payload)
+#     await ingest_pipeline.initiate_ingest_pipeline(document_payload)
 
-    return BasicResponse(
-        status_code=status.HTTP_200_OK,
-        message="Documents ingested successfully",
-        data={},
-    )
+#     return BasicResponse(
+#         status_code=status.HTTP_200_OK,
+#         message="Documents ingested successfully",
+#         data={},
+#     )
 
 
 @system_router.post("/documents", status_code=status.HTTP_201_CREATED)
 @inject
 async def create_document(
-    request: CreateDocumentRequest,
+    name: Annotated[str, Form()],
+    category: Annotated[str, Form()],
     user: Annotated[UserResponse, Depends(get_current_user)],
+    file: Annotated[UploadFile, File()],
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
+    ingest_pipeline: IngestPipeline = Depends(
+        Provide[Container.ingest_pipeline_service]
+    ),
+    description: Annotated[Optional[str], Form()] = None,
 ) -> BasicResponse:
     try:
+        request = CreateDocumentRequest(
+            name=name,
+            category=category,
+            description=description,
+        )
         document = await service.create_document(request, user.id)
     except MissingUserForeignKeyError:
         raise HTTPException(
@@ -78,6 +89,19 @@ async def create_document(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
         )
+
+    validate_upload(file)
+
+    document_payload = IngestDocumentRequest(
+        file_name=file.filename or document.name,
+        category=document.category,
+        name=document.name,
+        file=file.file,
+        user_id=user.id,
+        document_id=document.id,
+    )
+
+    await ingest_pipeline.initiate_ingest_pipeline(document_payload)
 
     return BasicResponse(
         data=document.model_dump(mode="json"),

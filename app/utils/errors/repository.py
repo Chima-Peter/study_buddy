@@ -13,6 +13,10 @@ class DocumentCreateError(Exception):
     """Failed to create document."""
 
 
+class DuplicateDocumentNameError(DocumentCreateError):
+    """Document name already exists in the database."""
+
+
 class MissingUserForeignKeyError(DocumentCreateError):
     """user_id does not reference an existing user."""
 
@@ -37,8 +41,12 @@ def handle_document_integrity_error(
         or "foreignkeyviolation" in message
     )
     references_user = "user_id" in message or "users" in message
+    is_duplicate_name = "unique constraint" in message or "uq_documents_name" in message
 
     if is_foreign_key and references_user:
         raise MissingUserForeignKeyError(user_id) from error
+
+    if is_duplicate_name:
+        raise DuplicateDocumentNameError(str(error)) from error
 
     raise DocumentCreateError(str(error)) from error

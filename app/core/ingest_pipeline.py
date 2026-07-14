@@ -103,32 +103,33 @@ class IngestPipeline:
     async def process_files(self, payload: IngestDocumentRequest) -> list[Document]:
         all_documents: list[Document] = []
 
-        self.logger.info(f"Processing {payload.filename}")
+        self.logger.info(f"Processing {payload.file_name}")
 
         try:
-            hi_res_strategy = "hi_res" if payload.filename.endswith(
+            hi_res_strategy = "hi_res" if payload.file_name.endswith(
                 (".png", ".jpg", ".jpeg")) else "fast"
 
             payload.file.seek(0)
-            document = await self.load_file(payload.filename, payload.file, hi_res_strategy)
+            document = await self.load_file(payload.file_name, payload.file, hi_res_strategy)
 
             for i, doc in enumerate(document):
                 # fetch document details from database
-                doc.metadata["source"] = payload.filename
+                doc.metadata["source"] = payload.file_name
                 doc.metadata["chunk_index"] = i
                 doc.metadata["category"] = payload.category
+                doc.metadata["name"] = payload.name
                 doc.metadata["user_id"] = payload.user_id
                 doc.metadata["document_id"] = payload.document_id
 
             all_documents.extend(document)
 
             self.logger.info(
-                f"Loaded {len(document)} chunks from {payload.filename}")
+                f"Loaded {len(document)} chunks from {payload.file_name}")
         except Exception as e:
-            self.logger.exception(f"Error loading {payload.filename}: {e}")
+            self.logger.exception(f"Error loading {payload.file_name}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error loading {payload.filename}: {e}")
+                detail=f"Error loading {payload.file_name}: {e}")
 
         self.logger.info(f"Loaded {len(all_documents)} documents")
         return all_documents
