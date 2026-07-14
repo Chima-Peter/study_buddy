@@ -1,5 +1,6 @@
+from datetime import datetime
 from pathlib import Path
-from typing import IO, Literal
+from typing import IO, Literal, Optional
 
 from fastapi import HTTPException, UploadFile, status
 from pydantic import BaseModel
@@ -71,9 +72,35 @@ def validate_upload(
         )
 
 
-class DocumentDetails(BaseModel):
+class CreateDocumentRequest(BaseModel):
+    name: str
+    category: str
+    description: Optional[str] = None
+
+
+class UpdateDocumentRequest(BaseModel):
+    name: str
+    description: str
+    category: str
+
+
+class PatchDocumentRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+
+
+class DocumentResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str]
+    category: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class IngestDocumentRequest(BaseModel):
     filename: str
     category: str
-    document_id: str
     file: IO[bytes]
     user_id: str

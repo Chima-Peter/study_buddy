@@ -25,6 +25,8 @@ from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer
 from app.core.redis import RedisClient
 from app.core.vector_store import VectorStore
 from app.logging_config import init_logging
+from app.system.repository.document import DocumentRepository
+from app.system.service.document import DocumentService
 
 
 def init_sync_engine(database_url: str) -> Iterator[Engine]:
@@ -269,4 +271,17 @@ class Container(containers.DeclarativeContainer):
       embedding_manager=embedding_manager,
       semantic_embeddings=langchain_embeddings,
       vector_store=vector_store,
+    )
+
+    document_repository = providers.Factory(
+        DocumentRepository,
+        session_factory=async_session_factory,
+        logger=logger,
+    )
+
+    document_service = providers.Factory(
+        DocumentService,
+        repository=document_repository,
+        logger=logger,
+        vector_store=vector_store,
     )

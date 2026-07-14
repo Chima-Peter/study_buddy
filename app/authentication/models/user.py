@@ -2,10 +2,10 @@ import uuid_utils
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer
+from pydantic import BaseModel, EmailStr, Field, field_serializer
 from sqlalchemy import String, func, UUID
 from sqlalchemy.dialects.postgresql import TIMESTAMP
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -60,6 +60,11 @@ class UserDBModel(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
+    )
+
+    documents = relationship(
+        "DocumentDBModel",
+        back_populates="user",
     )
 
     def model_dump(self) -> dict[str, Any]:

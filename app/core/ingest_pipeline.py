@@ -11,7 +11,7 @@ from langchain_experimental.text_splitter import SemanticChunker
 
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
 from app.core.vector_store import VectorStore
-from app.system.schemas.ingest_pipeline import DocumentDetails
+from app.system.schemas.document import IngestDocumentRequest
 
 
 class IngestPipeline:
@@ -29,9 +29,9 @@ class IngestPipeline:
 
     async def initiate_ingest_pipeline(
         self,
-        files: list[DocumentDetails],
+        payload: IngestDocumentRequest,
     ):
-        chunks = await self.process_files(files)
+        chunks = await self.process_files(payload)
         if chunks is None or len(chunks) == 0:
             self.logger.warning("No documents to process")
             return {
@@ -100,36 +100,35 @@ class IngestPipeline:
         )
         return await loader.aload()
 
-    async def process_files(self, files: list[DocumentDetails]) -> list[Document]:
+    async def process_files(self, payload: IngestDocumentRequest) -> list[Document]:
         all_documents: list[Document] = []
 
-        self.logger.info(f"Found {len(files)} file(s)")
+        self.logger.info(f"Processing {payload.filename}")
 
-        for file in files:
-            try:
-                hi_res_strategy = "hi_res" if file.filename.endswith(
-                    (".png", ".jpg", ".jpeg")) else "fast"
+        try:
+            hi_res_strategy = "hi_res" if payload.filename.endswith(
+                (".png", ".jpg", ".jpeg")) else "fast"
 
-                file.seek(0)
-                document = await self.load_file(file.filename, file.file, hi_res_strategy)
+            payload.file.seek(0)
+            document = await self.load_file(payload.filename, payload.file, hi_res_strategy)
 
-                for i, doc in enumerate(document):
-                    # fetch document details from database
-                    doc.metadata["source"] = file.filename
-                    doc.metadata["chunk_index"] = i
-                    doc.metadata["category"] = file.category
-                    doc.metadata["user_id"] = file.user_id
-                    doc.metadata["document_id"] = file.document_id
+            for i, doc in enumerate(document):
+                # fetch document details from database
+                doc.metadata["source"] = payload.filename
+                doc.metadata["chunk_index"] = i
+                doc.metadata["category"] = payload.category
+                doc.metadata["user_id"] = payload.user_id
+                doc.metadata["document_id"] = payload.document_id
 
-                all_documents.extend(document)
+            all_documents.extend(document)
 
-                self.logger.info(
-                    f"Loaded {len(document)} chunks from {file.filename}")
-            except Exception as e:
-                self.logger.exception(f"Error loading {file.filename}: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Error loading {file.filename}: {e}")
+            self.logger.info(
+                f"Loaded {len(document)} chunks from {payload.filename}")
+        except Exception as e:
+            self.logger.exception(f"Error loading {payload.filename}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error loading {payload.filename}: {e}")
 
         self.logger.info(f"Loaded {len(all_documents)} documents")
         return all_documents
