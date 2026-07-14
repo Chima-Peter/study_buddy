@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.authentication.models.user import UserDBModel, UserModel
-from app.utils.errors import DuplicateEmailError, UserCreateError
+from app.utils.errors.user import DuplicateEmailError, UserCreateError
 
 
 class UserRepository:

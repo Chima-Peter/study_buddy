@@ -17,7 +17,11 @@ from app.system.schemas.document import (
     validate_upload,
 )
 from app.system.service.document import DocumentService
-from app.utils.errors import DocumentCreateError, MissingUserForeignKeyError
+from app.utils.errors.document import (
+    DocumentCreateError,
+    DuplicateDocumentNameError,
+    MissingUserForeignKeyError,
+)
 
 system_router = APIRouter(prefix="/system", tags=["system"])
 
@@ -75,6 +79,11 @@ async def create_document(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
+        )
+    except DuplicateDocumentNameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
         )
     except DocumentCreateError:
         logger.exception("Failed to create document user_id=%s", user.id)

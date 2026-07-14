@@ -24,5 +24,5 @@ class Settings(BaseSettings):
 
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 3600
+    jwt_expire_minutes: int = 60
     google_api_key: str = "Azia............"

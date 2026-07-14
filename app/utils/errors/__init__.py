@@ -1,14 +1,15 @@
 from app.utils.errors.auth import EmailAlreadyExistsError, UserNotFoundError
-from app.utils.errors.repository import (
+from app.utils.errors.document import (
     DocumentCreateError,
-    DuplicateEmailError,
+    DuplicateDocumentNameError,
     MissingUserForeignKeyError,
-    UserCreateError,
     handle_document_integrity_error,
 )
+from app.utils.errors.user import DuplicateEmailError, UserCreateError
 
 __all__ = [
     "DocumentCreateError",
+    "DuplicateDocumentNameError",
     "DuplicateEmailError",
     "EmailAlreadyExistsError",
     "MissingUserForeignKeyError",

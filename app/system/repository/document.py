@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
 from app.system.models.documents import DocumentDBModel, DocumentModel
-from app.utils.errors import (
+from app.utils.errors.document import (
     DocumentCreateError,
     MissingUserForeignKeyError,
     handle_document_integrity_error,
@@ -30,7 +30,9 @@ class DocumentRepository:
             except IntegrityError as e:
                 await session.rollback()
                 try:
-                    handle_document_integrity_error(e, user_id=document.user_id)
+                    handle_document_integrity_error(
+                        e, user_id=document.user_id, document_name=document.name
+                    )
                 except MissingUserForeignKeyError:
                     self.logger.warning(
                         "Missing user foreign key user_id=%s",

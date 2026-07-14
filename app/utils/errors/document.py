@@ -1,20 +1,17 @@
 from sqlalchemy.exc import IntegrityError
 
 
-class UserCreateError(Exception):
-    """Failed to create user."""
-
-
-class DuplicateEmailError(UserCreateError):
-    """Email already exists in the database."""
-
-
 class DocumentCreateError(Exception):
     """Failed to create document."""
 
 
 class DuplicateDocumentNameError(DocumentCreateError):
     """Document name already exists in the database."""
+
+    def __init__(self, name: str | None = None):
+        self.name = name
+        message = f"A document with the name '{name}' already exists" if name else "Document name already exists"
+        super().__init__(message)
 
 
 class MissingUserForeignKeyError(DocumentCreateError):
@@ -29,6 +26,7 @@ def handle_document_integrity_error(
     error: IntegrityError,
     *,
     user_id: str,
+    document_name: str | None = None,
 ) -> None:
     """Raise a typed error for known document IntegrityError cases.
 
@@ -47,6 +45,6 @@ def handle_document_integrity_error(
         raise MissingUserForeignKeyError(user_id) from error
 
     if is_duplicate_name:
-        raise DuplicateDocumentNameError(str(error)) from error
+        raise DuplicateDocumentNameError(document_name) from error
 
     raise DocumentCreateError(str(error)) from error
