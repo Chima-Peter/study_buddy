@@ -180,7 +180,6 @@ async def handle_document(
                     )
                     raise NonRetryableIngestError("No documents to process")
 
-                print("chunks", [chunk.page_content for chunk in chunks])
                 if not await continue_ingestion(
                     document_service,
                     document_id,
