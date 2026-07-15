@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 import tempfile
@@ -130,7 +131,9 @@ async def handle_document(
                 ):
                     return
 
-                embeddings = embedding_manager.embed_documents(chunks)
+                embeddings = await asyncio.to_thread(
+                    embedding_manager.embed_documents, chunks
+                )
                 if embeddings is None or len(embeddings) == 0:
                     await document_service.update_status(
                         document_id, "failed", user_id
@@ -142,7 +145,9 @@ async def handle_document(
                 ):
                     return
 
-                vector_ids = vector_store.add_documents(chunks, embeddings)
+                vector_ids = await asyncio.to_thread(
+                    vector_store.add_documents, chunks, embeddings
+                )
 
                 completed = await document_service.complete_document(
                     document_id, user_id, file_hash

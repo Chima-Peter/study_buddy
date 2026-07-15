@@ -88,10 +88,12 @@ class DocumentRepository:
                 select(DocumentDBModel).where(
                     DocumentDBModel.user_id == user_id)
             )
-            return [
-                DocumentModel(**db_document.model_dump())
-                for db_document in result.scalars().all()
-            ]
+
+            db_documents = result.scalars().all()
+
+            self.logger.info(f"Documents found: {len(db_documents)}")
+
+            return [DocumentModel(**db_document.model_dump()) for db_document in db_documents]
 
     async def update(self,  document: DocumentModel) -> DocumentModel:
         async with self.session_factory() as session:
