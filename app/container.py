@@ -261,17 +261,6 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
-    handlers = providers.Factory(
-        Handlers,
-        logger=logger,
-    )
-
-    rabbitmq_consumers = providers.Resource(
-        init_rabbitmq_consumers,
-        rabbitmq=rabbitmq,
-        handlers=handlers,
-    )
-
     auth_service = providers.Factory(
         AuthService,
         repository=user_repository,
@@ -301,6 +290,7 @@ class Container(containers.DeclarativeContainer):
       IngestPipeline,
       logger=logger,
       embedding_manager=embedding_manager,
+      supabase=async_supabase,
       semantic_embeddings=langchain_embeddings,
       vector_store=vector_store,
     )
@@ -316,5 +306,22 @@ class Container(containers.DeclarativeContainer):
         repository=document_repository,
         logger=logger,
         ingest_pipeline=ingest_pipeline_service,
+        rabbitmq=rabbitmq,
         vector_store=vector_store,
+    )
+
+    handlers = providers.Factory(
+        Handlers,
+        logger=logger,
+        ingest_pipeline=ingest_pipeline_service,
+        supabase=async_supabase,
+        document_service=document_service,
+        embedding_manager=embedding_manager,
+        vector_store=vector_store,
+    )
+
+    rabbitmq_consumers = providers.Resource(
+        init_rabbitmq_consumers,
+        rabbitmq=rabbitmq,
+        handlers=handlers,
     )

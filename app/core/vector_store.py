@@ -39,7 +39,7 @@ class VectorStore:
         self.logger.info(
             f"Vector store initialized with collection: {self.collection_name}")
 
-    def add_documents(self, documents: List[Document], embeddings: np.ndarray):
+    def add_documents(self, documents: List[Document], embeddings: np.ndarray) -> list[str]:
         if len(documents) != len(embeddings):
             raise ValueError(
                 "Number of documents and embeddings must be the same")
@@ -70,3 +70,17 @@ class VectorStore:
             metadatas=metadatas,
         )
         self.logger.info(f"Added {len(documents)} documents to vector store")
+        return ids
+
+    def delete_document_by_ids(self, document_ids: list[str], user_id: str):
+      self.collection.delete(
+        ids=document_ids,
+        where={"user_id": user_id}
+        )
+      self.logger.info(f"Deleted {len(document_ids)} documents from vector store")
+
+    def delete_documents(self, document_id: str, user_id: str):
+      self.collection.delete(
+        where={"user_id": user_id, "document_id": document_id}
+        )
+      self.logger.info(f"Deleted document {document_id} from vector store")

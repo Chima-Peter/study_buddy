@@ -9,7 +9,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 from app.database import Base
-from app.system.schemas.document import CreateDocumentRequest, DocumentResponse, PatchDocumentRequest, UpdateDocumentRequest
+from app.system.schemas.document import (
+    CreateDocumentRequest,
+    DocumentResponse,
+    DocumentStatus,
+    PatchDocumentRequest,
+    UpdateDocumentRequest,
+)
 
 
 class DocumentModel(BaseModel):
@@ -19,7 +25,8 @@ class DocumentModel(BaseModel):
     category: str = Field(min_length=3, max_length=255)
     user_id: str = Field(min_length=36, max_length=36)
     hash: Optional[str] = Field(max_length=255, default="")
-    link: Optional[str] = Field(max_length=255, default="")
+    path: str = Field(max_length=255, default="")
+    status: DocumentStatus = Field(default="pending")
     file_name: Optional[str] = Field(default=None, exclude=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc))
@@ -46,7 +53,8 @@ class DocumentModel(BaseModel):
             "category": self.category,
             "user_id": self.user_id,
             "hash": document_hash,
-            "link": self.link,
+            "path": self.path,
+            "status": self.status,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -73,9 +81,8 @@ class DocumentModel(BaseModel):
             description=request.description,
             category=request.category,
             user_id=user_id,
-            hash=request.hash,
-            link=request.link,
             file_name=request.file_name,
+            path=request.path,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -86,8 +93,9 @@ class DocumentModel(BaseModel):
             name=self.name,
             description=self.description,
             category=self.category,
+            status=self.status,
             hash=self.hash,
-            link=self.link,
+            path=self.path,
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
@@ -110,7 +118,10 @@ class DocumentDBModel(Base):
         nullable=False,
     )
     hash: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
-    link: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    path: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    status: Mapped[Optional[str]] = mapped_column(
+        sa.String(255), nullable=True, default="pending", index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -130,7 +141,8 @@ class DocumentDBModel(Base):
             "description": self.description,
             "category": self.category,
             "hash": self.hash,
-            "link": self.link,
+            "path": self.path,
+            "status": self.status or "pending",
             "user_id": str(self.user_id),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

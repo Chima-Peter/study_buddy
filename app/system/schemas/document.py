@@ -1,7 +1,6 @@
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import IO, Literal, Optional
+from typing import Literal, Optional
 
 from fastapi import HTTPException, UploadFile, status
 from pydantic import BaseModel
@@ -18,6 +17,14 @@ FileType = Literal[
     "reddit",
     "chatgpt",
     "word",
+]
+
+DocumentStatus = Literal[
+    "pending",
+    "processing",
+    "completed",
+    "failed",
+    "cancelled",
 ]
 
 ALLOWED_EXTENSIONS: dict[FileType, set[str]] = {
@@ -73,15 +80,12 @@ def validate_upload(
         )
 
 
-@dataclass
-class CreateDocumentRequest:
+class CreateDocumentRequest(BaseModel):
     name: str
     category: str
-    file_name: str
-    file: IO[bytes]
-    hash: str
     description: Optional[str] = None
-    link: Optional[str] = None
+    file_name: str
+    path: str
 
 
 class UpdateDocumentRequest(BaseModel):
@@ -101,17 +105,17 @@ class DocumentResponse(BaseModel):
     name: str
     description: Optional[str]
     category: str
+    status: DocumentStatus
     hash: Optional[str] = None
-    link: Optional[str] = None
+    path: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
 
-@dataclass
-class IngestDocumentRequest:
+class IngestDocumentRequest(BaseModel):
     name: str
     file_name: str
     category: str
-    file: IO[bytes]
+    path: str
     user_id: str
     document_id: str

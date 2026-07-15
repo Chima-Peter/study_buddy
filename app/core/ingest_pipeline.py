@@ -1,4 +1,4 @@
-
+import tempfile
 from logging import Logger
 from pathlib import Path
 from typing import IO
@@ -10,6 +10,7 @@ from langchain_core.documents import Document
 from langchain_experimental.text_splitter import SemanticChunker
 
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
+from app.core.supabase import Supabase
 from app.core.vector_store import VectorStore
 from app.system.schemas.document import IngestDocumentRequest
 
@@ -19,6 +20,7 @@ class IngestPipeline:
         self,
         logger: Logger,
         embedding_manager: EmbeddingManager = None,
+        supabase: Supabase = None,
         semantic_embeddings: SentenceTransformerEmbeddings = None,
         vector_store: VectorStore = None,
     ):
@@ -26,30 +28,39 @@ class IngestPipeline:
         self.semantic_embeddings = semantic_embeddings
         self.vector_store = vector_store
         self.logger = logger
+        self.supabase = supabase
 
     async def initiate_ingest_pipeline(
         self,
-        payload: list[IngestDocumentRequest],
+        payload: IngestDocumentRequest,
     ):
-        chunks = await self.process_files(payload)
-        if chunks is None or len(chunks) == 0:
-            self.logger.warning("No documents to process")
+        suffix = Path(payload.file_name).suffix or Path(payload.path).suffix
+        with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+            await self.supabase.download_file_to(payload.path, tmp)
+            tmp.flush()
+            tmp.seek(0)
+            chunks = await self.process_file(payload, tmp)
+            if chunks is None or len(chunks) == 0:
+                self.logger.warning("No documents to process")
+                return {
+                    "documents": [],
+                    "chunks": [],
+                    "embeddings": [],
+                }
+            embeddings = self.embedding_manager.embed_documents(chunks)
+            if embeddings is None or len(embeddings) == 0:
+                self.logger.warning("No embeddings to process")
+                return {
+                    "documents": [],
+                    "chunks": chunks,
+                    "embeddings": [],
+                }
+            self.vector_store.add_documents(chunks, embeddings)
             return {
-                "documents": [],
-                "chunks": [],
-                "embeddings": [],
-            }
-        embeddings = self.embedding_manager.embed_documents(chunks)
-        if embeddings is None or len(embeddings) == 0:
-            self.logger.warning("No embeddings to process")
-            return {
-                "documents": [],
+                "documents": chunks,
                 "chunks": chunks,
-                "embeddings": [],
+                "embeddings": embeddings,
             }
-        self.vector_store.add_documents(chunks, embeddings)
-
-        return
 
     def load_text_file(self, filename: str = "sample_text_2.txt") -> list:
         loader = TextLoader(str(filename))
@@ -100,41 +111,45 @@ class IngestPipeline:
         )
         return await loader.aload()
 
-    async def process_files(self, payload: list[IngestDocumentRequest]) -> list[Document]:
+    async def process_file(
+        self,
+        payload: IngestDocumentRequest,
+        file: IO[bytes],
+    ) -> list[Document]:
         all_documents: list[Document] = []
 
-        for file in payload:
-            try:
-                self.logger.info(f"Processing {file.file_name}")
-                hi_res_strategy = "hi_res" if file.file_name.endswith(
-                    (".png", ".jpg", ".jpeg")) else "fast"
+        try:
+            self.logger.info(f"Processing {payload.file_name}")
+            hi_res_strategy = "hi_res" if payload.file_name.endswith(
+                (".png", ".jpg", ".jpeg")) else "fast"
 
-                file.file.seek(0)
-                document = await self.load_file(file.file_name, file.file, hi_res_strategy)
+            file.seek(0)
+            document = await self.load_file(payload.file_name, file, hi_res_strategy)
 
-                if document is None or len(document) == 0:
-                    self.logger.warning(
-                        f"No document found for {file.file_name}, trying hi_res strategy")
-                    document = await self.load_file(file.file_name, file.file, "hi_res")
+            if document is None or len(document) == 0:
+                self.logger.warning(
+                    f"No document found for {payload.file_name}, trying hi_res strategy")
+                file.seek(0)
+                document = await self.load_file(payload.file_name, file, "hi_res")
 
-                for i, doc in enumerate(document):
-                    # fetch document details from database
-                    doc.metadata["source"] = file.file_name
-                    doc.metadata["chunk_index"] = i
-                    doc.metadata["category"] = file.category
-                    doc.metadata["name"] = file.name
-                    doc.metadata["user_id"] = file.user_id
-                    doc.metadata["document_id"] = file.document_id
+            for i, doc in enumerate(document):
+                # fetch document details from database
+                doc.metadata["source"] = payload.file_name
+                doc.metadata["chunk_index"] = i
+                doc.metadata["category"] = payload.category
+                doc.metadata["name"] = payload.name
+                doc.metadata["user_id"] = payload.user_id
+                doc.metadata["document_id"] = payload.document_id
 
-                all_documents.extend(document)
+            all_documents.extend(document)
 
-                self.logger.info(
-                    f"Loaded {len(document)} chunks from {file.file_name}")
-            except Exception as e:
-                self.logger.exception(f"Error loading {file.file_name}: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Error loading {file.file_name}: {e}")
+            self.logger.info(
+                f"Loaded {len(document)} chunks from {payload.file_name}")
+        except Exception as e:
+            self.logger.exception(f"Error loading {payload.file_name}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error loading {payload.file_name}: {e}")
 
         self.logger.info(f"Loaded {len(all_documents)} documents")
         return all_documents

@@ -1,7 +1,8 @@
 import re
-from typing import Iterable
 
 from sqlalchemy.exc import IntegrityError
+
+from app.system.models.documents import DocumentModel
 
 _UNIQUE_KEY_RE = re.compile(
     r"key \(([^)]+)\)=\((.+)\) already exists",
@@ -9,31 +10,10 @@ _UNIQUE_KEY_RE = re.compile(
 )
 
 
-def _format_file_names(file_names: Iterable[str] | str | None) -> list[str]:
-    if file_names is None:
-        return []
-    if isinstance(file_names, str):
-        return [file_names] if file_names else []
-    return [file_name for file_name in file_names if file_name]
-
-
-def _file_names_suffix(file_names: list[str]) -> str:
-    if not file_names:
+def _file_name_suffix(file_name: str | None) -> str:
+    if not file_name:
         return ""
-    labeled = ", ".join(f"'{file_name}'" for file_name in file_names)
-    return f" ({labeled})"
-
-
-def _document_file_names(documents: list) -> list[str]:
-    return [
-        getattr(document, "display_file_name", None)
-        or getattr(document, "file_name", None)
-        or getattr(document, "name", None)
-        for document in documents
-        if getattr(document, "display_file_name", None)
-        or getattr(document, "file_name", None)
-        or getattr(document, "name", None)
-    ]
+    return f" ('{file_name}')"
 
 
 class DocumentCreateError(Exception):
@@ -43,11 +23,11 @@ class DocumentCreateError(Exception):
         self,
         message: str | None = None,
         *,
-        file_names: Iterable[str] | str | None = None,
+        file_name: str | None = None,
     ):
-        self.file_names = _format_file_names(file_names)
+        self.file_name = file_name
         base = message or "Failed to create document"
-        super().__init__(f"{base}{_file_names_suffix(self.file_names)}")
+        super().__init__(f"{base}{_file_name_suffix(file_name)}")
 
 
 class DuplicateDocumentNameError(DocumentCreateError):
@@ -57,21 +37,14 @@ class DuplicateDocumentNameError(DocumentCreateError):
         self,
         name: str | None = None,
         *,
-        file_names: Iterable[str] | str | None = None,
+        file_name: str | None = None,
     ):
         self.name = name
-        formatted = _format_file_names(file_names)
-        if name and formatted:
-            message = (
-                f"A document with the name '{name}' already exists"
-                f"{_file_names_suffix(formatted)}"
-            )
-        elif name:
+        if name:
             message = f"A document with the name '{name}' already exists"
         else:
-            message = f"Document name already exists{_file_names_suffix(formatted)}"
-        Exception.__init__(self, message)
-        self.file_names = formatted
+            message = "Document name already exists"
+        super().__init__(message, file_name=file_name)
 
 
 class DuplicateDocumentHashError(DocumentCreateError):
@@ -82,17 +55,12 @@ class DuplicateDocumentHashError(DocumentCreateError):
         document_hash: str | None = None,
         *,
         file_name: str | None = None,
-        file_names: Iterable[str] | str | None = None,
     ):
         self.hash = document_hash
-        formatted = _format_file_names(file_names) or _format_file_names(file_name)
-        message = (
-            f"A document with this content already exists{_file_names_suffix(formatted)}"
-            if document_hash or formatted
-            else "Document already exists"
+        super().__init__(
+            "A document with this content already exists",
+            file_name=file_name,
         )
-        Exception.__init__(self, message)
-        self.file_names = formatted
 
 
 class MissingUserForeignKeyError(DocumentCreateError):
@@ -102,10 +70,10 @@ class MissingUserForeignKeyError(DocumentCreateError):
         self,
         user_id: str,
         *,
-        file_names: Iterable[str] | str | None = None,
+        file_name: str | None = None,
     ):
         self.user_id = user_id
-        super().__init__("User not found", file_names=file_names)
+        super().__init__("User not found", file_name=file_name)
 
 
 def _extract_unique_violation(message: str) -> dict[str, str]:
@@ -125,17 +93,12 @@ def handle_document_integrity_error(
     error: IntegrityError,
     *,
     user_id: str,
-    documents: list | None = None,
+    document: DocumentModel | None = None,
 ) -> None:
-    """Raise a typed error for known document IntegrityError cases.
-
-    Reads the conflicting column/value from the Postgres error detail when
-    available, so batch inserts report the real failing document.
-    """
+    """Raise a typed error for known document IntegrityError cases."""
     message = str(error.orig) if error.orig else str(error)
     message_lower = message.lower()
-    docs = documents or []
-    file_names = _document_file_names(docs)
+    file_name = document.display_file_name if document else None
 
     is_foreign_key = (
         "foreign key" in message_lower
@@ -143,20 +106,14 @@ def handle_document_integrity_error(
     )
     references_user = "user_id" in message_lower or "users" in message_lower
     if is_foreign_key and references_user:
-        raise MissingUserForeignKeyError(user_id, file_names=file_names) from error
+        raise MissingUserForeignKeyError(user_id, file_name=file_name) from error
 
     fields = _extract_unique_violation(message)
 
     if "name" in fields or "uq_documents_name" in message_lower:
-        conflict_name = fields.get("name")
-        matching = [
-            document.display_file_name
-            for document in docs
-            if conflict_name and document.name == conflict_name
-        ]
         raise DuplicateDocumentNameError(
-            conflict_name,
-            file_names=matching or file_names,
+            fields.get("name"),
+            file_name=file_name,
         ) from error
 
     is_duplicate_hash = (
@@ -164,19 +121,12 @@ def handle_document_integrity_error(
         or "uq_documents_hash_user_id" in message_lower
     )
     if is_duplicate_hash:
-        document_hash = fields.get("hash")
-        matching = [
-            document.display_file_name
-            for document in docs
-            if document_hash
-            and (document.hash or "").strip() == document_hash
-        ]
         raise DuplicateDocumentHashError(
-            document_hash,
-            file_names=matching or file_names,
+            fields.get("hash"),
+            file_name=file_name,
         ) from error
 
     raise DocumentCreateError(
         "Failed to create document",
-        file_names=file_names,
+        file_name=file_name,
     ) from error

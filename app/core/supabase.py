@@ -1,7 +1,9 @@
+from logging import Logger
 from typing import IO
+
+import httpx
 import uuid_utils
 from supabase import AsyncClient
-from logging import Logger
 
 
 class Supabase:
@@ -16,9 +18,12 @@ class Supabase:
         )
 
         self.logger.info(f"Generated upload URL for {storage_path}")
-        return response["signed_url"]
+        return {
+            "signed_url": response["signed_url"],
+            "path": response["path"],
+        }
 
-    async def create_download_url(self, path: str) -> dict[str, str]:
+    async def create_download_url(self, path: str) -> str:
         response = await self.supabase.storage.from_("documents").create_signed_url(
             path=path,
             expires_in=600,
@@ -43,6 +48,18 @@ class Supabase:
         self.logger.info(f"Downloaded file {path}")
         return response
 
+    async def download_file_to(self, path: str, destination: IO[bytes]) -> None:
+        """Stream storage object to destination in chunks (constant memory)."""
+        url = await self.create_download_url(path)
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET", url) as response:
+                response.raise_for_status()
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        destination.write(chunk)
+
+        self.logger.info(f"Streamed file {path} to destination")
+
     async def upload_file(self, path: str, file: IO[bytes], content_type: str) -> dict[str, str]:
         response = await self.supabase.storage.from_("documents").upload(
             path=path,
@@ -55,3 +72,11 @@ class Supabase:
 
         self.logger.info(f"Uploaded file {path}")
         return response
+
+    async def verify_file(self, path: str) -> bool:
+        response = await self.supabase.storage.from_("documents").list(
+            path=path,
+        )
+
+        self.logger.info(f"Verified file {path}")
+        return len(response) > 0

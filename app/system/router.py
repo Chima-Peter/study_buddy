@@ -1,10 +1,9 @@
-import hashlib
 from logging import Logger
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.authentication.schemas import UserResponse
 from app.container import Container
@@ -15,7 +14,6 @@ from app.system.schemas.document import (
     CreateDocumentRequest,
     PatchDocumentRequest,
     UpdateDocumentRequest,
-    validate_upload,
 )
 from app.system.service.document import DocumentService
 from app.utils.errors.document import (
@@ -37,6 +35,12 @@ async def create_upload_url(
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
+        file_extension = Path(file_name).suffix
+        if file_extension is None or file_extension == "":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Valid file name and extension is required. Example: document.pdf",
+            )
         upload_url = await supabase.create_upload_url(user.id, file_name)
     except Exception:
         logger.exception(
@@ -64,12 +68,12 @@ async def create_download_url(
 ) -> BasicResponse:
     try:
         document = await document_service.get_document_by_id(document_id, user.id)
-        if document.link is None:
+        if document.path is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Document link not found",
+                detail="Document path not found",
             )
-        download_url = await supabase.create_download_url(document.link)
+        download_url = await supabase.create_download_url(document.path)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -92,42 +96,26 @@ async def create_download_url(
 @system_router.post("/documents", status_code=status.HTTP_201_CREATED)
 @inject
 async def create_document(
-    name: Annotated[str, Form()],
-    category: Annotated[str, Form()],
+    request: CreateDocumentRequest,
     user: Annotated[UserResponse, Depends(get_current_user)],
-    files: Annotated[list[UploadFile], File()],
+    supabase: Supabase = Depends(Provide[Container.async_supabase]),
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
-    description: Annotated[Optional[str], Form()] = None,
 ) -> BasicResponse:
     try:
-        if not files:
+        file_extension = Path(request.path).suffix
+        if file_extension is None or file_extension == "":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="At least one file is required",
+                detail="Valid file name and extension is required. Example: document.pdf",
             )
 
-        service_payload: list[CreateDocumentRequest] = []
-        for file in files:
-            validate_upload(file)
-            file_hash = hashlib.sha256(file.file.read()).hexdigest()
-            file.file.seek(0)
-
-            file_name = file.filename or name
-            document_name = name if len(
-                files) == 1 else Path(file_name).stem or name
-            service_payload.append(
-                CreateDocumentRequest(
-                    name=document_name,
-                    category=category,
-                    description=description,
-                    hash=file_hash,
-                    file_name=file_name,
-                    file=file.file,
-                )
+        if not await supabase.verify_file(f"{user.id}/{request.file_name}"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File not found. Upload the file first to the system",
             )
-
-        documents = await service.create_documents(service_payload, user.id)
+        document = await service.create_document(request, user.id)
     except HTTPException:
         raise
     except MissingUserForeignKeyError as e:
@@ -160,8 +148,8 @@ async def create_document(
         )
 
     return BasicResponse(
-        data=[document.model_dump(mode="json") for document in documents],
-        message="Documents created successfully",
+        data=document.model_dump(mode="json"),
+        message="Document created successfully",
         status_code=status.HTTP_201_CREATED,
     )
 

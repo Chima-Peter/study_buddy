@@ -1,10 +1,14 @@
+from collections.abc import Sequence
+from datetime import datetime, timezone
 from logging import Logger
 
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
 from app.system.models.documents import DocumentDBModel, DocumentModel
+from app.system.schemas.document import DocumentStatus
 from app.utils.errors.document import (
     DocumentCreateError,
     DuplicateDocumentHashError,
@@ -23,28 +27,23 @@ class DocumentRepository:
         self.session_factory = session_factory
         self.logger = logger
 
-    async def create(self, documents: list[DocumentModel]) -> list[DocumentModel]:
-        if not documents:
-            return []
-
-        self._guard_unique_hashes(documents)
+    async def create(self, document: DocumentModel) -> DocumentModel | None:
+        if not document:
+            return None
 
         async with self.session_factory() as session:
-            db_documents = [
-                DocumentDBModel(**document.model_dump_for_db())
-                for document in documents
-            ]
-            session.add_all(db_documents)
+            db_document = DocumentDBModel(**document.model_dump_for_db())
+            session.add(db_document)
             try:
                 await session.commit()
             except IntegrityError as e:
                 await session.rollback()
-                user_id = documents[0].user_id
+                user_id = document.user_id
                 try:
                     handle_document_integrity_error(
                         e,
                         user_id=user_id,
-                        documents=documents,
+                        document=document,
                     )
                 except MissingUserForeignKeyError:
                     self.logger.warning(
@@ -57,36 +56,18 @@ class DocumentRepository:
                     raise
                 except DocumentCreateError:
                     self.logger.exception(
-                        "Error creating documents ids=%s",
-                        [document.id for document in documents],
+                        "Error creating document id=%s",
+                        document.id,
                     )
                     raise
 
-            for db_document in db_documents:
-                await session.refresh(db_document)
+            await session.refresh(db_document)
 
             self.logger.info(
-                "Documents created ids=%s",
-                [db_document.id for db_document in db_documents],
+                "Document created id=%s",
+                db_document.id,
             )
-            return [
-                DocumentModel(**db_document.model_dump())
-                for db_document in db_documents
-            ]
-
-    def _guard_unique_hashes(self, documents: list[DocumentModel]) -> None:
-        seen: dict[tuple[str, str], str] = {}
-        for document in documents:
-            document_hash = (document.hash or "").strip()
-            if not document_hash:
-                continue
-            key = (document_hash, document.user_id)
-            if key in seen:
-                raise DuplicateDocumentHashError(
-                    document_hash,
-                    file_names=[seen[key], document.display_file_name],
-                )
-            seen[key] = document.display_file_name
+            return DocumentModel(**db_document.model_dump())
 
     async def get_by_id(self, document_id: str, user_id: str) -> DocumentModel | None:
         async with self.session_factory() as session:
@@ -121,6 +102,9 @@ class DocumentRepository:
             db_document.name = document.name
             db_document.description = document.description
             db_document.category = document.category
+            db_document.status = document.status
+            db_document.hash = (document.hash or "").strip() or None
+            db_document.path = document.path
             db_document.updated_at = document.updated_at
 
             try:
@@ -150,3 +134,65 @@ class DocumentRepository:
                 raise
             self.logger.info("Document deleted id=%s", document_id)
             return True
+
+    async def get_by_hash(self, hash: str, user_id: str) -> DocumentModel | None:
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(DocumentDBModel).where(
+                    DocumentDBModel.hash == hash,
+                    DocumentDBModel.user_id == user_id,
+                )
+            )
+            db_document = result.scalar_one_or_none()
+            if db_document is None:
+                return None
+            return DocumentModel(**db_document.model_dump())
+
+    async def transition_status(
+        self,
+        document_id: str,
+        user_id: str,
+        to_status: DocumentStatus,
+        from_statuses: Sequence[DocumentStatus],
+        *,
+        file_hash: str | None = None,
+    ) -> DocumentModel | None:
+        """Atomically move status only if current status is in from_statuses."""
+        values: dict = {
+            "status": to_status,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        if file_hash is not None:
+            values["hash"] = file_hash.strip() or None
+
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(DocumentDBModel)
+                .where(
+                    DocumentDBModel.id == document_id,
+                    DocumentDBModel.user_id == user_id,
+                    DocumentDBModel.status.in_(from_statuses),
+                )
+                .values(**values)
+                .returning(DocumentDBModel)
+            )
+            db_document = result.scalar_one_or_none()
+            if db_document is None:
+                await session.rollback()
+                return None
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                self.logger.exception(
+                    "Error transitioning document id=%s to %s",
+                    document_id,
+                    to_status,
+                )
+                raise
+            self.logger.info(
+                "Document status transitioned id=%s to=%s",
+                document_id,
+                to_status,
+            )
+            return DocumentModel(**db_document.model_dump())
