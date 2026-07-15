@@ -26,22 +26,60 @@ from app.utils.errors.document import (
 system_router = APIRouter(prefix="/system", tags=["system"])
 
 
-@system_router.get("/documents/upload")
+@system_router.post("/documents/upload")
 @inject
 async def create_upload_url(
     user: Annotated[UserResponse, Depends(get_current_user)],
-    file_name: Annotated[str, Query()],
+    request: CreateDocumentRequest,
+    service: DocumentService = Depends(Provide[Container.document_service]),
     supabase: Supabase = Depends(Provide[Container.async_supabase]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
-        file_extension = Path(file_name).suffix
+        file_extension = Path(request.file_name).suffix
         if file_extension is None or file_extension == "":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Valid file name and extension is required. Example: document.pdf",
             )
-        upload_url = await supabase.create_upload_url(user.id, file_name)
+        upload = await supabase.create_upload_url(user.id, request.file_name)
+        document = await service.create_document(
+            request,
+            user.id,
+            upload["path"],
+        )
+
+        return BasicResponse(
+            data={
+                "upload_url": upload["signed_url"],
+                "path": upload["path"],
+                "document": document.model_dump(mode="json"),
+            },
+            message="Upload URL created successfully",
+        )
+    except HTTPException:
+        raise
+    except MissingUserForeignKeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+    except DuplicateDocumentNameError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except DuplicateDocumentHashError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except DocumentCreateError as e:
+        logger.exception("Failed to create document user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e),
+        )
     except Exception:
         logger.exception(
             "Unexpected error creating upload url user_id=%s", user.id)
@@ -49,11 +87,6 @@ async def create_upload_url(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
         )
-
-    return BasicResponse(
-        data=upload_url,
-        message="Upload URL created successfully",
-    )
 
 
 @system_router.get("/documents/download")
@@ -93,55 +126,38 @@ async def create_download_url(
     )
 
 
-@system_router.post("/documents", status_code=status.HTTP_201_CREATED)
+@system_router.post(
+    "/documents/{document_id}/ingest",
+    status_code=status.HTTP_202_ACCEPTED,
+)
 @inject
-async def create_document(
-    request: CreateDocumentRequest,
+async def start_ingestion(
+    document_id: str,
     user: Annotated[UserResponse, Depends(get_current_user)],
-    supabase: Supabase = Depends(Provide[Container.async_supabase]),
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
-        file_extension = Path(request.path).suffix
-        if file_extension is None or file_extension == "":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Valid file name and extension is required. Example: document.pdf",
-            )
-
-        if not await supabase.verify_file(f"{user.id}/{request.file_name}"):
+        document = await service.get_document_by_id(document_id, user.id)
+        if not document.path:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="File not found. Upload the file first to the system",
+                detail="Document path not found",
             )
-        document = await service.create_document(request, user.id)
+        document = await service.start_ingestion(document_id, user.id)
     except HTTPException:
         raise
-    except MissingUserForeignKeyError as e:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(e),
-        )
-    except DuplicateDocumentNameError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        )
-    except DuplicateDocumentHashError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
-        )
-    except DocumentCreateError as e:
-        logger.exception("Failed to create document user_id=%s", user.id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Document not found",
         )
     except Exception:
         logger.exception(
-            "Unexpected error creating document user_id=%s", user.id)
+            "Unexpected error starting ingestion document_id=%s user_id=%s",
+            document_id,
+            user.id,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
@@ -149,8 +165,8 @@ async def create_document(
 
     return BasicResponse(
         data=document.model_dump(mode="json"),
-        message="Document created successfully",
-        status_code=status.HTTP_201_CREATED,
+        message="Document ingestion started successfully",
+        status_code=status.HTTP_202_ACCEPTED,
     )
 
 

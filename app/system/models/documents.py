@@ -75,14 +75,19 @@ class DocumentModel(BaseModel):
         self.updated_at = datetime.now(timezone.utc)
 
     @classmethod
-    def from_request(cls, request: CreateDocumentRequest, user_id: str) -> "DocumentModel":
+    def from_request(
+        cls,
+        request: CreateDocumentRequest,
+        user_id: str,
+        path: str,
+    ) -> "DocumentModel":
         return cls(
             name=request.name,
             description=request.description,
             category=request.category,
             user_id=user_id,
             file_name=request.file_name,
-            path=request.path,
+            path=path,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -141,7 +146,7 @@ class DocumentDBModel(Base):
             "description": self.description,
             "category": self.category,
             "hash": self.hash,
-            "path": self.path,
+            "path": str(self.path),
             "status": self.status or "pending",
             "user_id": str(self.user_id),
             "created_at": self.created_at.isoformat(),

@@ -1,7 +1,6 @@
 import tempfile
 from logging import Logger
 from pathlib import Path
-from typing import IO
 
 from fastapi import HTTPException, status
 from langchain_community.document_loaders import CSVLoader, DirectoryLoader, Docx2txtLoader, JSONLoader, PyMuPDFLoader, TextLoader, UnstructuredImageLoader
@@ -97,10 +96,10 @@ class IngestPipeline:
         )
         return dir_loader.load()
 
-    async def load_file(self, filename: str, file: IO[bytes], hi_res_strategy: str = "fast") -> list[Document]:
+    async def load_file(self, filename: str, file_path: str, hi_res_strategy: str = "fast") -> list[Document]:
         self.logger.info(f"Loading {filename}")
         loader = UnstructuredLoader(
-            file=file,
+            file_path=file_path,
             mode="elements",
             strategy=hi_res_strategy,
             metadata_filename=filename,
@@ -114,7 +113,7 @@ class IngestPipeline:
     async def process_file(
         self,
         payload: IngestDocumentRequest,
-        file: IO[bytes],
+        file_path: str,
     ) -> list[Document]:
         all_documents: list[Document] = []
 
@@ -123,14 +122,12 @@ class IngestPipeline:
             hi_res_strategy = "hi_res" if payload.file_name.endswith(
                 (".png", ".jpg", ".jpeg")) else "fast"
 
-            file.seek(0)
-            document = await self.load_file(payload.file_name, file, hi_res_strategy)
+            document = await self.load_file(payload.file_name, file_path, hi_res_strategy)
 
             if document is None or len(document) == 0:
                 self.logger.warning(
                     f"No document found for {payload.file_name}, trying hi_res strategy")
-                file.seek(0)
-                document = await self.load_file(payload.file_name, file, "hi_res")
+                document = await self.load_file(payload.file_name, file_path, "hi_res")
 
             for i, doc in enumerate(document):
                 # fetch document details from database

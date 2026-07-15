@@ -60,6 +60,7 @@ async def handle_document(
 
     async with message.process():
         try:
+            logger.info(f"Received message: {message.body}. Processing...")
             payload = json.loads(message.body)
             ingest_payload = IngestDocumentRequest(**payload)
             document_id = ingest_payload.document_id
@@ -102,9 +103,14 @@ async def handle_document(
                         logger.info(
                             "Document hash already exists for id=%s", existing.id
                         )
-                        await document_service.update_status(
-                            document_id, "cancelled", user_id
+                        await document_service.cancel_duplicate(
+                            document_id, user_id, existing.path or ""
                         )
+                        if (
+                            ingest_payload.path
+                            and ingest_payload.path != existing.path
+                        ):
+                            await supabase.delete_file(ingest_payload.path)
                     return
 
                 if not await continue_ingestion(
@@ -112,8 +118,7 @@ async def handle_document(
                 ):
                     return
 
-                tmp.seek(0)
-                chunks = await ingest_pipeline.process_file(ingest_payload, tmp)
+                chunks = await ingest_pipeline.process_file(ingest_payload, tmp.name)
                 if not chunks:
                     await document_service.update_status(
                         document_id, "failed", user_id
@@ -126,7 +131,7 @@ async def handle_document(
                     return
 
                 embeddings = embedding_manager.embed_documents(chunks)
-                if not embeddings:
+                if embeddings is None or len(embeddings) == 0:
                     await document_service.update_status(
                         document_id, "failed", user_id
                     )
@@ -162,10 +167,8 @@ async def handle_document(
                 e.message,
                 user_id,
             )
-        except Exception:
+        except Exception as e:
             if vector_ids and user_id is not None:
                 cleanup_vectors(vector_ids, user_id, vector_store)
-            logger.exception(
-                "Error ingesting document for user %s", user_id
-            )
+            logger.exception(f"Error ingesting document for user {user_id}: {e}")
             raise

@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 from logging import Logger
+from pathlib import Path
 
 from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ
@@ -35,8 +37,9 @@ class DocumentService:
         self,
         request: CreateDocumentRequest,
         user_id: str,
+        path: str,
     ) -> DocumentResponse:
-        document = DocumentModel.from_request(request, user_id)
+        document = DocumentModel.from_request(request, user_id, path)
         result = await self.repository.create(document)
         if result is None:
             raise DocumentCreateError(
@@ -44,23 +47,35 @@ class DocumentService:
                 file_name=request.file_name,
             )
 
-        ingest_payload = IngestDocumentRequest(
-            name=request.name,
-            file_name=request.file_name,
-            category=request.category,
-            path=request.path,
-            user_id=user_id,
-            document_id=result.id,
-        )
-
-        # send message to queue
-        self.rabbitmq.publish_message(
-          "document_queue",
-          ingest_payload.model_dump()
-        )
-        self.logger.info(f"Sent message to document_queue: {ingest_payload.model_dump()}")
-
         return result.to_response()
+
+    async def start_ingestion(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> DocumentResponse:
+        document = await self._get_owned_document(document_id, user_id)
+        if not document.path:
+            raise ValueError(f"Document path not found: {document_id}")
+
+        file_name = document.file_name or Path(document.path).name 
+        ingest_payload = IngestDocumentRequest(
+            name=document.name,
+            file_name=file_name,
+            category=document.category,
+            path=document.path,
+            user_id=user_id,
+            document_id=document_id,
+        )
+
+        await self.rabbitmq.publish_message(
+            "document_queue",
+            ingest_payload.model_dump(),
+        )
+        self.logger.info(
+            f"Sent message to document_queue: {ingest_payload.model_dump()}")
+
+        return document.to_response()
 
     async def get_document_by_id(
         self,
@@ -157,6 +172,19 @@ class DocumentService:
             file_hash=file_hash,
         )
         return result.to_response() if result else None
+
+    async def cancel_duplicate(
+        self,
+        document_id: str,
+        user_id: str,
+        path: str,
+    ) -> DocumentResponse:
+        document = await self._get_owned_document(document_id, user_id)
+        document.path = path
+        document.status = "cancelled"
+        document.updated_at = datetime.now(timezone.utc)
+        result = await self.repository.update(document)
+        return result.to_response()
 
     async def _get_owned_document(
         self,

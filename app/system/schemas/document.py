@@ -85,7 +85,6 @@ class CreateDocumentRequest(BaseModel):
     category: str
     description: Optional[str] = None
     file_name: str
-    path: str
 
 
 class UpdateDocumentRequest(BaseModel):

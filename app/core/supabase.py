@@ -72,11 +72,3 @@ class Supabase:
 
         self.logger.info(f"Uploaded file {path}")
         return response
-
-    async def verify_file(self, path: str) -> bool:
-        response = await self.supabase.storage.from_("documents").list(
-            path=path,
-        )
-
-        self.logger.info(f"Verified file {path}")
-        return len(response) > 0
