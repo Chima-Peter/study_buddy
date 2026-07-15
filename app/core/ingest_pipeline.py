@@ -2,16 +2,25 @@ import tempfile
 from logging import Logger
 from pathlib import Path
 
-from fastapi import HTTPException, status
-from langchain_community.document_loaders import CSVLoader, DirectoryLoader, Docx2txtLoader, JSONLoader, PyMuPDFLoader, TextLoader, UnstructuredImageLoader
-from langchain_unstructured import UnstructuredLoader
+from langchain_community.document_loaders import (
+    DirectoryLoader,
+    Docx2txtLoader,
+    PyMuPDFLoader,
+    TextLoader,
+    UnstructuredImageLoader,
+)
 from langchain_core.documents import Document
-from langchain_experimental.text_splitter import SemanticChunker
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_unstructured import UnstructuredLoader
 
+from app.core.document_parsers import parse_csv, parse_json
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
 from app.core.supabase import Supabase
 from app.core.vector_store import VectorStore
 from app.system.schemas.document import IngestDocumentRequest
+from app.utils.errors.rabbitmq import NonRetryableIngestError
+
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
 class IngestPipeline:
@@ -38,7 +47,7 @@ class IngestPipeline:
             await self.supabase.download_file_to(payload.path, tmp)
             tmp.flush()
             tmp.seek(0)
-            chunks = await self.process_file(payload, tmp)
+            chunks = self.process_file(payload, tmp.name)
             if chunks is None or len(chunks) == 0:
                 self.logger.warning("No documents to process")
                 return {
@@ -61,43 +70,94 @@ class IngestPipeline:
                 "embeddings": embeddings,
             }
 
-    def load_text_file(self, filename: str = "sample_text_2.txt") -> list:
-        loader = TextLoader(str(filename))
-        return loader.load()
-
-    def load_pdf_file(self, filename: str = "sample_pdf_1.pdf") -> list:
-        loader = PyMuPDFLoader(str(filename),
-                               extract_images=True, extract_tables=True)
-        return loader.load()
-
-    def load_image_file(self, filename: str = "sample_image_1.png") -> list:
-        loader = UnstructuredImageLoader(str(filename))
-        return loader.load()
-
-    def load_json_file(self, filename: str = "sample_json_1.json") -> list:
-        loader = JSONLoader(str(filename),
-                            jq_schema="*.quiz", text_content=False)
-        return loader.load()
-
-    def load_word_file(self, filename: str = "sample_word_1.docx") -> list:
-        loader = Docx2txtLoader(str(filename))
-        return loader.load()
-
-    def load_csv_file(self, filename: str = "sample_csv_1.csv") -> list:
-        loader = CSVLoader(str(filename))
-        return loader.load()
-
-    def load_directory(self, directory: Path) -> list[Document]:
-        dir_loader = DirectoryLoader(
-            str(directory),
-            glob="**/*.pdf",
-            loader_cls=PyMuPDFLoader,
-            loader_kwargs={"encoding": "utf-8"},
+    def _load_and_split(
+        self,
+        loader,
+        *,
+        loader_name: str,
+        file_path: str,
+        **extra_context,
+    ) -> list[Document]:
+        filename = Path(file_path).name
+        documents = loader.load()
+        chunks = self.split_documents(documents)
+        self.logger.info(
+            "Loaded file=%s loader=%s chunks=%s",
+            filename,
+            loader_name,
+            len(chunks),
         )
-        return dir_loader.load()
+        return chunks
 
-    async def load_file(self, filename: str, file_path: str, hi_res_strategy: str = "fast") -> list[Document]:
-        self.logger.info(f"Loading {filename}")
+    def load_text_file(self, file_path: str) -> list[Document]:
+        return self._load_and_split(
+            TextLoader(str(file_path)),
+            loader_name="TextLoader",
+            file_path=file_path,
+        )
+
+    def load_pdf_file(self, file_path: str) -> list[Document]:
+        return self._load_and_split(
+            PyMuPDFLoader(
+                str(file_path),
+                extract_images=True,
+                extract_tables=True,
+            ),
+            loader_name="PyMuPDFLoader",
+            file_path=file_path,
+            extract_images=True,
+            extract_tables=True,
+        )
+
+    def load_image_file(self, file_path: str) -> list[Document]:
+        return self._load_and_split(
+            UnstructuredImageLoader(str(file_path)),
+            loader_name="UnstructuredImageLoader",
+            file_path=file_path,
+        )
+
+    def load_json_file(self, file_path: str) -> list[Document]:
+        documents = parse_json(file_path)
+        chunks = self.split_documents(documents)
+        self.logger.info(
+            "Loaded file=%s loader=%s chunks=%s",
+            Path(file_path).name,
+            "parse_json",
+            len(chunks),
+        )
+        return chunks
+
+    def load_word_file(self, file_path: str) -> list[Document]:
+        return self._load_and_split(
+            Docx2txtLoader(str(file_path)),
+            loader_name="Docx2txtLoader",
+            file_path=file_path,
+        )
+
+    def load_csv_file(self, file_path: str) -> list[Document]:
+        documents = parse_csv(file_path)
+        chunks = self.split_documents(documents)
+        self.logger.info(
+            "Loaded file=%s loader=%s chunks=%s",
+            Path(file_path).name,
+            "parse_csv",
+            len(chunks),
+        )
+        return chunks
+
+
+    def load_file(
+        self,
+        filename: str,
+        file_path: str,
+        hi_res_strategy: str = "fast",
+    ) -> list[Document]:
+        context = {
+            "loader": "UnstructuredLoader",
+            "file_path": file_path,
+            "strategy": hi_res_strategy,
+        }
+        self.logger.info("Loader start context=%s", context)
         loader = UnstructuredLoader(
             file_path=file_path,
             mode="elements",
@@ -108,29 +168,61 @@ class IngestPipeline:
             new_after_n_chars=1000,
             combine_text_under_n_chars=500,
         )
-        return await loader.aload()
+        documents = loader.load()
+        self.logger.info(
+            "Loader finished documents=%s context=%s",
+            len(documents),
+            context,
+        )
+        return documents
 
-    async def process_file(
+    def process_file(
         self,
         payload: IngestDocumentRequest,
         file_path: str,
     ) -> list[Document]:
-        all_documents: list[Document] = []
-
         try:
             self.logger.info(f"Processing {payload.file_name}")
-            hi_res_strategy = "hi_res" if payload.file_name.endswith(
-                (".png", ".jpg", ".jpeg")) else "fast"
+            suffix = Path(file_path).suffix.lower()
+            used_unstructured = False
 
-            document = await self.load_file(payload.file_name, file_path, hi_res_strategy)
+            match suffix:
+                case ".pdf":
+                    used_unstructured = True
+                    documents = self.load_file(
+                        payload.file_name, file_path, "fast")
+                case ".docx":
+                    documents = self.load_word_file(file_path)
+                case ".txt":
+                    documents = self.load_text_file(file_path)
+                case ".json":
+                    documents = self.load_json_file(file_path)
+                case ".csv":
+                    documents = self.load_csv_file(file_path)
+                case s if s in IMAGE_SUFFIXES:
+                    documents = self.load_image_file(file_path)
+                case _:
+                    used_unstructured = True
+                    documents = self.load_file(
+                        payload.file_name, file_path, "fast"
+                    )
 
-            if document is None or len(document) == 0:
+            if not documents and used_unstructured:
                 self.logger.warning(
-                    f"No document found for {payload.file_name}, trying hi_res strategy")
-                document = await self.load_file(payload.file_name, file_path, "hi_res")
+                    "No document found for %s, trying hi_res strategy",
+                    payload.file_name,
+                )
+                documents = self.load_file(
+                    payload.file_name, file_path, "hi_res"
+                )
+            elif not documents:
+                self.logger.warning(
+                    "No document found for %s",
+                    payload.file_name,
+                )
+                return []
 
-            for i, doc in enumerate(document):
-                # fetch document details from database
+            for i, doc in enumerate(documents):
                 doc.metadata["source"] = payload.file_name
                 doc.metadata["chunk_index"] = i
                 doc.metadata["category"] = payload.category
@@ -138,35 +230,47 @@ class IngestPipeline:
                 doc.metadata["user_id"] = payload.user_id
                 doc.metadata["document_id"] = payload.document_id
 
-            all_documents.extend(document)
-
             self.logger.info(
-                f"Loaded {len(document)} chunks from {payload.file_name}")
+                "Loaded %s chunks from %s",
+                len(documents),
+                payload.file_name,
+            )
+            return documents
+        except NonRetryableIngestError:
+            raise
         except Exception as e:
             self.logger.exception(f"Error loading {payload.file_name}: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error loading {payload.file_name}: {e}")
-
-        self.logger.info(f"Loaded {len(all_documents)} documents")
-        return all_documents
+            raise NonRetryableIngestError(
+                f"Error loading {payload.file_name}: {e}"
+            ) from e
 
     def split_documents(
         self,
         documents: list[Document],
+        # suffix: str
     ) -> list[Document]:
         if not documents:
             self.logger.warning("No documents to split")
             return []
+        if self.semantic_embeddings is None:
+            raise NonRetryableIngestError(
+                "semantic_embeddings is not configured"
+            )
 
-        semantic_chunker = SemanticChunker(embeddings=self.semantic_embeddings)
-        chunks = semantic_chunker.split_documents(documents)
-        chunks = self._add_chunk_overlap(chunks)
+        chunks = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            separators=["\n\n", "\n", " ", ""]
+        ).split_documents(documents)
+
         self.logger.info(
-            f"Split {len(documents)} documents into {len(chunks)} chunks")
+            f"Split {len(documents)} documents into {len(chunks)} chunks"
+        )
         return chunks
 
-    def _add_chunk_overlap(self, chunks: list[Document], overlap: int = 50) -> list[Document]:
+    def _add_chunk_overlap(
+        self, chunks: list[Document], overlap: int = 50
+    ) -> list[Document]:
         if overlap <= 0:
             return chunks
         overlapped_chunks = []
@@ -179,5 +283,6 @@ class IngestPipeline:
                 suffix = chunks[i + 1].page_content[:overlap]
                 text = f"{text} {suffix}"
             overlapped_chunks.append(
-                Document(page_content=text, metadata=chunk.metadata))
+                Document(page_content=text, metadata=chunk.metadata)
+            )
         return overlapped_chunks

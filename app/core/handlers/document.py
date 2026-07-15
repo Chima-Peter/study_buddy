@@ -4,6 +4,7 @@ import json
 import tempfile
 from logging import Logger
 from pathlib import Path
+from time import perf_counter
 
 from aio_pika.abc import AbstractIncomingMessage
 
@@ -119,7 +120,17 @@ async def handle_document(
                 ):
                     return
 
-                chunks = await ingest_pipeline.process_file(ingest_payload, tmp.name)
+                start_time = perf_counter()
+                chunks = await asyncio.to_thread(
+                    ingest_pipeline.process_file,
+                    ingest_payload,
+                    tmp.name,
+                )
+                end_time = perf_counter()
+                logger.info(
+                    "Time taken to process file: %s seconds",
+                    end_time - start_time,
+                )
                 if not chunks:
                     await document_service.update_status(
                         document_id, "failed", user_id
@@ -131,9 +142,12 @@ async def handle_document(
                 ):
                     return
 
+                start_time = perf_counter()
                 embeddings = await asyncio.to_thread(
                     embedding_manager.embed_documents, chunks
                 )
+                end_time = perf_counter()
+                logger.info(f"Time taken to embed documents: {end_time - start_time} seconds")
                 if embeddings is None or len(embeddings) == 0:
                     await document_service.update_status(
                         document_id, "failed", user_id
@@ -145,10 +159,12 @@ async def handle_document(
                 ):
                     return
 
+                start_time = perf_counter()
                 vector_ids = await asyncio.to_thread(
                     vector_store.add_documents, chunks, embeddings
                 )
-
+                end_time = perf_counter()
+                logger.info(f"Time taken to add documents to vector store: {end_time - start_time} seconds")
                 completed = await document_service.complete_document(
                     document_id, user_id, file_hash
                 )
@@ -175,5 +191,6 @@ async def handle_document(
         except Exception as e:
             if vector_ids and user_id is not None:
                 cleanup_vectors(vector_ids, user_id, vector_store)
-            logger.exception(f"Error ingesting document for user {user_id}: {e}")
+            logger.exception(
+                f"Error ingesting document for user {user_id}: {e}")
             raise
