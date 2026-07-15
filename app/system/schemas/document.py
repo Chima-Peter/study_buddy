@@ -153,6 +153,27 @@ class UploadUrlResponseData(BaseModel):
     document: DocumentResponse
 
 
+class UploadUrlApiResponse(BaseModel):
+    data: Optional[UploadUrlResponseData] = None
+    success: bool = True
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
+class DocumentApiResponse(BaseModel):
+    data: Optional[DocumentResponse] = None
+    success: bool = True
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
+class DocumentListApiResponse(BaseModel):
+    data: Optional[list[DocumentResponse]] = None
+    success: bool = True
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
 class IngestDocumentRequest(BaseModel):
     name: str
     file_name: str

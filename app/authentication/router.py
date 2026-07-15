@@ -12,7 +12,7 @@ from app.authentication.schemas.auth import (
 )
 from app.authentication.services.auth_service import AuthService
 from app.container import Container
-from app.core.response import BasicResponse
+from app.core.response import ApiResponse, BasicResponse
 from app.core.security import bearer_scheme, get_current_user
 from app.utils.errors import EmailAlreadyExistsError, UserNotFoundError
 from app.utils.errors.auth import InvalidCredentialsError
@@ -20,7 +20,12 @@ from app.utils.errors.auth import InvalidCredentialsError
 router = APIRouter(prefix="/authentication", tags=["authentication"])
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    status_code=status.HTTP_201_CREATED,
+    response_model=ApiResponse,
+    summary="Register user",
+)
 @inject
 async def register(
     data: RegisterRequest,
@@ -48,7 +53,11 @@ async def register(
     )
 
 
-@router.post("/login")
+@router.post(
+    "/login",
+    response_model=ApiResponse,
+    summary="Login",
+)
 @inject
 async def login(
     data: LoginRequest,
@@ -75,7 +84,11 @@ async def login(
     )
 
 
-@router.post("/logout")
+@router.post(
+    "/logout",
+    response_model=ApiResponse,
+    summary="Logout",
+)
 @inject
 async def logout(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],

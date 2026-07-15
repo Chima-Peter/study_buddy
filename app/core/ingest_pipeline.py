@@ -80,9 +80,15 @@ class IngestPipeline:
     ) -> list[Document]:
         filename = Path(file_path).name
         documents = loader.load()
+        self.logger.info(
+            "Loaded file=%s loader=%s documents=%s",
+            filename,
+            loader_name,
+            len(documents),
+        )
         chunks = self.split_documents(documents)
         self.logger.info(
-            "Loaded file=%s loader=%s chunks=%s",
+            "Split file=%s loader=%s chunks=%s",
             filename,
             loader_name,
             len(chunks),
@@ -120,7 +126,7 @@ class IngestPipeline:
         documents = parse_json(file_path)
         chunks = self.split_documents(documents)
         self.logger.info(
-            "Loaded file=%s loader=%s chunks=%s",
+            "Loaded and splitfile=%s loader=%s chunks=%s",
             Path(file_path).name,
             "parse_json",
             len(chunks),
@@ -138,7 +144,7 @@ class IngestPipeline:
         documents = parse_csv(file_path)
         chunks = self.split_documents(documents)
         self.logger.info(
-            "Loaded file=%s loader=%s chunks=%s",
+            "Loaded and split file=%s loader=%s chunks=%s",
             Path(file_path).name,
             "parse_csv",
             len(chunks),
@@ -157,7 +163,6 @@ class IngestPipeline:
             "file_path": file_path,
             "strategy": hi_res_strategy,
         }
-        self.logger.info("Loader start context=%s", context)
         loader = UnstructuredLoader(
             file_path=file_path,
             mode="elements",
@@ -170,7 +175,7 @@ class IngestPipeline:
         )
         documents = loader.load()
         self.logger.info(
-            "Loader finished documents=%s context=%s",
+            "Loaded and split file=%s loader=%s chunks=%s",
             len(documents),
             context,
         )
@@ -199,8 +204,6 @@ class IngestPipeline:
                     documents = self.load_json_file(file_path)
                 case ".csv":
                     documents = self.load_csv_file(file_path)
-                case s if s in IMAGE_SUFFIXES:
-                    documents = self.load_image_file(file_path)
                 case _:
                     used_unstructured = True
                     documents = self.load_file(
@@ -230,11 +233,6 @@ class IngestPipeline:
                 doc.metadata["user_id"] = payload.user_id
                 doc.metadata["document_id"] = payload.document_id
 
-            self.logger.info(
-                "Loaded %s chunks from %s",
-                len(documents),
-                payload.file_name,
-            )
             return documents
         except NonRetryableIngestError:
             raise
@@ -263,9 +261,6 @@ class IngestPipeline:
             separators=["\n\n", "\n", " ", ""]
         ).split_documents(documents)
 
-        self.logger.info(
-            f"Split {len(documents)} documents into {len(chunks)} chunks"
-        )
         return chunks
 
     def _add_chunk_overlap(

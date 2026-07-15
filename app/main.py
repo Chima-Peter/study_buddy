@@ -6,8 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.authentication.router import router as auth_router
 from app.config import Settings
 from app.container import Container
-from app.core.response import BasicResponse, basic_response_from_http_exception
 from app.core.middleware import SecurityHeadersMiddleware
+from app.core.response import (
+    ApiResponse,
+    BasicResponse,
+    basic_response_from_http_exception,
+)
 from app.system.router import system_router
 
 
@@ -31,6 +35,8 @@ def create_app() -> FastAPI:
         debug=settings.debug,
         lifespan=lifespan,
         docs_url="/api/docs",
+        redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json",
     )
     app.container = container
 
@@ -51,7 +57,12 @@ def create_app() -> FastAPI:
 
     api_router = APIRouter(prefix="/api")
 
-    @api_router.get("/health")
+    @api_router.get(
+        "/health",
+        response_model=ApiResponse,
+        summary="Health check",
+        tags=["health"],
+    )
     async def health() -> BasicResponse:
         return BasicResponse(data={"status": "ok"})
 

@@ -1,12 +1,22 @@
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+
+class ApiResponse(BaseModel):
+    """OpenAPI schema for the standard API envelope."""
+
+    data: Any = None
+    success: bool = True
+    message: Optional[str] = None
+    error: Optional[str] = None
 
 
 class BasicResponse(JSONResponse):
     """Standardized JSON response with data, success, message, error fields.
-    
+
     Success is automatically determined from status_code:
     - 2xx/3xx -> success=True, error=None
     - 4xx/5xx -> success=False, data=None
