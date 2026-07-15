@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import sessionmaker
+from supabase import AsyncClient, create_async_client, create_client, Client
 
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
@@ -23,6 +24,7 @@ from app.core.handlers import Handlers
 from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer
 from app.core.redis import RedisClient
+from app.core.supabase import Supabase
 from app.core.vector_store import VectorStore
 from app.logging_config import init_logging
 from app.system.repository.document import DocumentRepository
@@ -161,6 +163,18 @@ async def init_rabbitmq_consumers(
         await rabbitmq.stop_consumers(active_consumers)
 
 
+def init_supabase(supabase_url: str, supabase_key: str) -> Client:
+  return create_client(
+    supabase_url=supabase_url,
+    supabase_key=supabase_key,
+  )
+
+async def init_async_supabase(supabase_url: str, supabase_key: str) -> AsyncClient:
+  return await create_async_client(
+    supabase_url=supabase_url,
+    supabase_key=supabase_key,
+  )
+
 class Container(containers.DeclarativeContainer):
     """Application dependency container."""
 
@@ -199,6 +213,24 @@ class Container(containers.DeclarativeContainer):
     async_session_factory = providers.Singleton(
         init_async_session_factory,
         engine=async_engine,
+    )
+
+    sync_supabase_client = providers.Resource(
+      init_supabase,
+      supabase_url=settings.provided.supabase_url,
+      supabase_key=settings.provided.supabase_key,
+    )
+
+    async_supabase_client = providers.Resource(
+      init_async_supabase,
+      supabase_url=settings.provided.supabase_url,
+      supabase_key=settings.provided.supabase_key,
+    )
+
+    async_supabase = providers.Factory(
+        Supabase,
+        supabase=async_supabase_client,
+        logger=logger,
     )
 
     rabbitmq_resources = providers.Resource(

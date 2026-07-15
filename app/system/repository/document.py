@@ -88,9 +88,15 @@ class DocumentRepository:
                 )
             seen[key] = document.display_file_name
 
-    async def get_by_id(self, document_id: str) -> DocumentModel | None:
+    async def get_by_id(self, document_id: str, user_id: str) -> DocumentModel | None:
         async with self.session_factory() as session:
-            db_document = await session.get(DocumentDBModel, document_id)
+            result = await session.execute(
+                select(DocumentDBModel).where(
+                    DocumentDBModel.id == document_id,
+                    DocumentDBModel.user_id == user_id,
+                )
+            )
+            db_document = result.scalar_one_or_none()
             if db_document is None:
                 return None
             return DocumentModel(**db_document.model_dump())

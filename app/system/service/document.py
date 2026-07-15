@@ -111,7 +111,7 @@ class DocumentService:
         document_id: str,
         user_id: str,
     ) -> DocumentModel:
-        document = await self.repository.get_by_id(document_id)
-        if document is None or document.user_id != user_id:
+        document = await self.repository.get_by_id(document_id, user_id)
+        if document is None:
             raise ValueError(f"Document not found: {document_id}")
         return document

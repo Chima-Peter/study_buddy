@@ -4,12 +4,13 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 
 from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.response import BasicResponse
 from app.core.security import get_current_user
+from app.core.supabase import Supabase
 from app.system.schemas.document import (
     CreateDocumentRequest,
     PatchDocumentRequest,
@@ -25,6 +26,67 @@ from app.utils.errors.document import (
 )
 
 system_router = APIRouter(prefix="/system", tags=["system"])
+
+
+@system_router.get("/documents/upload")
+@inject
+async def create_upload_url(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    file_name: Annotated[str, Query()],
+    supabase: Supabase = Depends(Provide[Container.async_supabase]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        upload_url = await supabase.create_upload_url(user.id, file_name)
+    except Exception:
+        logger.exception(
+            "Unexpected error creating upload url user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=upload_url,
+        message="Upload URL created successfully",
+    )
+
+
+@system_router.get("/documents/download")
+@inject
+async def create_download_url(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    document_id: Annotated[str, Query()],
+    document_service: DocumentService = Depends(
+        Provide[Container.document_service]),
+    supabase: Supabase = Depends(Provide[Container.async_supabase]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        document = await document_service.get_document_by_id(document_id, user.id)
+        if document.link is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document link not found",
+            )
+        download_url = await supabase.create_download_url(document.link)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error creating upload url user_id=%s", user.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=download_url,
+        message="Download URL created successfully",
+    )
 
 
 @system_router.post("/documents", status_code=status.HTTP_201_CREATED)
@@ -52,7 +114,8 @@ async def create_document(
             file.file.seek(0)
 
             file_name = file.filename or name
-            document_name = name if len(files) == 1 else Path(file_name).stem or name
+            document_name = name if len(
+                files) == 1 else Path(file_name).stem or name
             service_payload.append(
                 CreateDocumentRequest(
                     name=document_name,
