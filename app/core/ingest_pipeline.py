@@ -9,10 +9,10 @@ from langchain_community.document_loaders import (
     TextLoader,
 )
 from langchain_core.documents import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownTextSplitter
+from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTextSplitter, RecursiveJsonSplitter
 from langchain_unstructured import UnstructuredLoader
 
-from app.core.document_parsers import parse_csv, parse_json
+from app.core.document_parsers import parse_csv
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
 from app.core.ocr_cleanup import clean_ocr_documents
 from app.core.supabase import Supabase
@@ -118,7 +118,7 @@ class IngestPipeline:
     ) -> list[Document]:
         markdown_loader = UnstructuredMarkdownLoader(str(file_path), mode="elements")
         documents = markdown_loader.load()
-        chunks = MarkdownTextSplitter().split_documents(documents)
+        chunks = MarkdownTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(documents)
         self.logger.info(
             "Loaded and split markdown file=%s user_id=%s document_id=%s loader=%s chunks=%s",
             payload.file_name,
@@ -145,15 +145,24 @@ class IngestPipeline:
     def load_json_file(
         self, payload: IngestDocumentRequest, file_path: str
     ) -> list[Document]:
+        import json as json_mod
+
         file_name, user_id, document_id = self._ids(payload)
-        documents = parse_json(file_path)
-        chunks = self.split_documents(documents, payload=payload)
+        with open(file_path, encoding="utf-8") as f:
+            data = json_mod.load(f)
+
+        splitter = RecursiveJsonSplitter(max_chunk_size=1000)
+        chunks = splitter.create_documents(
+            texts=[data] if isinstance(data, dict) else data,
+            metadatas=[{"source": Path(file_path).name}],
+            convert_lists=True,
+        )
         self.logger.info(
             "Loaded file=%s user_id=%s document_id=%s loader=%s chunks=%s",
             file_name,
             user_id,
             document_id,
-            "parse_json",
+            "RecursiveJsonSplitter",
             len(chunks),
         )
         return chunks
