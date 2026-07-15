@@ -22,18 +22,35 @@ async def continue_ingestion(
     document_id: str,
     user_id: str,
     logger: Logger,
+    *,
+    file_name: str | None = None,
 ) -> bool:
     try:
         document = await document_service.get_document_by_id(document_id, user_id)
     except ValueError:
-        logger.info("Document not found: %s", document_id)
+        logger.info(
+            "Document not found file=%s user_id=%s document_id=%s",
+            file_name,
+            user_id,
+            document_id,
+        )
         return False
 
     if document.status == "completed":
-        logger.info("Document already completed: %s", document_id)
+        logger.info(
+            "Document already completed file=%s user_id=%s document_id=%s",
+            file_name,
+            user_id,
+            document_id,
+        )
         return False
     if document.status == "cancelled":
-        logger.info("Document ingestion already cancelled: %s", document_id)
+        logger.info(
+            "Document ingestion already cancelled file=%s user_id=%s document_id=%s",
+            file_name,
+            user_id,
+            document_id,
+        )
         return False
     return True
 
@@ -58,22 +75,33 @@ async def handle_document(
 ) -> None:
     document_id: str | None = None
     user_id: str | None = None
+    file_name: str | None = None
     vector_ids: list[str] = []
 
     async with message.process():
         try:
-            logger.info(f"Received message: {message.body}. Processing...")
             payload = json.loads(message.body)
             ingest_payload = IngestDocumentRequest(**payload)
             document_id = ingest_payload.document_id
             user_id = ingest_payload.user_id
+            file_name = ingest_payload.file_name
+
+            logger.info(
+                "Received ingest message file=%s user_id=%s document_id=%s",
+                file_name,
+                user_id,
+                document_id,
+            )
 
             claimed = await document_service.claim_for_processing(
                 document_id, user_id
             )
             if claimed is None:
                 logger.info(
-                    "Skipping ingest; could not claim document %s", document_id
+                    "Skipping ingest; could not claim file=%s user_id=%s document_id=%s",
+                    file_name,
+                    user_id,
+                    document_id,
                 )
                 return
 
@@ -98,12 +126,20 @@ async def handle_document(
                         )
                         if completed is None:
                             logger.info(
-                                "Document %s no longer processing; skip complete or cancelled",
+                                "Document no longer processing; skip complete "
+                                "file=%s user_id=%s document_id=%s",
+                                file_name,
+                                user_id,
                                 document_id,
                             )
                     else:
                         logger.info(
-                            "Document hash already exists for id=%s", existing.id
+                            "Document hash already exists file=%s user_id=%s "
+                            "document_id=%s existing_id=%s",
+                            file_name,
+                            user_id,
+                            document_id,
+                            existing.id,
                         )
                         await document_service.cancel_duplicate(
                             document_id, user_id, existing.path or ""
@@ -116,7 +152,11 @@ async def handle_document(
                     return
 
                 if not await continue_ingestion(
-                    document_service, document_id, user_id, logger
+                    document_service,
+                    document_id,
+                    user_id,
+                    logger,
+                    file_name=file_name,
                 ):
                     return
 
@@ -128,7 +168,10 @@ async def handle_document(
                 )
                 end_time = perf_counter()
                 logger.info(
-                    "Time taken to process file: %s seconds",
+                    "Time taken to process file=%s user_id=%s document_id=%s seconds=%s",
+                    file_name,
+                    user_id,
+                    document_id,
                     end_time - start_time,
                 )
                 if not chunks:
@@ -137,8 +180,13 @@ async def handle_document(
                     )
                     raise NonRetryableIngestError("No documents to process")
 
+                print("chunks", [chunk.page_content for chunk in chunks])
                 if not await continue_ingestion(
-                    document_service, document_id, user_id, logger
+                    document_service,
+                    document_id,
+                    user_id,
+                    logger,
+                    file_name=file_name,
                 ):
                     return
 
@@ -147,7 +195,13 @@ async def handle_document(
                     embedding_manager.embed_documents, chunks
                 )
                 end_time = perf_counter()
-                logger.info(f"Time taken to embed documents: {end_time - start_time} seconds")
+                logger.info(
+                    "Time taken to embed file=%s user_id=%s document_id=%s seconds=%s",
+                    file_name,
+                    user_id,
+                    document_id,
+                    end_time - start_time,
+                )
                 if embeddings is None or len(embeddings) == 0:
                     await document_service.update_status(
                         document_id, "failed", user_id
@@ -155,7 +209,11 @@ async def handle_document(
                     raise NonRetryableIngestError("No embeddings to process")
 
                 if not await continue_ingestion(
-                    document_service, document_id, user_id, logger
+                    document_service,
+                    document_id,
+                    user_id,
+                    logger,
+                    file_name=file_name,
                 ):
                     return
 
@@ -164,7 +222,13 @@ async def handle_document(
                     vector_store.add_documents, chunks, embeddings
                 )
                 end_time = perf_counter()
-                logger.info(f"Time taken to add documents to vector store: {end_time - start_time} seconds")
+                logger.info(
+                    "Time taken to add vectors file=%s user_id=%s document_id=%s seconds=%s",
+                    file_name,
+                    user_id,
+                    document_id,
+                    end_time - start_time,
+                )
                 completed = await document_service.complete_document(
                     document_id, user_id, file_hash
                 )
@@ -172,25 +236,38 @@ async def handle_document(
                     cleanup_vectors(vector_ids, user_id, vector_store)
                     vector_ids = []
                     logger.info(
-                        "Cancelled before complete; cleaned vectors for %s",
+                        "Cancelled before complete; cleaned vectors "
+                        "file=%s user_id=%s document_id=%s",
+                        file_name,
+                        user_id,
                         document_id,
                     )
                     return
 
                 logger.info(
-                    "Ingested document: %s for user %s", document_id, user_id
+                    "Ingested file=%s user_id=%s document_id=%s",
+                    file_name,
+                    user_id,
+                    document_id,
                 )
         except NonRetryableIngestError as e:
             if vector_ids and user_id is not None:
                 cleanup_vectors(vector_ids, user_id, vector_store)
             logger.warning(
-                "Non-retryable ingest failure: %s for user %s",
-                e.message,
+                "Non-retryable ingest failure file=%s user_id=%s document_id=%s: %s",
+                file_name,
                 user_id,
+                document_id,
+                e.message,
             )
         except Exception as e:
             if vector_ids and user_id is not None:
                 cleanup_vectors(vector_ids, user_id, vector_store)
             logger.exception(
-                f"Error ingesting document for user {user_id}: {e}")
+                "Error ingesting file=%s user_id=%s document_id=%s: %s",
+                file_name,
+                user_id,
+                document_id,
+                e,
+            )
             raise
