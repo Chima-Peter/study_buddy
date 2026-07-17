@@ -9,10 +9,10 @@ TOP_K = 5
 
 class QueryRequest(BaseModel):
     query: str = Field(min_length=1, description="User question to retrieve against")
-    mode: SearchMode = Field(
-        default="hybrid",
-        description="Search mode: hybrid (RRF), vector (kNN), or bm25",
-    )
+    # mode: SearchMode = Field(
+    #     default="hybrid",
+    #     description="Search mode: hybrid (RRF), vector (kNN), or bm25",
+    # )
 
 
 class SourceChunk(BaseModel):

@@ -1,6 +1,6 @@
 from logging import Logger
 
-from app.core.retriever import RAGRetriever, SearchMode
+from app.core.retriever import RAGRetriever
 from app.system.schemas.chat import QueryResponseData, SourceChunk
 
 
@@ -13,16 +13,14 @@ class ChatService:
         self,
         user_id: str,
         query: str,
-        *,
-        mode: SearchMode = "hybrid",
     ) -> QueryResponseData:
         self.logger.info(
-            "ChatService query start user_id=%s mode=%s", user_id, mode
+            "ChatService query start user_id=%s", user_id
         )
         result = await self.retriever.answer(
             user_id,
             query,
-            mode=mode,
+            mode="hybrid",
         )
         return QueryResponseData(
             answer=result["answer"],

@@ -34,7 +34,6 @@ async def query_documents(
         result = await service.query(
             user.id,
             request.query,
-            mode=request.mode,
         )
     except Exception:
         logger.exception(
