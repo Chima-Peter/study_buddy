@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from app.core.elasticsearch import Elasticsearch, IndexedDocuments
+from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
@@ -37,28 +37,30 @@ class RAGRetriever:
         *,
         top_k: int = 10,
         mode: SearchMode = "hybrid",
-    ) -> list[IndexedDocuments]:
+    ) -> list[FusedResult]:
         embedding = self.embedding_manager.embed_query(query).tolist()
 
         if mode == "bm25":
             docs = await self.elasticsearch.search_bm25(user_id, query, size=top_k)
+            results = [FusedResult(document=doc, score=0.0) for doc in docs]
         elif mode == "vector":
             docs = await self.elasticsearch.search_vector(
                 user_id, embedding, k=top_k
             )
+            results = [FusedResult(document=doc, score=0.0) for doc in docs]
         else:
-            docs = await self.elasticsearch.search_hybrid(
+            results = await self.elasticsearch.search_hybrid(
                 user_id, query, embedding, k=top_k
             )
 
         self.logger.info(
             "Retrieved %s chunks user_id=%s mode=%s top_k=%s",
-            len(docs),
+            len(results),
             user_id,
             mode,
             top_k,
         )
-        return docs
+        return results
 
     async def answer(
         self,
@@ -68,16 +70,16 @@ class RAGRetriever:
         top_k: int = 5,
         mode: SearchMode = "hybrid",
     ) -> dict[str, Any]:
-        documents = await self.retrieve(
+        results = await self.retrieve(
             user_id, query, top_k=top_k, mode=mode
         )
-        if not documents:
+        if not results:
             return {
                 "answer": "No relevant context found for the query.",
                 "sources": [],
             }
 
-        context = "\n\n".join(doc.content for doc in documents)
+        context = "\n\n".join(r.document.content for r in results)
         prompt = (
             "You are a helpful study assistant. Use only the following context "
             "to answer the question. If the context is insufficient, say so by notifying the user to upload relevant documents.\n\n"
@@ -92,10 +94,10 @@ class RAGRetriever:
 
         sources = [
             {
-                "name": doc.metadata["name"],
-                "category": doc.metadata["category"],
-                "age": doc.metadata["chunk_id"],
+                "content": r.document.content,
+                "metadata": r.document.metadata,
+                "rrf_score": r.score,
             }
-            for doc in documents
+            for r in results
         ]
         return {"answer": answer, "sources": sources}

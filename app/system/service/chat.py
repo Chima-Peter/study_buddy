@@ -27,9 +27,9 @@ class ChatService:
             answer=result["answer"],
             sources=[
                 SourceChunk(
-                    name=s["name"],
-                    category=s["category"],
-                    age=s["age"],
+                    content=s["content"],
+                    metadata=s["metadata"],
+                    rrf_score=s["rrf_score"],
                 )
                 for s in result["sources"]
             ],

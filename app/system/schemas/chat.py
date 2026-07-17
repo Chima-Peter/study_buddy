@@ -15,9 +15,12 @@ class QueryRequest(BaseModel):
 
 
 class SourceChunk(BaseModel):
-    name: str
-    category: str
-    age: int
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    rrf_score: Optional[float] = Field(
+        default=None,
+        description="RRF fusion score (only present for hybrid mode)",
+    )
 
 
 class QueryResponseData(BaseModel):
