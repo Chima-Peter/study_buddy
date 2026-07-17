@@ -8,7 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
 from app.system.models.documents import DocumentDBModel, DocumentModel
-from app.system.schemas.document import DOCUMENT_STATUS_COMMENTS, DocumentStatus
+from app.system.schemas.document import (
+    DEFAULT_LIST_LIMIT,
+    DOCUMENT_STATUS_COMMENTS,
+    DocumentStatus,
+    MAX_LIST_LIMIT,
+)
 from app.utils.errors.document import (
     DocumentCreateError,
     DuplicateDocumentHashError,
@@ -16,7 +21,6 @@ from app.utils.errors.document import (
     MissingUserForeignKeyError,
     handle_document_integrity_error,
 )
-
 
 class DocumentRepository:
     def __init__(
@@ -94,6 +98,59 @@ class DocumentRepository:
             self.logger.info(f"Documents found: {len(db_documents)}")
 
             return [DocumentModel(**db_document.model_dump()) for db_document in db_documents]
+
+    async def list_by_user_id(
+        self,
+        user_id: str,
+        *,
+        limit: int = DEFAULT_LIST_LIMIT,
+        cursor: str | None = None,
+        status: DocumentStatus | None = None,
+        category: str | None = None,
+        name: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> tuple[list[DocumentModel], str | None, bool]:
+        limit = min(max(limit, 1), MAX_LIST_LIMIT)
+
+        async with self.session_factory() as session:
+            filters = [DocumentDBModel.user_id == user_id]
+            if status is not None:
+                filters.append(DocumentDBModel.status == status)
+            if category is not None:
+                filters.append(DocumentDBModel.category == category)
+            if name is not None:
+                filters.append(DocumentDBModel.name.ilike(f"%{name}%"))
+            if created_after is not None:
+                filters.append(DocumentDBModel.created_at >= created_after)
+            if created_before is not None:
+                filters.append(DocumentDBModel.created_at <= created_before)
+            if cursor is not None:
+                filters.append(DocumentDBModel.id < cursor)
+
+            result = await session.execute(
+                select(DocumentDBModel)
+                .where(*filters)
+                .order_by(DocumentDBModel.id.desc())
+                .limit(limit + 1)
+            )
+            db_documents = list(result.scalars().all())
+
+            has_more = len(db_documents) > limit
+            page = db_documents[:limit]
+            next_cursor = page[-1].id if has_more and page else None
+
+            self.logger.info(
+                "Documents listed user_id=%s count=%s has_more=%s",
+                user_id,
+                len(page),
+                has_more,
+            )
+            return (
+                [DocumentModel(**doc.model_dump()) for doc in page],
+                str(next_cursor) if next_cursor is not None else None,
+                has_more,
+            )
 
     async def update(self,  document: DocumentModel) -> DocumentModel:
         async with self.session_factory() as session:

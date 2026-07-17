@@ -10,11 +10,14 @@ from app.core.vector_store import VectorStore
 from app.system.models.documents import DocumentModel
 from app.system.repository.document import DocumentRepository
 from app.system.schemas.document import (
+    DEFAULT_LIST_LIMIT,
     DOCUMENT_STATUS_COMMENTS,
     CreateDocumentRequest,
+    DocumentListResponseData,
     DocumentResponse,
     DocumentStatus,
     IngestDocumentRequest,
+    MAX_LIST_LIMIT,
     PatchDocumentRequest,
     UpdateDocumentRequest,
 )
@@ -117,9 +120,31 @@ class DocumentService:
     async def get_documents_by_user_id(
         self,
         user_id: str,
-    ) -> list[DocumentResponse]:
-        documents = await self.repository.get_by_user_id(user_id)
-        return [document.to_response() for document in documents]
+        *,
+        limit: int = DEFAULT_LIST_LIMIT,
+        cursor: str | None = None,
+        status: DocumentStatus | None = None,
+        category: str | None = None,
+        name: str | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+    ) -> DocumentListResponseData:
+        documents, next_cursor, has_more = await self.repository.list_by_user_id(
+            user_id,
+            limit=limit,
+            cursor=cursor,
+            status=status,
+            category=category,
+            name=name,
+            created_after=created_after,
+            created_before=created_before,
+        )
+        return DocumentListResponseData(
+            items=[document.to_response() for document in documents],
+            next_cursor=next_cursor,
+            has_more=has_more,
+            limit=min(max(limit, 1), MAX_LIST_LIMIT),
+        )
 
     async def update_document(
         self,

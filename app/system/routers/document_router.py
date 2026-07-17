@@ -1,6 +1,7 @@
 from logging import Logger
 from pathlib import Path
 from typing import Annotated
+from datetime import datetime
 
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -12,9 +13,12 @@ from app.core.security import get_current_user
 from app.core.supabase import Supabase
 from app.system.schemas.document import (
     ALL_ALLOWED_EXTENSIONS,
+    DEFAULT_LIST_LIMIT,
     CreateDocumentRequest,
     DocumentApiResponse,
     DocumentListApiResponse,
+    DocumentStatus,
+    MAX_LIST_LIMIT,
     PatchDocumentRequest,
     UpdateDocumentRequest,
     UploadUrlApiResponse,
@@ -268,16 +272,70 @@ async def retry_ingestion(
     "",
     response_model=DocumentListApiResponse,
     summary="List documents",
-    description="List all documents for the authenticated user.",
+    description=(
+        "List documents for the authenticated user with optional filters "
+        f"and cursor-based pagination (max {MAX_LIST_LIMIT} per page)."
+    ),
 )
 @inject
 async def list_documents(
     user: Annotated[UserResponse, Depends(get_current_user)],
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=MAX_LIST_LIMIT,
+            description=f"Page size (1–{MAX_LIST_LIMIT}, default {DEFAULT_LIST_LIMIT})",
+        ),
+    ] = DEFAULT_LIST_LIMIT,
+    cursor: Annotated[
+        str | None,
+        Query(description="Cursor from previous page's next_cursor"),
+    ] = None,
+    status_filter: Annotated[
+        DocumentStatus | None,
+        Query(alias="status", description="Filter by document status"),
+    ] = None,
+    category: Annotated[
+        str | None,
+        Query(min_length=1, max_length=255, description="Filter by exact category"),
+    ] = None,
+    name: Annotated[
+        str | None,
+        Query(min_length=1, max_length=255, description="Filter by name (partial match)"),
+    ] = None,
+    created_after: Annotated[
+        datetime | None,
+        Query(description="Include documents created at or after this timestamp (ISO 8601)"),
+    ] = None,
+    created_before: Annotated[
+        datetime | None,
+        Query(description="Include documents created at or before this timestamp (ISO 8601)"),
+    ] = None,
 ) -> BasicResponse:
+    if (
+        created_after is not None
+        and created_before is not None
+        and created_after > created_before
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="created_after must be less than or equal to created_before",
+        )
+
     try:
-        documents = await service.get_documents_by_user_id(user.id)
+        result = await service.get_documents_by_user_id(
+            user.id,
+            limit=limit,
+            cursor=cursor,
+            status=status_filter,
+            category=category,
+            name=name,
+            created_after=created_after,
+            created_before=created_before,
+        )
     except Exception:
         logger.exception(
             "Unexpected error listing documents user_id=%s", user.id)
@@ -287,7 +345,7 @@ async def list_documents(
         )
 
     return BasicResponse(
-        data=[document.model_dump(mode="json") for document in documents],
+        data=result.model_dump(mode="json"),
         message="Documents retrieved successfully",
     )
 

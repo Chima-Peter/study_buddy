@@ -59,6 +59,8 @@ ALLOWED_EXTENSIONS: dict[FileType, set[str]] = {
 }
 
 DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+DEFAULT_LIST_LIMIT = 20
+MAX_LIST_LIMIT = 50
 ALL_ALLOWED_EXTENSIONS = {
     ext for exts in ALLOWED_EXTENSIONS.values() for ext in exts
 }
@@ -181,8 +183,15 @@ class DocumentApiResponse(BaseModel):
     error: Optional[str] = None
 
 
+class DocumentListResponseData(BaseModel):
+    items: list[DocumentResponse]
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    limit: int
+
+
 class DocumentListApiResponse(BaseModel):
-    data: Optional[list[DocumentResponse]] = None
+    data: Optional[DocumentListResponseData] = None
     success: bool = True
     message: Optional[str] = None
     error: Optional[str] = None
