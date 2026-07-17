@@ -26,10 +26,12 @@ from app.core.handlers import Handlers
 from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
 from app.core.redis import RedisClient
+from app.core.retriever import RAGRetriever
 from app.core.supabase import Supabase
 from app.core.vector_store import VectorStore
 from app.logging_config import init_logging
 from app.system.repository.document import DocumentRepository
+from app.system.service.chat import ChatService
 from app.system.service.document import DocumentService
 
 
@@ -427,6 +429,20 @@ class Container(containers.DeclarativeContainer):
         vector_store=vector_store,
         elasticsearch=elasticsearch,
         supabase=async_supabase,
+    )
+
+    rag_retriever = providers.Factory(
+        RAGRetriever,
+        elasticsearch=elasticsearch,
+        embedding_manager=embedding_manager,
+        logger=logger,
+        google_api_key=settings.provided.google_api_key,
+    )
+
+    chat_service = providers.Factory(
+        ChatService,
+        retriever=rag_retriever,
+        logger=logger,
     )
 
     handlers = providers.Factory(
