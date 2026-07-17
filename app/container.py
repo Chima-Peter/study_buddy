@@ -425,6 +425,8 @@ class Container(containers.DeclarativeContainer):
         ingest_pipeline=ingest_pipeline_service,
         rabbitmq=rabbitmq,
         vector_store=vector_store,
+        elasticsearch=elasticsearch,
+        supabase=async_supabase,
     )
 
     handlers = providers.Factory(

@@ -2,8 +2,10 @@ from datetime import datetime, timezone
 from logging import Logger
 from pathlib import Path
 
+from app.core.elasticsearch import Elasticsearch
 from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ
+from app.core.supabase import Supabase
 from app.core.vector_store import VectorStore
 from app.system.models.documents import DocumentModel
 from app.system.repository.document import DocumentRepository
@@ -26,12 +28,16 @@ class DocumentService:
         ingest_pipeline: IngestPipeline,
         vector_store: VectorStore,
         rabbitmq: RabbitMQ,
+        elasticsearch: Elasticsearch,
+        supabase: Supabase,
     ):
         self.repository = repository
         self.logger = logger
         self.vector_store = vector_store
         self.ingest_pipeline = ingest_pipeline
         self.rabbitmq = rabbitmq
+        self.elasticsearch = elasticsearch
+        self.supabase = supabase
 
     async def create_document(
         self,
@@ -115,7 +121,25 @@ class DocumentService:
         return result.to_response()
 
     async def delete_document(self, document_id: str, user_id: str) -> bool:
-        await self._get_owned_document(document_id, user_id)
+        document = await self._get_owned_document(document_id, user_id)
+
+        deleted_chunks = await self.elasticsearch.delete_by_document_id(
+            user_id, document_id
+        )
+        self.logger.info(
+            "Deleted %s Elasticsearch chunks for document_id=%s",
+            deleted_chunks,
+            document_id,
+        )
+
+        if document.path:
+            await self.supabase.delete_file(document.path)
+
+        self.logger.info(
+            "Deleted file from Supabase for document_id=%s",
+            document_id,
+        )
+
         deleted = await self.repository.delete(document_id)
         if not deleted:
             raise ValueError(f"Document not found: {document_id}")
