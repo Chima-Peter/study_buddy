@@ -38,7 +38,7 @@ class NotificationService:
         created_before: datetime | None = None,
         unread_only: bool = False,
     ) -> NotificationListResponseData:
-        notifications, next_cursor, has_more = await self.repository.list(
+        notifications, next_cursor, has_more = await self.repository.list_notifications(
             limit=limit,
             cursor=cursor,
             created_after=created_after,

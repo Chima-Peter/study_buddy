@@ -49,7 +49,7 @@ class NotificationRepository:
                 return None
             return NotificationModel(**db_notification.model_dump())
 
-    async def list(
+    async def list_notifications(
         self,
         *,
         limit: int = DEFAULT_LIST_LIMIT,
