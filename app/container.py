@@ -6,7 +6,7 @@ from logging import Logger
 import aio_pika
 import redis
 from dependency_injector import containers, providers
-from redis.asyncio import Redis, from_url
+from redis.asyncio import Redis
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -72,9 +72,14 @@ def init_sync_redis(redis_url: str) -> Iterator[redis.Redis]:
         client.close()
 
 
-async def init_async_redis(redis_url: str) -> AsyncIterator[Redis]:
+async def init_async_redis() -> AsyncIterator[Redis]:
     """Create the async Redis client and close it on shutdown."""
-    client: Redis = from_url(redis_url, decode_responses=True)
+    client = Redis(
+        host="localhost",
+        port=6379,
+        socket_timeout=10,
+        decode_responses=True,
+    )
     try:
         yield client
     finally:
@@ -295,7 +300,6 @@ class Container(containers.DeclarativeContainer):
 
     async_redis = providers.Resource(
         init_async_redis,
-        redis_url=settings.provided.redis_url,
     )
 
     sync_engine = providers.Resource(
@@ -468,6 +472,7 @@ class Container(containers.DeclarativeContainer):
         embedding_manager=embedding_manager,
         elasticsearch=elasticsearch,
         rabbitmq=rabbitmq,
+        redis=redis_client,
     )
 
     rabbitmq_consumers = providers.Resource(

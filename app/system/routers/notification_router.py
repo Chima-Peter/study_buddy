@@ -1,12 +1,16 @@
+import asyncio
+import json
 from datetime import datetime
 from logging import Logger
-from typing import Annotated
+from typing import Annotated, AsyncIterator
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 
 from app.authentication.schemas import UserResponse
 from app.container import Container
+from app.core.redis import RedisClient
 from app.core.response import BasicResponse
 from app.core.security import get_current_user
 from app.system.schemas.notification import (
@@ -17,7 +21,8 @@ from app.system.schemas.notification import (
 )
 from app.system.service.notification import NotificationService
 
-notification_router = APIRouter(prefix="/notifications", tags=["notifications"])
+notification_router = APIRouter(
+    prefix="/notifications", tags=["notifications"])
 
 
 @notification_router.get(
@@ -134,4 +139,80 @@ async def mark_notification_read(
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Notification marked as read",
+    )
+
+
+@notification_router.get(
+    "/stream",
+    summary="Live notification stream",
+    description=(
+        "Server-Sent Events stream for the current user. "
+        "Reconnect with Last-Event-ID to resume from the last received message."
+    ),
+)
+@inject
+async def live_stream(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    redis_service: RedisClient = Depends(Provide[Container.redis_client]),
+    logger: Logger = Depends(Provide[Container.logger]),
+    last_event_id: Annotated[
+        str | None, Header(alias="Last-Event-ID")
+    ] = None,
+) -> StreamingResponse:
+    cursor = last_event_id or "0"
+    stream_name = await redis_service.orchestrate_stream(user.id)
+
+    async def event_generator() -> AsyncIterator[str]:
+        nonlocal cursor
+        try:
+            while True:
+                messages = await redis_service.read_stream(stream_name, cursor)
+                if not messages or len(messages) == 0:
+                    yield (
+                        f"event: ping\n"
+                        f"data: {json.dumps({})}\n\n"
+                    )
+                    continue
+
+                for message_id, fields in messages:
+                    cursor = message_id
+                    event_type = fields.get("type", "message")
+                    raw_data = fields.get("data", "{}")
+                    try:
+                        payload_data = json.loads(raw_data)
+                    except (TypeError, json.JSONDecodeError):
+                        payload_data = raw_data
+
+                    payload = json.dumps(
+                        {"type": event_type, "data": payload_data}
+                    )
+                    yield (
+                        f"id: {message_id}\n"
+                        f"event: {event_type}\n"
+                        f"data: {payload}\n\n"
+                    )
+                    await redis_service.delete_message_from_stream(
+                        stream_name, message_id
+                    )
+        except asyncio.CancelledError:
+            logger.info(
+                "SSE disconnected user_id=%s stream=%s",
+                user.id,
+                stream_name,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_408_REQUEST_TIMEOUT,
+                detail="Connection timed out",
+            )
+        finally:
+            await redis_service.expire_connection(user.id)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )

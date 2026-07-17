@@ -39,3 +39,7 @@ class NotificationListApiResponse(BaseModel):
     success: bool = True
     message: Optional[str] = None
     error: Optional[str] = None
+
+class EventPayload(BaseModel):
+    type: str
+    data: dict

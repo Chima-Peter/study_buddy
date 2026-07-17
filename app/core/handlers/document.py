@@ -12,8 +12,14 @@ from app.core.elasticsearch import Elasticsearch, IndexedDocuments
 from app.core.embedding import EmbeddingManager
 from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ, read_retry_count
+from app.core.redis import RedisClient
 from app.core.supabase import Supabase
-from app.system.schemas.document import IngestDocumentRequest, ingest_failure_comment
+from app.system.schemas.document import (
+    DocumentResponse,
+    IngestDocumentRequest,
+    ingest_failure_comment,
+)
+from app.system.schemas.notification import EventPayload
 from app.system.service.document import DocumentService
 from app.utils.errors.rabbitmq import NonRetryableIngestError
 
@@ -36,6 +42,35 @@ def _is_file_not_found_error(exc: BaseException) -> bool:
             "object not found",
         )
     )
+
+
+async def notify_document_status(
+    redis: RedisClient,
+    logger: Logger,
+    user_id: str,
+    document: DocumentResponse,
+) -> None:
+    try:
+        await redis.publish_to_user(
+            user_id,
+            EventPayload(
+                type="document.status",
+                data={
+                    "document_id": document.id,
+                    "name": document.name,
+                    "status": document.status,
+                    "comment": document.comment,
+                },
+            ),
+        )
+    except Exception:
+        logger.exception(
+            "Failed to publish document status notification "
+            "user_id=%s document_id=%s status=%s",
+            user_id,
+            document.id,
+            document.status,
+        )
 
 
 async def continue_ingestion(
@@ -85,6 +120,7 @@ async def handle_document(
     embedding_manager: EmbeddingManager,
     elasticsearch: Elasticsearch,
     rabbitmq: RabbitMQ,
+    redis: RedisClient,
 ) -> None:
     document_id: str | None = None
     user_id: str | None = None
@@ -156,6 +192,10 @@ async def handle_document(
                                 user_id,
                                 document_id,
                             )
+                        else:
+                            await notify_document_status(
+                                redis, logger, user_id, completed
+                            )
                     else:
                         logger.info(
                             "Document hash already exists file=%s user_id=%s "
@@ -165,8 +205,11 @@ async def handle_document(
                             document_id,
                             existing.id,
                         )
-                        await document_service.cancel_duplicate(
+                        cancelled = await document_service.cancel_duplicate(
                             document_id, user_id, existing.path or ""
+                        )
+                        await notify_document_status(
+                            redis, logger, user_id, cancelled
                         )
                         if (
                             ingest_payload.path
@@ -282,6 +325,7 @@ async def handle_document(
                     )
                     return
 
+                await notify_document_status(redis, logger, user_id, completed)
                 logger.info(
                     "Ingested file=%s user_id=%s document_id=%s",
                     file_name,
@@ -301,13 +345,15 @@ async def handle_document(
                 reason,
             )
             if user_id and document_id:
-                await document_service.update_status(
+                failed = await document_service.update_status(
                     document_id,
                     "failed",
                     user_id,
                     from_statuses=("pending", "processing", "failed"),
                     comment=comment,
                 )
+                if failed is not None:
+                    await notify_document_status(redis, logger, user_id, failed)
             await message.reject(requeue=False)
             return
         except Exception as e:
@@ -331,7 +377,7 @@ async def handle_document(
                     exhausted_retries=True,
                 )
                 if user_id and document_id:
-                    await document_service.update_status(
+                    failed = await document_service.update_status(
                         document_id,
                         "failed",
                         user_id,
