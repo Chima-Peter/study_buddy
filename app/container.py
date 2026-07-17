@@ -31,8 +31,10 @@ from app.core.supabase import Supabase
 from app.core.vector_store import VectorStore
 from app.logging_config import init_logging
 from app.system.repository.document import DocumentRepository
+from app.system.repository.notification import NotificationRepository
 from app.system.service.chat import ChatService
 from app.system.service.document import DocumentService
+from app.system.service.notification import NotificationService
 
 
 def init_sync_engine(database_url: str) -> Iterator[Engine]:
@@ -442,6 +444,18 @@ class Container(containers.DeclarativeContainer):
     chat_service = providers.Factory(
         ChatService,
         retriever=rag_retriever,
+        logger=logger,
+    )
+
+    notification_repository = providers.Factory(
+        NotificationRepository,
+        session_factory=async_session_factory,
+        logger=logger,
+    )
+
+    notification_service = providers.Factory(
+        NotificationService,
+        repository=notification_repository,
         logger=logger,
     )
 

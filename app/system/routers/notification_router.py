@@ -1,0 +1,137 @@
+from datetime import datetime
+from logging import Logger
+from typing import Annotated
+
+from dependency_injector.wiring import Provide, inject
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.authentication.schemas import UserResponse
+from app.container import Container
+from app.core.response import BasicResponse
+from app.core.security import get_current_user
+from app.system.schemas.notification import (
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
+    NotificationApiResponse,
+    NotificationListApiResponse,
+)
+from app.system.service.notification import NotificationService
+
+notification_router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+
+@notification_router.get(
+    "",
+    response_model=NotificationListApiResponse,
+    summary="List notifications",
+    description=(
+        "List notifications with optional created_at filters "
+        f"and cursor-based pagination (max {MAX_LIST_LIMIT} per page)."
+    ),
+)
+@inject
+async def list_notifications(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: NotificationService = Depends(
+        Provide[Container.notification_service]
+    ),
+    logger: Logger = Depends(Provide[Container.logger]),
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=MAX_LIST_LIMIT,
+            description=f"Page size (1–{MAX_LIST_LIMIT}, default {DEFAULT_LIST_LIMIT})",
+        ),
+    ] = DEFAULT_LIST_LIMIT,
+    cursor: Annotated[
+        str | None,
+        Query(description="Cursor from previous page's next_cursor"),
+    ] = None,
+    created_after: Annotated[
+        datetime | None,
+        Query(
+            description="Include notifications created at or after this timestamp (ISO 8601)"
+        ),
+    ] = None,
+    created_before: Annotated[
+        datetime | None,
+        Query(
+            description="Include notifications created at or before this timestamp (ISO 8601)"
+        ),
+    ] = None,
+    unread_only: Annotated[
+        bool,
+        Query(description="If true, only return notifications that have not been read"),
+    ] = False,
+) -> BasicResponse:
+    if (
+        created_after is not None
+        and created_before is not None
+        and created_after > created_before
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="created_after must be less than or equal to created_before",
+        )
+
+    try:
+        result = await service.list_notifications(
+            limit=limit,
+            cursor=cursor,
+            created_after=created_after,
+            created_before=created_before,
+            unread_only=unread_only,
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error listing notifications user_id=%s", user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=result.model_dump(mode="json"),
+        message="Notifications retrieved successfully",
+    )
+
+
+@notification_router.patch(
+    "/{notification_id}/read",
+    response_model=NotificationApiResponse,
+    summary="Mark notification as read",
+    description="Sets read_at to the current time if the notification is unread.",
+)
+@inject
+async def mark_notification_read(
+    notification_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: NotificationService = Depends(
+        Provide[Container.notification_service]
+    ),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        result = await service.mark_as_read(notification_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except Exception:
+        logger.exception(
+            "Unexpected error marking notification read id=%s user_id=%s",
+            notification_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=result.model_dump(mode="json"),
+        message="Notification marked as read",
+    )
