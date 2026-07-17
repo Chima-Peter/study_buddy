@@ -131,115 +131,411 @@ def _ensure_size(path: Path, target: int, grow: Callable[[], None]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# LLM research corpora (each format gets a distinct topic family)
+# ---------------------------------------------------------------------------
+
+# Plain-text survey: transformers, attention, scaling
+TXT_PARAS = [
+    "The transformer architecture replaced recurrence with multi-head self-attention, "
+    "allowing each token to attend over the full context window in parallel. This "
+    "design choice underpins almost every modern large language model.",
+    "Scaled dot-product attention computes similarity between queries and keys, then "
+    "weights values. Multi-head attention runs several such projections so the model "
+    "can track syntax, coreference, and long-range dependencies simultaneously.",
+    "Positional information is not inherent to attention. Absolute sinusoidal encodings, "
+    "learned embeddings, and rotary position embeddings (RoPE) each trade off "
+    "extrapolation, training stability, and length generalization differently.",
+    "Scaling laws relate loss to parameter count, dataset size, and compute. Kaplan et "
+    "al. and the Chinchilla analysis argued that many models were under-trained relative "
+    "to their size, motivating balanced scaling of data and parameters.",
+    "Mixture-of-experts layers route tokens to sparse expert FFNs, increasing capacity "
+    "without proportional FLOPs per token. Load balancing and expert specialization "
+    "remain active research problems for training stability.",
+    "Context-window extension via YaRN, ALiBi, or continued pretraining on long "
+    "documents aims to preserve short-context quality while enabling book-length "
+    "reasoning and retrieval-free citation of earlier passages.",
+    "Quantization (GPTQ, AWQ, bitsandbytes) and KV-cache compression reduce inference "
+    "memory. Quality degradation is task-dependent: math and code often suffer more "
+    "than short-form classification under aggressive 4-bit schemes.",
+    "Instruction tuning aligns next-token predictors with user intents. High-quality "
+    "curated datasets often outperform larger noisy mixtures for helpfulness, though "
+    "diversity still matters for rare skills.",
+]
+
+# JSON corpus: evaluation, safety, and alignment findings
+JSON_FINDINGS = [
+    {
+        "topic": "RLHF and preference modeling",
+        "summary": (
+            "Reinforcement learning from human feedback trains a reward model on "
+            "ranked completions, then optimizes the policy with PPO or related "
+            "methods. Reward hacking and sycophancy remain failure modes when the "
+            "proxy diverges from true human preference."
+        ),
+        "methods": ["PPO", "reward modeling", "preference pairs"],
+        "takeaway": "Preference data quality dominates algorithm choice at modest scale.",
+    },
+    {
+        "topic": "Direct Preference Optimization",
+        "summary": (
+            "DPO reparameterizes the RLHF objective so the policy can be trained "
+            "directly on preference pairs without a separate reward model. It simplifies "
+            "pipelines but can overfit to preference noise without careful regularization."
+        ),
+        "methods": ["DPO", "IPO", "KTO"],
+        "takeaway": "Offline preference objectives reduce infra complexity for labs.",
+    },
+    {
+        "topic": "Constitutional AI",
+        "summary": (
+            "Models critique and revise their own outputs against written principles, "
+            "reducing reliance on human labels for harmlessness. Principles must be "
+            "precise; vague constitutions yield inconsistent refusals."
+        ),
+        "methods": ["self-critique", "AI feedback", "principle sets"],
+        "takeaway": "Written constitutions scale harmlessness labeling.",
+    },
+    {
+        "topic": "Benchmark saturation",
+        "summary": (
+            "MMLU, GSM8K, and HumanEval approach ceilings for frontier models, "
+            "compressing discriminative signal. Contaminated evaluation sets inflate "
+            "reported gains; held-out and dynamic benchmarks are increasingly required."
+        ),
+        "methods": ["MMLU", "GSM8K", "HumanEval", "LiveCodeBench"],
+        "takeaway": "Static benchmarks understate capability differences among top models.",
+    },
+    {
+        "topic": "Jailbreaks and adversarial prompts",
+        "summary": (
+            "Gradient-based and human-crafted jailbreaks bypass safety filters by "
+            "reframing harmful requests as role-play, encoding, or hypotheticals. "
+            "Defense-in-depth combines refusal training, classifiers, and runtime monitors."
+        ),
+        "methods": ["GCG", "PAIR", "circuit breakers"],
+        "takeaway": "No single training fix eliminates adaptive attacks.",
+    },
+    {
+        "topic": "Tool use and agents",
+        "summary": (
+            "Toolformer-style and ReAct-style agents interleave reasoning with API "
+            "calls. Reliability hinges on schema adherence, recovery from tool errors, "
+            "and limiting open-ended loops that amplify hallucinations."
+        ),
+        "methods": ["ReAct", "tool schemas", "function calling"],
+        "takeaway": "Grounded tools reduce hallucination when APIs are trustworthy.",
+    },
+]
+
+# CSV corpus: benchmark / ablation study rows
+CSV_STUDIES = [
+    (
+        "attention_ablation",
+        "Vaswani et al. style multi-head width study",
+        "Perplexity improves with more heads up to a plateau; very narrow heads lose "
+        "syntactic tracking on long dependencies.",
+    ),
+    (
+        "chinchilla_compute",
+        "Optimal tokens-per-parameter under fixed FLOPs",
+        "Under-trained large models waste compute; equal loss isoquants favor more "
+        "tokens for a given parameter budget.",
+    ),
+    (
+        "rope_extrapolation",
+        "RoPE base frequency and long-context eval",
+        "Increasing RoPE base or using YaRN recovers Needle-in-a-Haystack accuracy "
+        "beyond the original training length with modest fine-tuning.",
+    ),
+    (
+        "rlhf_vs_dpo",
+        "Helpfulness and honesty preference win rates",
+        "DPO matches PPO helpfulness on in-distribution prompts; PPO retains an edge "
+        "on out-of-distribution creative writing in some suites.",
+    ),
+    (
+        "rag_vs_long_context",
+        "Open-domain QA with retrieval versus 128k context",
+        "Dense retrieval with reranking beats naive long-context stuffing on corpus "
+        "QA when documents exceed cache-friendly lengths.",
+    ),
+    (
+        "quantization_gsm8k",
+        "INT4 weight-only math reasoning retention",
+        "AWQ preserves GSM8K better than naive round-to-nearest; code generation "
+        "shows larger drops than short-answer science questions.",
+    ),
+    (
+        "moe_routing",
+        "Expert load balance and downstream MMLU",
+        "Auxiliary load-balancing losses reduce dead experts; over-balancing can "
+        "hurt specialization on niche STEM topics.",
+    ),
+    (
+        "speculative_decoding",
+        "Draft model acceptance rate vs wall-clock",
+        "A well-matched draft model yields 1.5–3× tokens/sec with negligible quality "
+        "change when verification uses the target model logits.",
+    ),
+]
+
+# Markdown: RAG, retrieval, and grounding literature notes
+MD_SECTIONS = [
+    (
+        "Dense Retrieval for Grounding",
+        "Dense passage retrievers map queries and documents into a shared embedding "
+        "space. Contrastive training on question–passage pairs enables semantic match "
+        "beyond lexical overlap, which is essential for paraphrased scientific claims.",
+        "Hybrid BM25 + dense retrieval often wins on technical corpora where rare "
+        "entity names must still match exactly.",
+    ),
+    (
+        "Chunking Strategies",
+        "Chunk size and overlap control recall versus precision in RAG. Too-small "
+        "chunks lose discourse; too-large chunks dilute embeddings and waste context. "
+        "Structure-aware splits (headings, code fences) outperform fixed windows.",
+        "Parent-document retrieval returns small chunks for matching but expands to "
+        "surrounding sections for generation.",
+    ),
+    (
+        "Reranking and Compression",
+        "Cross-encoder rerankers rescore top-k hits with full query–document attention. "
+        "Contextual compression and LLM extractors trim retrieved text so the generator "
+        "sees only claim-supporting sentences.",
+        "Reranking gains are largest when the first-stage retriever is recall-oriented.",
+    ),
+    (
+        "Attribution and Faithfulness",
+        "Faithfulness metrics check whether generated statements are entailed by "
+        "retrieved evidence. Citation markers help users verify claims but do not "
+        "guarantee correct grounding without explicit attribution training.",
+        "Self-consistency across sampled answers can flag unsupported numeric claims.",
+    ),
+    (
+        "Multimodal Retrieval",
+        "Vision–language models retrieve figures and tables alongside text. ColBERT-style "
+        "late interaction and CLIP-style dual encoders offer different latency–recall "
+        "tradeoffs for slide decks and paper PDFs.",
+        "OCR quality remains a bottleneck for scanned proceedings and whiteboard photos.",
+    ),
+]
+
+# PNG OCR lines: concise research captions (unique theme: interpretability)
+PNG_LINES = [
+    "Mechanistic interpretability maps circuits inside transformers to algorithms.",
+    "Induction heads copy prior token patterns and enable in-context learning.",
+    "Activation patching localizes which layers carry factual associations.",
+    "Sparse autoencoders aim to disentangle polysemantic neuron activations.",
+    "Attention knockout experiments test whether heads are necessary for a behavior.",
+    "Logit lens reads intermediate residual streams as vocabulary distributions.",
+    "Causal scrubbing validates that a proposed circuit actually explains a task.",
+    "Representation engineering steers concepts via linear directions in activation space.",
+    "Grokking shows delayed generalization after prolonged overfitting on small data.",
+    "Superposition packs many features into fewer dimensions than the feature count.",
+]
+
+# Easy PDF: pretraining, tokenization, data curation
+PDF_EASY_PARAS = [
+    "Byte-pair encoding and SentencePiece tokenize text into subword units, balancing "
+    "vocabulary size against sequence length. Poor tokenization of code or non-English "
+    "scripts wastes context and harms sample efficiency.",
+    "Pretraining corpora mix web text, books, code, and academic PDFs. Deduplication, "
+    "quality filtering, and PII scrubbing strongly affect downstream safety and factuality.",
+    "Masked language modeling (BERT) and causal language modeling (GPT) induce different "
+    "representations. Decoder-only causal LMs dominate generative assistants despite "
+    "bidirectional encoders remaining useful for embedding models.",
+    "Warmup, cosine decay, and AdamW weight decay stabilize large runs. Gradient "
+    "clipping and mixed precision (bf16) are standard; loss spikes often trace to "
+    "data pathologies or learning-rate mistakes.",
+    "Continued pretraining on domain text (law, biomedicine, code) shifts the prior "
+    "before instruction tuning. Catastrophic forgetting of general skills can be "
+    "mitigated with replay mixtures.",
+    "Synthetic data from stronger teachers expands rare reasoning traces, but "
+    "self-training on model outputs can amplify style artifacts and hidden biases "
+    "unless filtered against verified solutions.",
+]
+
+# Complex PDF: multimodal + systems tables
+PDF_COMPLEX_ROWS = [
+    ("GPT-4V", "vision+text", "strong", "diagrams, UI, charts"),
+    ("LLaVA", "CLIP+LLM", "open", "instruction-tuned VLM"),
+    ("Flamingo", "gated x-attn", "few-shot", "interleaved image-text"),
+    ("Kosmos", "multimodal", "grounding", "perception-language"),
+    ("Whisper", "speech→text", "robust", "multilingual ASR"),
+    ("MusicLM", "audio gen", "cascade", "text-to-music"),
+    ("DiT", "diffusion", "latents", "transformer denoiser"),
+    ("SAM", "segmentation", "promptable", "vision foundation"),
+]
+
+PDF_COMPLEX_CAPTIONS = [
+    "Figure: Latency versus tokens/sec for speculative decoding with matched draft models.",
+    "Figure: Expert utilization histogram under different load-balancing coefficients.",
+    "Table notes: Open multimodal models still trail proprietary systems on chart QA.",
+    "Discussion: Unified embedding spaces simplify cross-modal retrieval for study tools.",
+    "Systems note: Continuous batching and paged attention dominate serving efficiency.",
+]
+
+
+def _cycle(items: list, i: int):
+    return items[i % len(items)]
+
+
+# ---------------------------------------------------------------------------
 # Fixture generators
 # ---------------------------------------------------------------------------
 
 
 def generate_txt(path: Path, target: int, run_id: str = "run") -> None:
+    """Survey-style notes on transformers, attention, and scaling laws."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    paragraph = (
-        "Study Buddy load-test paragraph. Retrieval, embeddings, and chunking "
-        "need enough unique text so the pipeline does real work. "
-        f"Token padding {'vector ' * 20}\n\n"
-    )
     with path.open("w", encoding="utf-8") as f:
-        f.write(f"run_id={run_id}\n\n")
-        written = f.tell()
+        f.write(
+            "A Working Survey of Large Language Model Foundations\n"
+            f"(fixture run_id={run_id})\n\n"
+            "This note collects readable research commentary on architectures that "
+            "underpin contemporary LLMs. Each section expands a distinct idea so the "
+            "document remains useful for retrieval and study, not only load testing.\n\n"
+        )
         i = 0
-        while written < target:
-            block = f"## Section {i}\n{paragraph}"
-            f.write(block)
-            written += len(block.encode("utf-8"))
+        while f.tell() < target:
+            para = _cycle(TXT_PARAS, i)
+            f.write(f"{i + 1}. {para}\n\n")
+            f.write(
+                f"   Elaborating further ({run_id}/{i}): researchers compare wall-clock "
+                f"training efficiency, inference latency, and downstream transfer when "
+                f"varying depth, width, and data mixture. Related reading often cites "
+                f"attention variants, optimizer choices, and evaluation contamination "
+                f"controls for claim {i + 1}.\n\n"
+            )
             i += 1
 
 
 def generate_json(path: Path, target: int, run_id: str = "run") -> None:
-    """Fewer large objects — avoids RecursiveJsonSplitter chunk explosion."""
+    """Structured findings on alignment, evaluation, and agents."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Dense body text keeps byte size up without thousands of tiny records.
-    body_pad = ("Architecture guidance for retrieval systems. " * 40) + "\n"
     records: list[dict] = []
     i = 0
     while True:
+        base = _cycle(JSON_FINDINGS, i)
         records.append(
             {
-                "id": i,
-                "run_id": run_id,
-                "title": f"Record {i}",
-                "region": f"R{i % 12}",
-                "metrics": {
-                    "q1": (i * 3) % 97,
-                    "q2": (i * 5) % 97,
-                    "q3": (i * 7) % 97,
-                    "q4": (i * 11) % 97,
-                },
-                "body": f"Section {i}\n{body_pad * 3}",
-                "tags": [f"tag{(i + k) % 20}" for k in range(3)],
+                "id": f"{run_id}-{i}",
+                "corpus": "llm_alignment_eval",
+                "topic": base["topic"],
+                "summary": base["summary"],
+                "methods": base["methods"],
+                "takeaway": base["takeaway"],
+                "discussion": (
+                    f"Entry {i} expands on {base['topic']} for study-buddy retrieval. "
+                    f"Practitioners should track dataset provenance, judge–model bias, "
+                    f"and whether reported gains survive fresh prompts outside the "
+                    f"original preference distribution. Cross-check against related "
+                    f"work on {_cycle(JSON_FINDINGS, i + 1)['topic']}."
+                ),
+                "open_questions": [
+                    f"How stable is {base['topic']} under distribution shift?",
+                    "Which automatic judges correlate with expert labels?",
+                    "What failure modes appear only at deployment scale?",
+                ],
             }
         )
         i += 1
-        blob = json.dumps({"run_id": run_id, "documents": records}, indent=2).encode(
-            "utf-8"
-        )
+        blob = json.dumps(
+            {
+                "title": "LLM Alignment and Evaluation Digest",
+                "run_id": run_id,
+                "documents": records,
+            },
+            indent=2,
+        ).encode("utf-8")
         if len(blob) >= target:
             path.write_bytes(blob)
             return
 
 
 def generate_csv(path: Path, target: int, run_id: str = "run") -> None:
-    """Fewer rows with long notes — parse_csv makes one doc per row."""
+    """Benchmark / ablation study table with readable research notes."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    headers = ["id", "run_id", "metric", "region", "q1", "q2", "q3", "q4", "notes"]
-    long_note = (
-        "csv load note with enough prose for embedding work. " * 40
-    )
+    headers = [
+        "study_id",
+        "run_id",
+        "experiment",
+        "focus",
+        "metric_name",
+        "metric_value",
+        "params_b",
+        "tokens_b",
+        "notes",
+    ]
+    metrics = [
+        ("perplexity", 12.4),
+        ("mmlu", 0.71),
+        ("gsm8k", 0.58),
+        ("humaneval", 0.44),
+        ("win_rate", 0.62),
+        ("latency_ms", 38.0),
+    ]
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(headers)
         i = 0
         while f.tell() < target:
+            key, focus, note = _cycle(CSV_STUDIES, i)
+            metric_name, metric_base = _cycle(metrics, i)
             writer.writerow(
                 [
-                    i,
+                    f"{key}_{i}",
                     run_id,
-                    f"M{i % 50}",
-                    f"R{i % 12}",
-                    (i * 3) % 97,
-                    (i * 5) % 97,
-                    (i * 7) % 97,
-                    (i * 11) % 97,
-                    f"{long_note} row={i}",
+                    key,
+                    focus,
+                    metric_name,
+                    round(metric_base + (i % 17) * 0.01, 4),
+                    7 + (i % 65),
+                    140 + (i * 3) % 400,
+                    (
+                        f"{note} Study row {i} documents how {focus.lower()} interacts "
+                        f"with {metric_name} under controlled ablations. Interpret "
+                        f"gains cautiously when evaluation sets may overlap pretraining."
+                    ),
                 ]
             )
             i += 1
 
 
 def generate_md(path: Path, target: int, run_id: str = "run") -> None:
+    """Markdown literature notes on RAG, retrieval, and grounding."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
-        f.write(f"# Study Buddy Load Test\n\nrun_id={run_id}\n\n")
+        f.write(
+            "# Retrieval-Augmented Generation: Research Notes\n\n"
+            f"*run_id={run_id}*\n\n"
+            "These notes summarize practical research themes for grounding LLMs on "
+            "external knowledge. Sections are written to be independently retrievable.\n\n"
+        )
         i = 0
         while f.tell() < target:
-            f.write(f"## Section {i}\n\n")
+            title, body, tip = _cycle(MD_SECTIONS, i)
+            f.write(f"## {i + 1}. {title}\n\n")
+            f.write(f"{body}\n\n")
+            f.write(f"**Practice tip:** {tip}\n\n")
             f.write(
-                "Markdown fixture for unstructured parsing and splitting.\n\n"
+                f"| Aspect | Guidance |\n| --- | --- |\n"
+                f"| Indexing | Prefer semantic chunk IDs stable across re-embeds |\n"
+                f"| Evaluation | Measure answer faithfulness, not only BLEU/ROUGE |\n"
+                f"| Failure mode | Retrieved-but-ignored context still yields fluent errors |\n\n"
             )
-            f.write(f"- Throughput target: {(i + 1) * 100} rps\n")
-            f.write(f"- Latency budget: {50 + i}ms\n")
-            f.write(f"- Retention: {30 + (i % 60)} days\n\n")
-            f.write("```python\n")
-            f.write(f"def appendix_{i}(payload):\n")
-            f.write(f"    return {{'section': {i}, 'payload': payload}}\n")
-            f.write("```\n\n")
-            f.write("| Col A | Col B | Col C |\n| --- | --- | --- |\n")
-            f.write(f"| {i} | region-{i % 8} | value-{(i * 13) % 100} |\n\n")
+            f.write(
+                "```text\n"
+                f"query → retrieve(k) → rerank → compress → generate → cite\n"
+                f"# iteration {i} / {run_id}\n"
+                "```\n\n"
+            )
             i += 1
 
 
 def generate_text_rich_png(path: Path, target: int, run_id: str = "run") -> None:
-    """PNG packed with readable text for OCR / image ingest paths."""
+    """Text-rich PNG on mechanistic interpretability (OCR-friendly)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Scale canvas until compressed PNG is large enough
     width, height = 1200, 1600
     attempt = 0
     while True:
@@ -247,35 +543,51 @@ def generate_text_rich_png(path: Path, target: int, run_id: str = "run") -> None
         draw = ImageDraw.Draw(img)
         try:
             font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 18
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 17
             )
             title_font = ImageFont.truetype(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 26
             )
         except OSError:
             font = ImageFont.load_default()
             title_font = font
 
         draw.text(
-            (40, 30),
-            f"Study Buddy OCR Load Fixture {run_id} #{attempt}",
+            (40, 28),
+            "Mechanistic Interpretability Brief",
             fill=(20, 40, 60),
             font=title_font,
         )
-        y = 80
+        draw.text(
+            (40, 62),
+            f"Readable OCR fixture · run {run_id} · pass {attempt}",
+            fill=(60, 60, 60),
+            font=font,
+        )
+        y = 100
         line_idx = 0
         while y < height - 40:
-            line = (
-                f"L{line_idx:04d}  Region=R{line_idx % 12}  "
-                f"Q1={(line_idx * 3) % 97} Q2={(line_idx * 5) % 97}  "
-                f"Note: vector retrieval table cell detail {line_idx}"
+            line = _cycle(PNG_LINES, line_idx)
+            # Wrap-ish by truncating long lines for canvas width
+            draw.text(
+                (40, y),
+                f"{line_idx + 1:02d}. {line}",
+                fill=(30, 30, 30),
+                font=font,
             )
-            draw.text((40, y), line, fill=(30, 30, 30), font=font)
-            y += 22
+            y += 24
+            if line_idx % 5 == 4:
+                draw.text(
+                    (40, y),
+                    (
+                        f"    Note: circuit analyses should state the exact task, "
+                        f"model family, and intervention used (n={line_idx})."
+                    ),
+                    fill=(50, 50, 70),
+                    font=font,
+                )
+                y += 24
             line_idx += 1
-            if line_idx % 40 == 0:
-                draw.line((40, y, width - 40, y), fill=(180, 180, 180), width=1)
-                y += 10
 
         # Mild noise so compression does not shrink too aggressively
         pixels = img.load()
@@ -289,7 +601,6 @@ def generate_text_rich_png(path: Path, target: int, run_id: str = "run") -> None
         size = path.stat().st_size
         if size >= target:
             return
-        # Grow canvas for next attempt
         width = int(width * 1.25)
         height = int(height * 1.25)
         attempt += 1
@@ -300,32 +611,45 @@ def generate_text_rich_png(path: Path, target: int, run_id: str = "run") -> None
 
 
 def generate_pdf_easy(path: Path, target: int, run_id: str = "run") -> None:
-    """Text-only multi-page PDF (cheap to parse)."""
+    """Text PDF primer on pretraining, tokenization, and data curation."""
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = fitz.open()
     page_n = 0
+    para_i = 0
     while True:
         page = doc.new_page(width=612, height=792)
         page_n += 1
         y = 48
         page.insert_text(
             (36, y),
-            f"Easy PDF load test {run_id} — page {page_n}",
-            fontsize=14,
+            f"LLM Pretraining Primer ({run_id}) — page {page_n}",
+            fontsize=13,
         )
         y += 28
-        for row in range(38):
-            page.insert_text(
-                (36, y),
-                (
-                    f"P{page_n} R{row}: Study notes on chunking, embeddings, "
-                    f"and retrieval. Metric={(row * page_n) % 97} "
-                    + ("text " * 6)
-                ),
-                fontsize=9,
-            )
-            y += 16
-            if y > 760:
+        while y < 740:
+            para = _cycle(PDF_EASY_PARAS, para_i)
+            # PyMuPDF insert_text does not wrap; emit shorter lines
+            words = (
+                f"[{para_i + 1}] {para} "
+                f"Additional context for page {page_n}: compare filtering "
+                f"pipelines, tokenizer fertility, and validation loss curves."
+            ).split()
+            line = ""
+            for w in words:
+                trial = f"{line} {w}".strip()
+                if len(trial) > 95:
+                    page.insert_text((36, y), line, fontsize=9)
+                    y += 12
+                    line = w
+                    if y >= 740:
+                        break
+                else:
+                    line = trial
+            if y < 740 and line:
+                page.insert_text((36, y), line, fontsize=9)
+                y += 16
+            para_i += 1
+            if y >= 740:
                 break
         if page_n % 3 == 0:
             doc.save(path, deflate=True, garbage=1)
@@ -337,7 +661,7 @@ def generate_pdf_easy(path: Path, target: int, run_id: str = "run") -> None:
 
 
 def generate_pdf_complex(path: Path, target: int, run_id: str = "run") -> None:
-    """PDF with tables + embedded noisy images (heavier pipeline)."""
+    """PDF survey with multimodal model tables + supporting figures."""
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = fitz.open()
     page_n = 0
@@ -357,27 +681,44 @@ def generate_pdf_complex(path: Path, target: int, run_id: str = "run") -> None:
         y = 36
         page.insert_text(
             (36, y),
-            f"Complex PDF {run_id} — page {page_n} (tables + images)",
-            fontsize=13,
+            f"Multimodal LLM Systems Survey ({run_id}) — p.{page_n}",
+            fontsize=12,
         )
-        y += 24
-        cols = ["Metric", "Region", "Q1", "Q2", "Q3", "Q4", "Notes"]
-        page.insert_text((36, y), " | ".join(cols), fontsize=9)
+        y += 22
+        page.insert_text(
+            (36, y),
+            _cycle(PDF_COMPLEX_CAPTIONS, page_n),
+            fontsize=9,
+        )
+        y += 20
+        page.insert_text(
+            (36, y),
+            "Model | Modality | Strength | Typical use",
+            fontsize=9,
+        )
         y += 14
-        for row in range(22):
-            values = [
-                f"M{row}",
-                f"R{(row + page_n) % 12}",
-                f"{(row * 3 + page_n) % 97}",
-                f"{(row * 5 + page_n) % 97}",
-                f"{(row * 7 + page_n) % 97}",
-                f"{(row * 11 + page_n) % 97}",
-                f"detail {(row + page_n) * 17} " + ("cell " * 3),
-            ]
-            page.insert_text((36, y), " | ".join(values), fontsize=8)
+        for row in range(16):
+            model, modality, strength, use = _cycle(
+                PDF_COMPLEX_ROWS, page_n + row
+            )
+            page.insert_text(
+                (36, y),
+                f"{model} | {modality} | {strength} | {use} | row {row}",
+                fontsize=8,
+            )
             y += 12
             if y > 480:
                 break
+
+        page.insert_text(
+            (36, y + 4),
+            (
+                "Discussion: serving stacks combine continuous batching, paged KV "
+                "cache, and speculative decoding; multimodal inputs increase "
+                "prefill cost and memory fragmentation."
+            ),
+            fontsize=8,
+        )
 
         png = noise_png(seed=seed)
         seed += 1
@@ -396,7 +737,7 @@ def generate_pdf_complex(path: Path, target: int, run_id: str = "run") -> None:
     doc.close()
 
 
-GENERATORS: dict[str, tuple[Callable[[Path, int], None], str, str]] = {
+GENERATORS: dict[str, tuple[Callable[..., None], str, str]] = {
     # kind -> (generator, extension, content-type)
     "txt": (generate_txt, ".txt", "text/plain"),
     "json": (generate_json, ".json", "application/json"),
@@ -742,3 +1083,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+    # python scripts/load_test_ingest.py --email chi@gmail.com --password 'Password@1' --profile quick
+# larger: --profile medium | --profile full

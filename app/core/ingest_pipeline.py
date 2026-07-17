@@ -116,9 +116,11 @@ class IngestPipeline:
     def load_markdown_file(
         self, payload: IngestDocumentRequest, file_path: str
     ) -> list[Document]:
-        markdown_loader = UnstructuredMarkdownLoader(str(file_path), mode="elements")
+        markdown_loader = UnstructuredMarkdownLoader(
+            str(file_path), mode="elements")
         documents = markdown_loader.load()
-        chunks = MarkdownTextSplitter(chunk_size=1000, chunk_overlap=200).split_documents(documents)
+        chunks = MarkdownTextSplitter(
+            chunk_size=1000, chunk_overlap=200).split_documents(documents)
         self.logger.info(
             "Loaded and split markdown file=%s user_id=%s document_id=%s loader=%s chunks=%s",
             payload.file_name,
@@ -141,6 +143,25 @@ class IngestPipeline:
             loader_name="PyMuPDFLoader",
             payload=payload,
         )
+
+    def _pdf_needs_hi_res(self, file_path: str) -> bool:
+        import fitz
+
+        drawing_threshold = 30
+
+        doc = fitz.open(file_path)
+        try:
+            for page in doc:
+                for img in page.get_images(full=True):
+                    xref = img[0]
+                    pix = fitz.Pixmap(doc, xref)
+                    if pix.width > 500 and pix.height > 500:
+                        return True
+                if len(page.get_drawings()) >= drawing_threshold:
+                    return True
+            return False
+        finally:
+            doc.close()
 
     def load_json_file(
         self, payload: IngestDocumentRequest, file_path: str
@@ -237,8 +258,24 @@ class IngestPipeline:
 
             match suffix:
                 case ".pdf":
-                    used_unstructured = True
-                    documents = self.load_file(payload, file_path, "hi_res")
+                    if self._pdf_needs_hi_res(file_path):
+                        self.logger.info(
+                            "PDF needs hi_res file=%s user_id=%s document_id=%s",
+                            file_name,
+                            user_id,
+                            document_id,
+                        )
+                        used_unstructured = True
+                        documents = self.load_file(
+                            payload, file_path, "hi_res")
+                    else:
+                        self.logger.info(
+                            "PDF text-only path file=%s user_id=%s document_id=%s",
+                            file_name,
+                            user_id,
+                            document_id,
+                        )
+                        documents = self.load_pdf_file(payload, file_path)
                 case ".docx":
                     documents = self.load_word_file(payload, file_path)
                 case ".txt":

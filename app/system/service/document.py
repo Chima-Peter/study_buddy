@@ -122,9 +122,9 @@ class DocumentService:
         return True
 
     async def get_document_by_hash(
-        self, hash: str, user_id: str
+        self, file_hash: str, user_id: str
     ) -> DocumentResponse | None:
-        document = await self.repository.get_by_hash(hash, user_id)
+        document = await self.repository.get_by_hash(file_hash, user_id)
         if document is None:
             return None
         return document.to_response()
