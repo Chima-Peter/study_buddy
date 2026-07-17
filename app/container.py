@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import sessionmaker
 from supabase import AsyncClient, create_async_client, create_client, Client
+from elasticsearch import Elasticsearch, AsyncElasticsearch
 
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
@@ -164,16 +165,110 @@ async def init_rabbitmq_consumers(
 
 
 def init_supabase(supabase_url: str, supabase_key: str) -> Client:
-  return create_client(
-    supabase_url=supabase_url,
-    supabase_key=supabase_key,
-  )
+    return create_client(
+        supabase_url=supabase_url,
+        supabase_key=supabase_key,
+    )
+
 
 async def init_async_supabase(supabase_url: str, supabase_key: str) -> AsyncClient:
-  return await create_async_client(
-    supabase_url=supabase_url,
-    supabase_key=supabase_key,
-  )
+    return await create_async_client(
+        supabase_url=supabase_url,
+        supabase_key=supabase_key,
+    )
+
+
+def init_elasticsearch(elasticsearch_url: str) -> Elasticsearch:
+    es = Elasticsearch(elasticsearch_url, verify_certs=False)
+    es.indices.create(
+        index="documents",
+        mappings={
+            "properties": {
+                "content": {
+                    "type": "text"
+                },
+                "embedding": {
+                    "type": "dense_vector",
+                    "dims": 768,
+                    "index": True,
+                    "similarity": "cosine"
+                },
+                "metadata": {
+                    "properties": {
+                        "page": {
+                            "type": "integer"
+                        },
+                        "source": {
+                            "type": "keyword"
+                        },
+                        "category": {
+                            "type": "keyword"
+                        },
+                        "name": {
+                            "type": "keyword"
+                        },
+                        "user_id": {
+                            "type": "keyword"
+                        },
+                        "document_id": {
+                            "type": "keyword"
+                        }
+                    }
+                }
+            }
+        }
+    )
+    try:
+        yield es
+    finally:
+        es.close()
+
+
+def init_async_elasticsearch(elasticsearch_url: str) -> AsyncElasticsearch:
+    es = AsyncElasticsearch(elasticsearch_url, verify_certs=False)
+    es.indices.create(
+        index="documents",
+        mappings={
+            "properties": {
+                "content": {
+                    "type": "text"
+                },
+                "embedding": {
+                    "type": "dense_vector",
+                    "dims": 768,
+                    "index": True,
+                    "similarity": "cosine"
+                },
+                "metadata": {
+                    "properties": {
+                        "page": {
+                            "type": "integer"
+                        },
+                        "source": {
+                            "type": "keyword"
+                        },
+                        "category": {
+                            "type": "keyword"
+                        },
+                        "name": {
+                            "type": "keyword"
+                        },
+                        "user_id": {
+                            "type": "keyword"
+                        },
+                        "document_id": {
+                            "type": "keyword"
+                        }
+                    }
+                }
+            }
+        }
+    )
+    try:
+        yield es
+    finally:
+        es.close()
+
 
 class Container(containers.DeclarativeContainer):
     """Application dependency container."""
@@ -210,21 +305,31 @@ class Container(containers.DeclarativeContainer):
         database_url=settings.provided.database_url,
     )
 
+    elasticsearch = providers.Resource(
+        init_elasticsearch,
+        elasticsearch_url=settings.provided.elasticsearch_url,
+    )
+
+    async_elasticsearch = providers.Resource(
+        init_async_elasticsearch,
+        elasticsearch_url=settings.provided.elasticsearch_url,
+    )
+
     async_session_factory = providers.Singleton(
         init_async_session_factory,
         engine=async_engine,
     )
 
     sync_supabase_client = providers.Resource(
-      init_supabase,
-      supabase_url=settings.provided.supabase_url,
-      supabase_key=settings.provided.supabase_key,
+        init_supabase,
+        supabase_url=settings.provided.supabase_url,
+        supabase_key=settings.provided.supabase_key,
     )
 
     async_supabase_client = providers.Resource(
-      init_async_supabase,
-      supabase_url=settings.provided.supabase_url,
-      supabase_key=settings.provided.supabase_key,
+        init_async_supabase,
+        supabase_url=settings.provided.supabase_url,
+        supabase_key=settings.provided.supabase_key,
     )
 
     async_supabase = providers.Factory(
@@ -270,29 +375,29 @@ class Container(containers.DeclarativeContainer):
     )
 
     embedding_manager = providers.Singleton(
-      EmbeddingManager,
-      model_name="all-MiniLM-L6-v2",
-      logger=logger,
+        EmbeddingManager,
+        model_name="all-MiniLM-L6-v2",
+        logger=logger,
     )
 
     langchain_embeddings = providers.Singleton(
-      SentenceTransformerEmbeddings,
-      model=embedding_manager.provided.model,
+        SentenceTransformerEmbeddings,
+        model=embedding_manager.provided.model,
     )
 
     vector_store = providers.Resource(
-      VectorStore,
-      logger=logger,
-      collection_name="pdf_store",
+        VectorStore,
+        logger=logger,
+        collection_name="pdf_store",
     )
 
     ingest_pipeline_service = providers.Factory(
-      IngestPipeline,
-      logger=logger,
-      embedding_manager=embedding_manager,
-      supabase=async_supabase,
-      semantic_embeddings=langchain_embeddings,
-      vector_store=vector_store,
+        IngestPipeline,
+        logger=logger,
+        embedding_manager=embedding_manager,
+        supabase=async_supabase,
+        semantic_embeddings=langchain_embeddings,
+        vector_store=vector_store,
     )
 
     document_repository = providers.Factory(

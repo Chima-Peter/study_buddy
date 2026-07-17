@@ -288,7 +288,7 @@ class IngestPipeline:
 
             for i, doc in enumerate(documents):
                 doc.metadata["source"] = payload.file_name
-                doc.metadata["chunk_index"] = i
+                doc.metadata["page"] = i
                 doc.metadata["category"] = payload.category
                 doc.metadata["name"] = payload.name
                 doc.metadata["user_id"] = payload.user_id

@@ -29,3 +29,5 @@ class Settings(BaseSettings):
 
     supabase_url: str = "https://ljdj.........co"
     supabase_key: str = "sb_publ........"
+
+    elasticsearch_url: str = "http://localhost:9200"
