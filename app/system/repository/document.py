@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
 from app.system.models.documents import DocumentDBModel, DocumentModel
-from app.system.schemas.document import DocumentStatus
+from app.system.schemas.document import DOCUMENT_STATUS_COMMENTS, DocumentStatus
 from app.utils.errors.document import (
     DocumentCreateError,
     DuplicateDocumentHashError,
@@ -105,6 +105,7 @@ class DocumentRepository:
             db_document.description = document.description
             db_document.category = document.category
             db_document.status = document.status
+            db_document.comment = document.comment
             db_document.hash = (document.hash or "").strip() or None
             db_document.path = document.path
             db_document.updated_at = document.updated_at
@@ -158,10 +159,12 @@ class DocumentRepository:
         from_statuses: Sequence[DocumentStatus],
         *,
         file_hash: str | None = None,
+        comment: str | None = None,
     ) -> DocumentModel | None:
         """Atomically move status only if current status is in from_statuses."""
         values: dict = {
             "status": to_status,
+            "comment": comment or DOCUMENT_STATUS_COMMENTS[to_status],
             "updated_at": datetime.now(timezone.utc),
         }
         if file_hash is not None:

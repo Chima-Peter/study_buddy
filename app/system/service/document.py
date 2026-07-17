@@ -10,6 +10,7 @@ from app.core.vector_store import VectorStore
 from app.system.models.documents import DocumentModel
 from app.system.repository.document import DocumentRepository
 from app.system.schemas.document import (
+    DOCUMENT_STATUS_COMMENTS,
     CreateDocumentRequest,
     DocumentResponse,
     DocumentStatus,
@@ -61,6 +62,16 @@ class DocumentService:
         user_id: str,
     ) -> DocumentResponse:
         document = await self._get_owned_document(document_id, user_id)
+        if not document.path:
+            await self.repository.transition_status(
+                document_id,
+                user_id,
+                "failed",
+                ("pending",),
+                comment=DOCUMENT_STATUS_COMMENTS["failed"],
+            )
+            raise ValueError(f"Document path not found: {document_id}")
+
         await self._enqueue_ingest(document, user_id)
         return document.to_response()
 
@@ -218,6 +229,7 @@ class DocumentService:
         document = await self._get_owned_document(document_id, user_id)
         document.path = path
         document.status = "cancelled"
+        document.comment = DOCUMENT_STATUS_COMMENTS["cancelled"]
         document.updated_at = datetime.now(timezone.utc)
         result = await self.repository.update(document)
         return result.to_response()

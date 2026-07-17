@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 from app.database import Base
 from app.system.schemas.document import (
+    DOCUMENT_STATUS_COMMENTS,
     CreateDocumentRequest,
     DocumentResponse,
     DocumentStatus,
@@ -27,6 +28,10 @@ class DocumentModel(BaseModel):
     hash: Optional[str] = Field(max_length=255, default="")
     path: str = Field(max_length=255, default="")
     status: DocumentStatus = Field(default="pending")
+    comment: Optional[str] = Field(
+        default=DOCUMENT_STATUS_COMMENTS["pending"],
+        max_length=500,
+    )
     file_name: Optional[str] = Field(default=None, exclude=True)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc))
@@ -55,6 +60,7 @@ class DocumentModel(BaseModel):
             "hash": document_hash,
             "path": self.path,
             "status": self.status,
+            "comment": self.comment,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -99,6 +105,7 @@ class DocumentModel(BaseModel):
             description=self.description,
             category=self.category,
             status=self.status,
+            comment=self.comment,
             hash=self.hash,
             path=self.path,
             created_at=self.created_at,
@@ -127,6 +134,11 @@ class DocumentDBModel(Base):
     status: Mapped[Optional[str]] = mapped_column(
         sa.String(255), nullable=True, default="pending", index=True
     )
+    comment: Mapped[Optional[str]] = mapped_column(
+        sa.String(500),
+        nullable=True,
+        default=DOCUMENT_STATUS_COMMENTS["pending"],
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -148,6 +160,7 @@ class DocumentDBModel(Base):
             "hash": self.hash,
             "path": str(self.path),
             "status": self.status or "pending",
+            "comment": self.comment or DOCUMENT_STATUS_COMMENTS["pending"],
             "user_id": str(self.user_id),
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

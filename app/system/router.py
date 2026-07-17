@@ -181,16 +181,14 @@ async def start_ingestion(
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
-        document = await service.get_document_by_id(document_id, user.id)
-        if not document.path:
+        document = await service.start_ingestion(document_id, user.id)
+    except ValueError as exc:
+        detail = str(exc)
+        if "path not found" in detail.lower():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Document path not found",
             )
-        document = await service.start_ingestion(document_id, user.id)
-    except HTTPException:
-        raise
-    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",

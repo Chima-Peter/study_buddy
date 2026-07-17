@@ -48,4 +48,8 @@ class Handlers:
         )
 
     async def handle_dead_letter_queue(self, message: AbstractIncomingMessage) -> None:
-        await process_dead_letter_queue(message, self._logger)
+        await process_dead_letter_queue(
+            message,
+            self._logger,
+            self._document_service,
+        )

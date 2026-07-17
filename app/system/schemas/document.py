@@ -30,6 +30,17 @@ DocumentStatus = Literal[
     "cancelled",
 ]
 
+DOCUMENT_STATUS_COMMENTS: dict[DocumentStatus, str] = {
+    "pending": "Your document is queued and will be processed shortly.",
+    "processing": "We're preparing your document now. This may take a moment.",
+    "completed": "Your document was processed successfully and is ready to use.",
+    "failed": (
+        "We couldn't finish processing your document. "
+        "Please try again, or contact support if the problem continues."
+    ),
+    "cancelled": "Processing was cancelled for this document.",
+}
+
 ALLOWED_EXTENSIONS: dict[FileType, set[str]] = {
     "pdf": {".pdf"},
     "txt": {".txt"},
@@ -143,6 +154,7 @@ class DocumentResponse(BaseModel):
     description: Optional[str] = None
     category: str
     status: DocumentStatus
+    comment: Optional[str] = DOCUMENT_STATUS_COMMENTS["pending"]
     hash: Optional[str] = None
     path: Optional[str] = None
     created_at: datetime
