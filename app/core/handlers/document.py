@@ -13,9 +13,29 @@ from app.core.embedding import EmbeddingManager
 from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ, read_retry_count
 from app.core.supabase import Supabase
-from app.system.schemas.document import IngestDocumentRequest
+from app.system.schemas.document import IngestDocumentRequest, ingest_failure_comment
 from app.system.service.document import DocumentService
 from app.utils.errors.rabbitmq import NonRetryableIngestError
+
+
+def _is_file_not_found_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    status_code = getattr(exc, "response", None)
+    code = getattr(status_code, "status_code", None) if status_code is not None else None
+    if code == 404:
+        return True
+    if getattr(exc, "status_code", None) == 404:
+        return True
+    return any(
+        token in text
+        for token in (
+            "404",
+            "not found",
+            "nosuchkey",
+            "no such file",
+            "object not found",
+        )
+    )
 
 
 async def continue_ingestion(
@@ -108,7 +128,14 @@ async def handle_document(
             )
 
             with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
-                await supabase.download_file_to(ingest_payload.path, tmp)
+                try:
+                    await supabase.download_file_to(ingest_payload.path, tmp)
+                except Exception as download_error:
+                    if _is_file_not_found_error(download_error):
+                        raise NonRetryableIngestError(
+                            f"File could not be found at path {ingest_payload.path}"
+                        ) from download_error
+                    raise
                 tmp.flush()
                 tmp.seek(0)
 
@@ -172,10 +199,9 @@ async def handle_document(
                     end_time - start_time,
                 )
                 if not chunks:
-                    await document_service.update_status(
-                        document_id, "failed", user_id
+                    raise NonRetryableIngestError(
+                        "No readable content was found in the file"
                     )
-                    raise NonRetryableIngestError("No documents to process")
 
                 if not await continue_ingestion(
                     document_service,
@@ -199,10 +225,9 @@ async def handle_document(
                     end_time - start_time,
                 )
                 if embeddings is None or len(embeddings) == 0:
-                    await document_service.update_status(
-                        document_id, "failed", user_id
+                    raise NonRetryableIngestError(
+                        "No embeddings could be generated for the file"
                     )
-                    raise NonRetryableIngestError("No embeddings to process")
 
                 if not await continue_ingestion(
                     document_service,
@@ -230,7 +255,9 @@ async def handle_document(
                 indexed = es_success > 0
                 if not indexed:
                     await elasticsearch.delete_by_document_id(user_id, document_id)
-                    raise NonRetryableIngestError("Failed to index documents")
+                    raise NonRetryableIngestError(
+                        "Document could not be indexed into search"
+                    )
                 end_time = perf_counter()
                 logger.info(
                     "Time taken to index file=%s user_id=%s document_id=%s seconds=%s",
@@ -264,13 +291,23 @@ async def handle_document(
         except NonRetryableIngestError as e:
             if indexed and user_id and document_id:
                 await elasticsearch.delete_by_document_id(user_id, document_id)
+            reason = e.message or str(e)
+            comment = ingest_failure_comment(reason)
             logger.warning(
                 "Non-retryable ingest failure file=%s user_id=%s document_id=%s: %s",
                 file_name,
                 user_id,
                 document_id,
-                e.message,
+                reason,
             )
+            if user_id and document_id:
+                await document_service.update_status(
+                    document_id,
+                    "failed",
+                    user_id,
+                    from_statuses=("pending", "processing", "failed"),
+                    comment=comment,
+                )
             await message.reject(requeue=False)
             return
         except Exception as e:
@@ -289,17 +326,26 @@ async def handle_document(
 
             retry_count = read_retry_count(message.headers)
             if retry_count >= rabbitmq.max_retries:
+                comment = ingest_failure_comment(
+                    str(e),
+                    exhausted_retries=True,
+                )
                 if user_id and document_id:
                     await document_service.update_status(
-                        document_id, "failed", user_id
+                        document_id,
+                        "failed",
+                        user_id,
+                        from_statuses=("pending", "processing", "failed"),
+                        comment=comment,
                     )
                 logger.error(
                     "Exhausted retries file=%s user_id=%s document_id=%s "
-                    "attempts=%s → DLQ",
+                    "attempts=%s comment=%s → DLQ",
                     file_name,
                     user_id,
                     document_id,
                     retry_count,
+                    comment,
                 )
                 await message.reject(requeue=False)
                 return

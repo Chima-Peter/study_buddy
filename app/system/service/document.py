@@ -20,6 +20,7 @@ from app.system.schemas.document import (
     MAX_LIST_LIMIT,
     PatchDocumentRequest,
     UpdateDocumentRequest,
+    ingest_failure_comment,
 )
 from app.utils.errors.document import DocumentCreateError, DocumentNotRetryableError
 
@@ -71,7 +72,7 @@ class DocumentService:
                 user_id,
                 "failed",
                 ("pending",),
-                comment=DOCUMENT_STATUS_COMMENTS["failed"],
+                comment=ingest_failure_comment("the file could not be found"),
             )
             raise ValueError(f"Document path not found: {document_id}")
 
@@ -221,12 +222,14 @@ class DocumentService:
         user_id: str,
         *,
         from_statuses: tuple[DocumentStatus, ...] = ("pending", "processing"),
+        comment: str | None = None,
     ) -> DocumentResponse | None:
         result = await self.repository.transition_status(
             document_id,
             user_id,
             status,
             from_statuses,
+            comment=comment,
         )
         return result.to_response() if result else None
 

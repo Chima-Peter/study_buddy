@@ -350,7 +350,7 @@ class IngestPipeline:
                 e,
             )
             raise NonRetryableIngestError(
-                f"Error loading {payload.file_name}: {e}"
+                f"File could not be parsed ({payload.file_name}): {e}"
             ) from e
 
     def split_documents(
@@ -372,7 +372,7 @@ class IngestPipeline:
             return []
         if self.semantic_embeddings is None:
             raise NonRetryableIngestError(
-                "semantic_embeddings is not configured"
+                "embeddings could not be generated: semantic embeddings are not configured"
             )
 
         return RecursiveCharacterTextSplitter(
