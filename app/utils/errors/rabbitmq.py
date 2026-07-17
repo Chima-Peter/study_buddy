@@ -1,5 +1,5 @@
 class NonRetryableIngestError(Exception):
-    """Permanent failure; ack the message instead of requeueing."""
+    """Permanent failure; reject without requeue so the message goes to the DLQ immediately."""
 
     def __init__(self, message: str):
         self.message = message

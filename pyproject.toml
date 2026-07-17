@@ -10,7 +10,7 @@ dependencies = [
     "asyncpg>=0.31.0",
     "chromadb>=1.5.9",
     "dependency-injector>=4.49.1",
-    "elasticsearch>=9.4.1",
+    "elasticsearch==8.15.0",
     "faiss-cpu>=1.14.3",
     "fastapi>=0.139.0",
     "httpx2>=2.5.0",

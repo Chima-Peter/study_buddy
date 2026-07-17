@@ -154,7 +154,6 @@ class IngestPipeline:
         splitter = RecursiveJsonSplitter(max_chunk_size=1000)
         chunks = splitter.create_documents(
             texts=[data] if isinstance(data, dict) else data,
-            metadatas=[{"source": Path(file_path).name}],
             convert_lists=True,
         )
         self.logger.info(

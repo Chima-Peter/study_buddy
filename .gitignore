@@ -218,3 +218,6 @@ __marimo__/
 .streamlit/secrets.toml
 
 vector_store/
+
+# Generated load-test fixtures
+scripts/fixtures/

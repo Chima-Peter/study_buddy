@@ -15,11 +15,12 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import sessionmaker
 from supabase import AsyncClient, create_async_client, create_client, Client
-from elasticsearch import Elasticsearch, AsyncElasticsearch
+from elasticsearch import AsyncElasticsearch
 
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
+from app.core.elasticsearch import Elasticsearch
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
 from app.core.handlers import Handlers
 from app.core.ingest_pipeline import IngestPipeline
@@ -178,96 +179,50 @@ async def init_async_supabase(supabase_url: str, supabase_key: str) -> AsyncClie
     )
 
 
-def init_elasticsearch(elasticsearch_url: str) -> Elasticsearch:
-    es = Elasticsearch(elasticsearch_url, verify_certs=False)
-    es.indices.create(
-        index="documents",
-        mappings={
+DOCUMENTS_INDEX_MAPPINGS = {
+    "properties": {
+        "content": {"type": "text"},
+        "embedding": {
+            "type": "dense_vector",
+            "dims": 384,  # all-MiniLM-L6-v2
+            "index": True,
+            "similarity": "cosine",
+        },
+        "metadata": {
             "properties": {
-                "content": {
-                    "type": "text"
-                },
-                "embedding": {
-                    "type": "dense_vector",
-                    "dims": 768,
-                    "index": True,
-                    "similarity": "cosine"
-                },
-                "metadata": {
-                    "properties": {
-                        "page": {
-                            "type": "integer"
-                        },
-                        "source": {
-                            "type": "keyword"
-                        },
-                        "category": {
-                            "type": "keyword"
-                        },
-                        "name": {
-                            "type": "keyword"
-                        },
-                        "user_id": {
-                            "type": "keyword"
-                        },
-                        "document_id": {
-                            "type": "keyword"
-                        }
-                    }
-                }
+                "page": {"type": "integer"},
+                "source": {"type": "keyword"},
+                "category": {"type": "keyword"},
+                "name": {"type": "keyword"},
+                "user_id": {"type": "keyword"},
+                "document_id": {"type": "keyword"},
+                "chunk_index": {"type": "integer"},
             }
-        }
+        },
+    }
+}
+
+
+async def init_async_elasticsearch(
+    elasticsearch_url: str,
+) -> AsyncIterator[AsyncElasticsearch]:
+    es = AsyncElasticsearch(
+        elasticsearch_url,
+        verify_certs=False,
+        headers={
+            "accept": "application/vnd.elasticsearch+json; compatible-with=8",
+            "content-type": "application/vnd.elasticsearch+json; compatible-with=8",
+        },
     )
+    if not await es.indices.exists(index="documents"):
+        await es.indices.create(
+            index="documents",
+            mappings=DOCUMENTS_INDEX_MAPPINGS,
+        )
     try:
         yield es
     finally:
-        es.close()
-
-
-def init_async_elasticsearch(elasticsearch_url: str) -> AsyncElasticsearch:
-    es = AsyncElasticsearch(elasticsearch_url, verify_certs=False)
-    es.indices.create(
-        index="documents",
-        mappings={
-            "properties": {
-                "content": {
-                    "type": "text"
-                },
-                "embedding": {
-                    "type": "dense_vector",
-                    "dims": 768,
-                    "index": True,
-                    "similarity": "cosine"
-                },
-                "metadata": {
-                    "properties": {
-                        "page": {
-                            "type": "integer"
-                        },
-                        "source": {
-                            "type": "keyword"
-                        },
-                        "category": {
-                            "type": "keyword"
-                        },
-                        "name": {
-                            "type": "keyword"
-                        },
-                        "user_id": {
-                            "type": "keyword"
-                        },
-                        "document_id": {
-                            "type": "keyword"
-                        }
-                    }
-                }
-            }
-        }
-    )
-    try:
-        yield es
-    finally:
-        es.close()
+        await es.close()
 
 
 class Container(containers.DeclarativeContainer):
@@ -305,14 +260,15 @@ class Container(containers.DeclarativeContainer):
         database_url=settings.provided.database_url,
     )
 
-    elasticsearch = providers.Resource(
-        init_elasticsearch,
+    async_elasticsearch_resource = providers.Resource(
+        init_async_elasticsearch,
         elasticsearch_url=settings.provided.elasticsearch_url,
     )
 
-    async_elasticsearch = providers.Resource(
-        init_async_elasticsearch,
-        elasticsearch_url=settings.provided.elasticsearch_url,
+    elasticsearch = providers.Factory(
+        Elasticsearch,
+        elasticsearch=async_elasticsearch_resource,
+        logger=logger,
     )
 
     async_session_factory = providers.Singleton(
@@ -422,7 +378,7 @@ class Container(containers.DeclarativeContainer):
         supabase=async_supabase,
         document_service=document_service,
         embedding_manager=embedding_manager,
-        vector_store=vector_store,
+        elasticsearch=elasticsearch,
     )
 
     rabbitmq_consumers = providers.Resource(

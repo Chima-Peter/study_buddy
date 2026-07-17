@@ -19,6 +19,7 @@ class Elasticsearch:
     def __init__(self, elasticsearch: AsyncElasticsearch, logger: Logger):
         self.elasticsearch = elasticsearch
         self.logger = logger
+        self.logger.info("Elasticsearch client ready")
 
     def _to_source(self, document: IndexedDocuments) -> dict[str, Any]:
         return {
@@ -87,14 +88,14 @@ class Elasticsearch:
         ]
 
     def _user_filter(self, user_id: str) -> dict:
-        return {"term": {"metadata.user_id.keyword": user_id}}
+        return {"term": {"metadata.user_id": user_id}}
 
     def _document_filter(self, user_id: str, document_id: str) -> dict:
         return {
             "bool": {
                 "filter": [
-                    {"term": {"metadata.user_id.keyword": user_id}},
-                    {"term": {"metadata.document_id.keyword": document_id}},
+                    {"term": {"metadata.user_id": user_id}},
+                    {"term": {"metadata.document_id": document_id}},
                 ]
             }
         }

@@ -8,10 +8,10 @@ from time import perf_counter
 
 from aio_pika.abc import AbstractIncomingMessage
 
+from app.core.elasticsearch import Elasticsearch, IndexedDocuments
 from app.core.embedding import EmbeddingManager
 from app.core.ingest_pipeline import IngestPipeline
 from app.core.supabase import Supabase
-from app.core.vector_store import VectorStore
 from app.system.schemas.document import IngestDocumentRequest
 from app.system.service.document import DocumentService
 from app.utils.errors.rabbitmq import NonRetryableIngestError
@@ -55,15 +55,6 @@ async def continue_ingestion(
     return True
 
 
-def cleanup_vectors(
-    vector_ids: list[str],
-    user_id: str,
-    vector_store: VectorStore,
-) -> None:
-    if vector_ids:
-        vector_store.delete_document_by_ids(vector_ids, user_id)
-
-
 async def handle_document(
     message: AbstractIncomingMessage,
     ingest_pipeline: IngestPipeline,
@@ -71,14 +62,14 @@ async def handle_document(
     supabase: Supabase,
     document_service: DocumentService,
     embedding_manager: EmbeddingManager,
-    vector_store: VectorStore,
+    elasticsearch: Elasticsearch,
 ) -> None:
     document_id: str | None = None
     user_id: str | None = None
     file_name: str | None = None
-    vector_ids: list[str] = []
+    indexed = False
 
-    async with message.process():
+    async with message.process(requeue=True, ignore_processed=True):
         try:
             payload = json.loads(message.body)
             ingest_payload = IngestDocumentRequest(**payload)
@@ -217,25 +208,40 @@ async def handle_document(
                     return
 
                 start_time = perf_counter()
-                vector_ids = await asyncio.to_thread(
-                    vector_store.add_documents, chunks, embeddings
+                es_payload = [
+                    IndexedDocuments(
+                        content=chunk.page_content,
+                        metadata=chunk.metadata,
+                        embedding=embedding.tolist()
+                        if hasattr(embedding, "tolist")
+                        else list(embedding),
+                    )
+                    for chunk, embedding in zip(chunks, embeddings)
+                ]
+                es_success, _es_failed = await elasticsearch.bulk_index_documents(
+                    es_payload
                 )
+                indexed = es_success > 0
+                if not indexed:
+                    await elasticsearch.delete_by_document_id(user_id, document_id)
+                    raise NonRetryableIngestError("Failed to index documents")
                 end_time = perf_counter()
                 logger.info(
-                    "Time taken to add vectors file=%s user_id=%s document_id=%s seconds=%s",
+                    "Time taken to index file=%s user_id=%s document_id=%s seconds=%s",
                     file_name,
                     user_id,
                     document_id,
                     end_time - start_time,
                 )
+
                 completed = await document_service.complete_document(
                     document_id, user_id, file_hash
                 )
                 if completed is None:
-                    cleanup_vectors(vector_ids, user_id, vector_store)
-                    vector_ids = []
+                    await elasticsearch.delete_by_document_id(user_id, document_id)
+                    indexed = False
                     logger.info(
-                        "Cancelled before complete; cleaned vectors "
+                        "Cancelled before complete; cleaned indexed docs "
                         "file=%s user_id=%s document_id=%s",
                         file_name,
                         user_id,
@@ -250,8 +256,8 @@ async def handle_document(
                     document_id,
                 )
         except NonRetryableIngestError as e:
-            if vector_ids and user_id is not None:
-                cleanup_vectors(vector_ids, user_id, vector_store)
+            if indexed and user_id and document_id:
+                await elasticsearch.delete_by_document_id(user_id, document_id)
             logger.warning(
                 "Non-retryable ingest failure file=%s user_id=%s document_id=%s: %s",
                 file_name,
@@ -259,9 +265,10 @@ async def handle_document(
                 document_id,
                 e.message,
             )
+            await message.reject(requeue=False)
         except Exception as e:
-            if vector_ids and user_id is not None:
-                cleanup_vectors(vector_ids, user_id, vector_store)
+            if indexed and user_id and document_id:
+                await elasticsearch.delete_by_document_id(user_id, document_id)
             logger.exception(
                 "Error ingesting file=%s user_id=%s document_id=%s: %s",
                 file_name,
