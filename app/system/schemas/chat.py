@@ -1,0 +1,32 @@
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, Field
+
+SearchMode = Literal["hybrid", "vector", "bm25"]
+
+
+class QueryRequest(BaseModel):
+    query: str = Field(min_length=1, description="User question to retrieve against")
+    top_k: int = Field(default=5, ge=1, le=50, description="Number of chunks to retrieve")
+    mode: SearchMode = Field(
+        default="hybrid",
+        description="Search mode: hybrid (RRF), vector (kNN), or bm25",
+    )
+
+
+class SourceChunk(BaseModel):
+    name: str
+    category: str
+    age: int
+
+
+class QueryResponseData(BaseModel):
+    answer: str
+    sources: list[SourceChunk]
+
+
+class QueryApiResponse(BaseModel):
+    data: Optional[QueryResponseData] = None
+    success: bool = True
+    message: Optional[str] = None
+    error: Optional[str] = None

@@ -1,124 +1,101 @@
+from logging import Logger
+from typing import Any, Literal
 
-import sys
-from pathlib import Path
-from typing import Any
 from langchain_google_genai import ChatGoogleGenerativeAI
-from dotenv import load_dotenv
-load_dotenv()
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-from app.core.vector_store import VectorStore
+from app.core.elasticsearch import Elasticsearch, IndexedDocuments
 from app.core.embedding import EmbeddingManager
+
+SearchMode = Literal["hybrid", "vector", "bm25"]
 
 
 class RAGRetriever:
     def __init__(
         self,
-        vector_store: VectorStore,
+        elasticsearch: Elasticsearch,
         embedding_manager: EmbeddingManager,
+        logger: Logger,
+        *,
+        google_api_key: str | None = None,
+        model_name: str = "gemini-3.1-flash-lite",
     ):
-        self.vector_store = vector_store
+        self.elasticsearch = elasticsearch
         self.embedding_manager = embedding_manager
+        self.logger = logger
         self.model = ChatGoogleGenerativeAI(
-            model="gemini-3.1-flash-lite",
+            model=model_name,
             temperature=0.2,
             max_tokens=1024,
             max_retries=3,
+            google_api_key=google_api_key,
         )
 
-    def initiate_retriever_pipeline(
+    async def retrieve(
         self,
+        user_id: str,
         query: str,
-        top_k: int = 2,
-        score_threshold: float = 0.0,
-    ) -> list[dict[str, Any]]:
-        results = self._retrieve(
-            query=query,
-            top_k=top_k,
-            score_threshold=score_threshold,
-        )
-        context = "\n\n".join([result["document"]
-                              for result in results]) if results else ""
-        if not context:
-            return "No relevant context found for the query"
-
-        prompt = """
-          You are a helpful assistant. Use the following context to answer the question:
-          Context: {context}
-
-          Question: {query}
-          Answer:
-        """
-        response = self.model.invoke([prompt.format(
-            context=context,
-            query=query
-        )])
-        print(f"Response: {response.content}")
-        return response.content
-
-    def _retrieve(
-        self,
-        query: str,
+        *,
         top_k: int = 10,
-        score_threshold: float = 0.0,
-    ) -> list[dict[str, Any]]:
-        try:
-            results = self.vector_store.collection.query(
-                query_texts=[query],
-                n_results=top_k,
+        mode: SearchMode = "hybrid",
+    ) -> list[IndexedDocuments]:
+        embedding = self.embedding_manager.embed_query(query).tolist()
+
+        if mode == "bm25":
+            docs = await self.elasticsearch.search_bm25(user_id, query, size=top_k)
+        elif mode == "vector":
+            docs = await self.elasticsearch.search_vector(
+                user_id, embedding, k=top_k
             )
-            retrieved_docs: list[dict[str, Any]] = []
-
-            if results["documents"] and results["documents"][0]:
-                documents = results["documents"][0]
-                metadatas = results["metadatas"][0]
-                distances = results["distances"][0]
-                ids = results["ids"][0]
-
-                for i, (document, metadata, distance, doc_id) in enumerate(
-                    zip(documents, metadatas, distances, ids)
-                ):
-                    similarity_score = 1 - distance
-                    if similarity_score >= score_threshold:
-                        retrieved_docs.append(
-                            {
-                                "id": doc_id,
-                                "rank": i + 1,
-                                "document": document,
-                                "similarity_score": similarity_score,
-                                "metadata": metadata,
-                            }
-                        )
-
-            retrieved_docs.sort(
-                key=lambda x: x["similarity_score"], reverse=True)
-            print(
-                f"Retrieved {len(retrieved_docs)} documents "
-                f"with score >= {score_threshold}"
+        else:
+            docs = await self.elasticsearch.search_hybrid(
+                user_id, query, embedding, k=top_k
             )
-            return retrieved_docs
 
-        except Exception as e:
-            print(f"Error retrieving documents: {e}")
-            return []
+        self.logger.info(
+            "Retrieved %s chunks user_id=%s mode=%s top_k=%s",
+            len(docs),
+            user_id,
+            mode,
+            top_k,
+        )
+        return docs
 
+    async def answer(
+        self,
+        user_id: str,
+        query: str,
+        *,
+        top_k: int = 5,
+        mode: SearchMode = "hybrid",
+    ) -> dict[str, Any]:
+        documents = await self.retrieve(
+            user_id, query, top_k=top_k, mode=mode
+        )
+        if not documents:
+            return {
+                "answer": "No relevant context found for the query.",
+                "sources": [],
+            }
 
-def print_results(results: list[dict[str, Any]], limit: int = 3) -> None:
-    for result in results[:limit]:
-        source = result["metadata"].get("source", "unknown")
-        page = result["metadata"].get("page", "?")
-        score = result["similarity_score"]
-        preview = result["document"].replace("\n", " ")
-        print(f"\n[{result['rank']}] score={score:.3f} | page {page} | {source}")
-        print(f"    {preview}...")
+        context = "\n\n".join(doc.content for doc in documents)
+        prompt = (
+            "You are a helpful study assistant. Use only the following context "
+            "to answer the question. If the context is insufficient, say so by notifying the user to upload relevant documents.\n\n"
+            f"Context:\n{context}\n\n"
+            f"Question: {query}\n"
+            "Answer:"
+        )
+        response = await self.model.ainvoke([prompt])
+        answer = response.content if isinstance(response.content, str) else str(
+            response.content
+        )
 
-
-if __name__ == "__main__":
-    vector_store = VectorStore()
-    embedding_manager = EmbeddingManager()
-    retriever = RAGRetriever(vector_store, embedding_manager)
-    results = retriever.initiate_retriever_pipeline(
-        "Write a summary about multi agent systems", top_k=10, score_threshold=0.5
-    )
+        sources = [
+            {
+                "name": doc.metadata["name"],
+                "category": doc.metadata["category"],
+                "age": doc.metadata["chunk_id"],
+            }
+            for doc in documents
+        ]
+        return {"answer": answer, "sources": sources}
