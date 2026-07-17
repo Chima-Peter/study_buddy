@@ -19,8 +19,8 @@ chat_router = APIRouter(prefix="/chat", tags=["chat"])
     response_model=QueryApiResponse,
     summary="Query documents",
     description=(
-        "Embeds the query, searches Elasticsearch, then runs the RAG retriever "
-        "to produce an answer with source chunks."
+        "RAG pipeline: embed query → Elasticsearch search (hybrid/vector/bm25) "
+        "→ Gemini answer. Always retrieves the top 5 chunks."
     ),
 )
 @inject
@@ -34,7 +34,6 @@ async def query_documents(
         result = await service.query(
             user.id,
             request.query,
-            top_k=request.top_k,
             mode=request.mode,
         )
     except Exception:

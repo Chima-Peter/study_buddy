@@ -14,13 +14,14 @@ class ChatService:
         user_id: str,
         query: str,
         *,
-        top_k: int = 5,
         mode: SearchMode = "hybrid",
     ) -> QueryResponseData:
+        self.logger.info(
+            "ChatService query start user_id=%s mode=%s", user_id, mode
+        )
         result = await self.retriever.answer(
             user_id,
             query,
-            top_k=top_k,
             mode=mode,
         )
         return QueryResponseData(

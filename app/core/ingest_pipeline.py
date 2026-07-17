@@ -329,6 +329,7 @@ class IngestPipeline:
                 doc.metadata["name"] = payload.name
                 doc.metadata["user_id"] = payload.user_id
                 doc.metadata["document_id"] = payload.document_id
+                doc.metadata["chunk_id"] = f"{payload.document_id}_{i}"
 
             self.logger.info(
                 "Ready file=%s user_id=%s document_id=%s chunks=%s",

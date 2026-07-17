@@ -4,10 +4,11 @@ from pydantic import BaseModel, Field
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
 
+TOP_K = 5
+
 
 class QueryRequest(BaseModel):
     query: str = Field(min_length=1, description="User question to retrieve against")
-    top_k: int = Field(default=5, ge=1, le=50, description="Number of chunks to retrieve")
     mode: SearchMode = Field(
         default="hybrid",
         description="Search mode: hybrid (RRF), vector (kNN), or bm25",

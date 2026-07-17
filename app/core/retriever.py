@@ -1,3 +1,5 @@
+"""RAG retriever: embed → Elasticsearch search → deduplicate → LLM answer."""
+
 from logging import Logger
 from typing import Any, Literal
 
@@ -5,8 +7,21 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
+from app.system.schemas.chat import TOP_K
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
+
+
+def _deduplicate_by_document(results: list[FusedResult]) -> list[FusedResult]:
+    """Keep only the highest-scoring chunk per chunk_id."""
+    seen: dict[str, FusedResult] = {}
+    for r in results:
+        doc_id = r.document.metadata.get("chunk_id")
+        if doc_id is None:
+            continue
+        if doc_id not in seen or r.score > seen[doc_id].score:
+            seen[doc_id] = r
+    return list(seen.values())
 
 
 class RAGRetriever:
@@ -35,30 +50,40 @@ class RAGRetriever:
         user_id: str,
         query: str,
         *,
-        top_k: int = 10,
         mode: SearchMode = "hybrid",
     ) -> list[FusedResult]:
+        self.logger.info(
+            "Retriever retrieve start user_id=%s mode=%s top_k=%s query=%r",
+            user_id,
+            mode,
+            TOP_K,
+            query[:120],
+        )
         embedding = self.embedding_manager.embed_query(query).tolist()
+        self.logger.info(
+            "Retriever embed done user_id=%s dims=%s",
+            user_id,
+            len(embedding),
+        )
 
         if mode == "bm25":
-            docs = await self.elasticsearch.search_bm25(user_id, query, size=top_k)
+            docs = await self.elasticsearch.search_bm25(user_id, query, size=TOP_K)
             results = [FusedResult(document=doc, score=0.0) for doc in docs]
         elif mode == "vector":
             docs = await self.elasticsearch.search_vector(
-                user_id, embedding, k=top_k
+                user_id, embedding, k=TOP_K
             )
             results = [FusedResult(document=doc, score=0.0) for doc in docs]
         else:
             results = await self.elasticsearch.search_hybrid(
-                user_id, query, embedding, k=top_k
+                user_id, query, embedding, k=TOP_K
             )
 
         self.logger.info(
-            "Retrieved %s chunks user_id=%s mode=%s top_k=%s",
-            len(results),
+            "Retriever retrieve done user_id=%s mode=%s hits=%s",
             user_id,
             mode,
-            top_k,
+            len(results),
         )
         return results
 
@@ -67,19 +92,39 @@ class RAGRetriever:
         user_id: str,
         query: str,
         *,
-        top_k: int = 5,
         mode: SearchMode = "hybrid",
     ) -> dict[str, Any]:
-        results = await self.retrieve(
-            user_id, query, top_k=top_k, mode=mode
+        self.logger.info(
+            "Retriever pipeline start user_id=%s mode=%s top_k=%s",
+            user_id,
+            mode,
+            TOP_K,
         )
+        results = await self.retrieve(user_id, query, mode=mode)
         if not results:
+            self.logger.info(
+                "Retriever pipeline empty context user_id=%s", user_id
+            )
             return {
                 "answer": "No relevant context found for the query.",
                 "sources": [],
             }
 
-        context = "\n\n".join(r.document.content for r in results)
+        deduped = _deduplicate_by_document(results)
+        self.logger.info(
+            "Retriever dedupe user_id=%s before=%s after=%s",
+            user_id,
+            len(results),
+            len(deduped),
+        )
+
+        context = "\n\n".join(r.document.content for r in deduped)
+        self.logger.info(
+            "Retriever LLM invoke user_id=%s context_chars=%s sources=%s",
+            user_id,
+            len(context),
+            len(deduped),
+        )
         prompt = (
             "You are a helpful study assistant. Use only the following context "
             "to answer the question. If the context is insufficient, say so by notifying the user to upload relevant documents.\n\n"
@@ -88,9 +133,22 @@ class RAGRetriever:
             "Answer:"
         )
         response = await self.model.ainvoke([prompt])
-        answer = response.content if isinstance(response.content, str) else str(
-            response.content
-        )
+        content = response.content
+        if isinstance(content, str):
+            answer = content
+        elif isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict) and "text" in block:
+                    parts.append(str(block["text"]))
+                else:
+                    text = getattr(block, "text", None)
+                    parts.append(str(text if text is not None else block))
+            answer = "".join(parts)
+        else:
+            answer = str(content)
 
         sources = [
             {
@@ -98,6 +156,12 @@ class RAGRetriever:
                 "metadata": r.document.metadata,
                 "rrf_score": r.score,
             }
-            for r in results
+            for r in deduped
         ]
+        self.logger.info(
+            "Retriever pipeline done user_id=%s answer_chars=%s sources=%s",
+            user_id,
+            len(answer),
+            len(sources),
+        )
         return {"answer": answer, "sources": sources}

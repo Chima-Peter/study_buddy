@@ -162,6 +162,13 @@ class Elasticsearch:
         num_candidates: int = 100,
     ) -> list[IndexedDocuments]:
         """kNN vector search using dense embeddings, filtered by user_id."""
+        self.logger.info(
+            "ES search_vector start user_id=%s k=%s num_candidates=%s dims=%s",
+            user_id,
+            k,
+            num_candidates,
+            len(embedding),
+        )
         response = await self.elasticsearch.search(
             index="documents",
             knn={
@@ -173,7 +180,11 @@ class Elasticsearch:
             },
             size=k,
         )
-        return self._parse_hits(response)
+        hits = self._parse_hits(response)
+        self.logger.info(
+            "ES search_vector done user_id=%s hits=%s", user_id, len(hits)
+        )
+        return hits
 
     async def search_bm25(
         self,
@@ -183,6 +194,12 @@ class Elasticsearch:
         size: int = 10,
     ) -> list[IndexedDocuments]:
         """BM25 text search on content field, filtered by user_id."""
+        self.logger.info(
+            "ES search_bm25 start user_id=%s size=%s query=%r",
+            user_id,
+            size,
+            query[:120],
+        )
         response = await self.elasticsearch.search(
             index="documents",
             query={
@@ -193,7 +210,11 @@ class Elasticsearch:
             },
             size=size,
         )
-        return self._parse_hits(response)
+        hits = self._parse_hits(response)
+        self.logger.info(
+            "ES search_bm25 done user_id=%s hits=%s", user_id, len(hits)
+        )
+        return hits
 
     async def search_hybrid(
         self,
@@ -202,10 +223,29 @@ class Elasticsearch:
         embedding: list[float],
         *,
         k: int = 10,
-        window_size: int = 100,
+        fetch_size: int = 20,
+        num_candidates: int = 100,
         rank_constant: int = 60,
     ) -> list[FusedResult]:
-        """Hybrid search: concurrent BM25 + kNN with local RRF fusion."""
+        """Hybrid search: concurrent BM25 + kNN with local RRF fusion.
+
+        Args:
+            k: Final number of results to return.
+            fetch_size: Docs fetched per branch before fusion (default 20).
+            num_candidates: kNN ANN search pool size (default 100).
+            rank_constant: RRF constant (default 60).
+        """
+        self.logger.info(
+            "ES search_hybrid start user_id=%s k=%s fetch_size=%s "
+            "num_candidates=%s rank_constant=%s dims=%s query=%r",
+            user_id,
+            k,
+            fetch_size,
+            num_candidates,
+            rank_constant,
+            len(embedding),
+            query[:120],
+        )
         user_filter = self._user_filter(user_id)
 
         bm25_coro = self.elasticsearch.search(
@@ -216,18 +256,18 @@ class Elasticsearch:
                     "filter": user_filter,
                 }
             },
-            size=window_size,
+            size=fetch_size,
         )
         knn_coro = self.elasticsearch.search(
             index="documents",
             knn={
                 "field": "embedding",
                 "query_vector": embedding,
-                "k": window_size,
-                "num_candidates": window_size,
+                "k": fetch_size,
+                "num_candidates": num_candidates,
                 "filter": user_filter,
             },
-            size=window_size,
+            size=fetch_size,
         )
 
         results = await asyncio.gather(bm25_coro, knn_coro, return_exceptions=True)
@@ -238,18 +278,37 @@ class Elasticsearch:
         if isinstance(bm25_response, Exception):
             self.logger.warning("BM25 search failed: %s", bm25_response)
         else:
-            results_lists.append(self._parse_hits_with_ids(bm25_response))
+            bm25_hits = self._parse_hits_with_ids(bm25_response)
+            self.logger.info(
+                "ES search_hybrid BM25 branch user_id=%s hits=%s",
+                user_id,
+                len(bm25_hits),
+            )
+            results_lists.append(bm25_hits)
 
         if isinstance(knn_response, Exception):
             self.logger.warning("kNN search failed: %s", knn_response)
         else:
-            results_lists.append(self._parse_hits_with_ids(knn_response))
+            knn_hits = self._parse_hits_with_ids(knn_response)
+            self.logger.info(
+                "ES search_hybrid kNN branch user_id=%s hits=%s",
+                user_id,
+                len(knn_hits),
+            )
+            results_lists.append(knn_hits)
 
         if not results_lists:
             self.logger.error("Both BM25 and kNN searches failed")
             return []
 
-        return self._rrf_fuse(results_lists, k=k, rank_constant=rank_constant)
+        fused = self._rrf_fuse(results_lists, k=k, rank_constant=rank_constant)
+        self.logger.info(
+            "ES search_hybrid done user_id=%s fused=%s top_score=%s",
+            user_id,
+            len(fused),
+            fused[0].score if fused else None,
+        )
+        return fused
 
     async def delete_by_document_id(self, user_id: str, document_id: str) -> int:
         """Delete all chunks for a document_id, filtered by user_id."""
