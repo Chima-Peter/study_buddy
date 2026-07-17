@@ -30,7 +30,8 @@ async def handle_dead_letter_queue(
         try:
             payload = json.loads(message.body)
         except json.JSONDecodeError:
-            logger.exception("Invalid dead letter payload; cannot mark document failed")
+            logger.exception(
+                "Invalid dead letter payload; cannot mark document failed")
             return
 
         document_id = payload.get("document_id")
@@ -52,6 +53,11 @@ async def handle_dead_letter_queue(
             )
             return
 
+        comment = ingest_failure_comment(
+            "processing could not be completed",
+            exhausted_retries=True,
+        )
+        
         if existing.status == "failed" and existing.comment not in (
             None,
             DOCUMENT_STATUS_COMMENTS["failed"],
@@ -61,15 +67,11 @@ async def handle_dead_letter_queue(
                 "comment=%s",
                 document_id,
                 user_id,
-                existing.comment,
+                comment,
             )
             await notify_document_status(redis, logger, user_id, existing)
             return
 
-        comment = ingest_failure_comment(
-            "processing could not be completed",
-            exhausted_retries=True,
-        )
         updated = await document_service.update_status(
             document_id,
             "failed",
