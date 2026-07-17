@@ -1,6 +1,7 @@
 from app.utils.errors.auth import EmailAlreadyExistsError, UserNotFoundError
 from app.utils.errors.document import (
     DocumentCreateError,
+    DocumentNotRetryableError,
     DuplicateDocumentHashError,
     DuplicateDocumentNameError,
     MissingUserForeignKeyError,
@@ -10,6 +11,7 @@ from app.utils.errors.user import DuplicateEmailError, UserCreateError
 
 __all__ = [
     "DocumentCreateError",
+    "DocumentNotRetryableError",
     "DuplicateDocumentHashError",
     "DuplicateDocumentNameError",
     "DuplicateEmailError",

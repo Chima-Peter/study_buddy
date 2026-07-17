@@ -76,6 +76,17 @@ class MissingUserForeignKeyError(DocumentCreateError):
         super().__init__("User not found", file_name=file_name)
 
 
+class DocumentNotRetryableError(Exception):
+    """Document cannot be retried because it is not in failed status."""
+
+    def __init__(self, document_id: str, status: str):
+        self.document_id = document_id
+        self.status = status
+        super().__init__(
+            f"Document '{document_id}' cannot be retried from status '{status}'"
+        )
+
+
 def _extract_unique_violation(message: str) -> dict[str, str]:
     """Parse Postgres unique detail like Key (hash, user_id)=(abc, uuid)."""
     match = _UNIQUE_KEY_RE.search(message)

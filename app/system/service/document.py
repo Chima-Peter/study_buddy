@@ -17,7 +17,7 @@ from app.system.schemas.document import (
     PatchDocumentRequest,
     UpdateDocumentRequest,
 )
-from app.utils.errors import DocumentCreateError
+from app.utils.errors.document import DocumentCreateError, DocumentNotRetryableError
 
 
 class DocumentService:
@@ -61,27 +61,39 @@ class DocumentService:
         user_id: str,
     ) -> DocumentResponse:
         document = await self._get_owned_document(document_id, user_id)
+        await self._enqueue_ingest(document, user_id)
+        return document.to_response()
+
+    async def retry_ingestion(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> DocumentResponse:
+        document = await self._get_owned_document(document_id, user_id)
         if not document.path:
             raise ValueError(f"Document path not found: {document_id}")
 
-        file_name = document.file_name or Path(document.path).name 
-        ingest_payload = IngestDocumentRequest(
-            name=document.name,
-            file_name=file_name,
-            category=document.category,
-            path=document.path,
-            user_id=user_id,
-            document_id=document_id,
+        updated = await self.repository.transition_status(
+            document_id,
+            user_id,
+            "pending",
+            ("failed",),
         )
+        if updated is None:
+            raise DocumentNotRetryableError(document_id, document.status)
 
-        await self.rabbitmq.publish_message(
-            "document_queue",
-            ingest_payload.model_dump(),
-        )
-        self.logger.info(
-            f"Sent message to document_queue: {ingest_payload.model_dump()}")
+        try:
+            await self._enqueue_ingest(updated, user_id)
+        except Exception:
+            await self.repository.transition_status(
+                document_id,
+                user_id,
+                "failed",
+                ("pending",),
+            )
+            raise
 
-        return document.to_response()
+        return updated.to_response()
 
     async def get_document_by_id(
         self,
@@ -209,6 +221,33 @@ class DocumentService:
         document.updated_at = datetime.now(timezone.utc)
         result = await self.repository.update(document)
         return result.to_response()
+
+    async def _enqueue_ingest(
+        self,
+        document: DocumentModel,
+        user_id: str,
+    ) -> None:
+        if not document.path:
+            raise ValueError(f"Document path not found: {document.id}")
+
+        file_name = document.file_name or Path(document.path).name
+        ingest_payload = IngestDocumentRequest(
+            name=document.name,
+            file_name=file_name,
+            category=document.category,
+            path=document.path,
+            user_id=user_id,
+            document_id=document.id,
+        )
+
+        await self.rabbitmq.publish_message(
+            "document_queue",
+            ingest_payload.model_dump(),
+        )
+        self.logger.info(
+            "Sent message to document_queue: %s",
+            ingest_payload.model_dump(),
+        )
 
     async def _get_owned_document(
         self,

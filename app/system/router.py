@@ -23,6 +23,7 @@ from app.system.schemas.document import (
 from app.system.service.document import DocumentService
 from app.utils.errors.document import (
     DocumentCreateError,
+    DocumentNotRetryableError,
     DuplicateDocumentHashError,
     DuplicateDocumentNameError,
     MissingUserForeignKeyError,
@@ -208,6 +209,59 @@ async def start_ingestion(
     return BasicResponse(
         data=document.model_dump(mode="json"),
         message="Document ingestion started successfully",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+
+
+@system_router.post(
+    "/documents/{document_id}/ingest/retry",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=DocumentApiResponse,
+    summary="Retry failed document ingestion",
+    description=(
+        "Resets a failed document to pending and re-queues it for ingestion. "
+        "Only documents with status 'failed' can be retried."
+    ),
+)
+@inject
+async def retry_ingestion(
+    document_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: DocumentService = Depends(Provide[Container.document_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        document = await service.retry_ingestion(document_id, user.id)
+    except DocumentNotRetryableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        if "path not found" in detail.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Document path not found",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error retrying ingestion document_id=%s user_id=%s",
+            document_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=document.model_dump(mode="json"),
+        message="Document ingestion retry queued successfully",
         status_code=status.HTTP_202_ACCEPTED,
     )
 
