@@ -11,6 +11,7 @@ from aio_pika.abc import AbstractIncomingMessage
 from app.core.elasticsearch import Elasticsearch, IndexedDocuments
 from app.core.embedding import EmbeddingManager
 from app.core.ingest_pipeline import IngestPipeline
+from app.core.rabbitmq import RabbitMQ, read_retry_count
 from app.core.supabase import Supabase
 from app.system.schemas.document import IngestDocumentRequest
 from app.system.service.document import DocumentService
@@ -63,25 +64,30 @@ async def handle_document(
     document_service: DocumentService,
     embedding_manager: EmbeddingManager,
     elasticsearch: Elasticsearch,
+    rabbitmq: RabbitMQ,
 ) -> None:
     document_id: str | None = None
     user_id: str | None = None
     file_name: str | None = None
     indexed = False
+    payload: dict | None = None
 
-    async with message.process(requeue=True, ignore_processed=True):
+    # requeue=False: soft failures schedule TTL backoff instead of immediate redelivery
+    async with message.process(requeue=False, ignore_processed=True):
         try:
             payload = json.loads(message.body)
             ingest_payload = IngestDocumentRequest(**payload)
             document_id = ingest_payload.document_id
             user_id = ingest_payload.user_id
             file_name = ingest_payload.file_name
+            retry_count = read_retry_count(message.headers)
 
             logger.info(
-                "Received ingest message file=%s user_id=%s document_id=%s",
+                "Received ingest message file=%s user_id=%s document_id=%s retry=%s",
                 file_name,
                 user_id,
                 document_id,
+                retry_count,
             )
 
             claimed = await document_service.claim_for_processing(
@@ -266,6 +272,7 @@ async def handle_document(
                 e.message,
             )
             await message.reject(requeue=False)
+            return
         except Exception as e:
             if indexed and user_id and document_id:
                 await elasticsearch.delete_by_document_id(user_id, document_id)
@@ -276,4 +283,31 @@ async def handle_document(
                 document_id,
                 e,
             )
-            raise
+            if payload is None:
+                await message.reject(requeue=False)
+                return
+
+            retry_count = read_retry_count(message.headers)
+            if retry_count >= rabbitmq.max_retries:
+                if user_id and document_id:
+                    await document_service.update_status(
+                        document_id, "failed", user_id
+                    )
+                logger.error(
+                    "Exhausted retries file=%s user_id=%s document_id=%s "
+                    "attempts=%s → DLQ",
+                    file_name,
+                    user_id,
+                    document_id,
+                    retry_count,
+                )
+                await message.reject(requeue=False)
+                return
+
+            await rabbitmq.schedule_retry(
+                "document_queue",
+                payload,
+                retry_count=retry_count,
+                headers=message.headers,
+            )
+            return

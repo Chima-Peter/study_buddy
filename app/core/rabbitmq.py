@@ -1,7 +1,7 @@
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from logging import Logger
 from typing import Any
 
@@ -11,6 +11,8 @@ from aio_pika.exceptions import DeliveryError
 from fastapi import HTTPException
 import uuid_utils
 
+RETRY_COUNT_HEADER = "x-retry-count"
+
 
 @dataclass
 class RabbitMQConsumer:
@@ -18,22 +20,68 @@ class RabbitMQConsumer:
     tag: str
 
 
+def retry_delay_tiers_ms(base_ms: int, max_ms: int, max_retries: int) -> list[int]:
+    """Exponential delay tiers used as TTL retry queue names."""
+    tiers: list[int] = []
+    delay = base_ms
+    for _ in range(max(max_retries, 1)):
+        tiers.append(min(delay, max_ms))
+        delay = min(delay * 2, max_ms)
+    return sorted(set(tiers))
+
+
+def delay_ms_for_attempt(
+    attempt: int,
+    *,
+    base_ms: int,
+    max_ms: int,
+    tiers: list[int],
+) -> int:
+    desired = min(base_ms * (2**attempt), max_ms)
+    for tier in tiers:
+        if tier >= desired:
+            return tier
+    return tiers[-1]
+
+
+def read_retry_count(headers: Mapping[str, Any] | None) -> int:
+    if not headers:
+        return 0
+    raw = headers.get(RETRY_COUNT_HEADER, 0)
+    if isinstance(raw, bytes):
+        raw = raw.decode()
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
+
+
+def retry_queue_name(target_queue: str, delay_ms: int) -> str:
+    return f"{target_queue}_retry_{delay_ms}ms"
+
+
+@dataclass
 class RabbitMQ:
-    def __init__(
-        self,
-        channel: Channel,
-        email_queue: Queue,
-        email_dlq_queue: Queue,
-        document_queue: Queue,
-        document_dlq_queue: Queue,
-        logger: Logger,
-    ):
-        self.channel = channel
-        self.email_queue = email_queue
-        self.email_dlq_queue = email_dlq_queue
-        self.document_queue = document_queue
-        self.document_dlq_queue = document_dlq_queue
-        self._logger = logger
+    channel: Channel
+    email_queue: Queue
+    email_dlq_queue: Queue
+    document_queue: Queue
+    document_dlq_queue: Queue
+    logger: Logger
+    # target_queue -> { delay_ms -> Queue }
+    retry_queues: dict[str, dict[int, Queue]] = field(default_factory=dict)
+    max_retries: int = 5
+    retry_base_ms: int = 5_000
+    retry_max_ms: int = 300_000
+    retry_tiers_ms: list[int] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.retry_tiers_ms:
+            self.retry_tiers_ms = retry_delay_tiers_ms(
+                self.retry_base_ms,
+                self.retry_max_ms,
+                self.max_retries,
+            )
 
     async def publish_message(self, queue_name: str, payload: dict, retry_count: int = 0):
         if retry_count > 3:
@@ -44,7 +92,7 @@ class RabbitMQ:
                 detail=f"Failed to publish message to {queue_name} after {retry_count} retries",
             )
         try:
-            self._logger.info(
+            self.logger.info(
                 "Publishing message to %s on retry %s", queue_name, retry_count)
             message = Message(
                 body=json.dumps(payload).encode(),
@@ -56,11 +104,70 @@ class RabbitMQ:
                 routing_key=queue_name,
                 timeout=5.0,
             )
-            self._logger.debug("Published message to queue=%s", queue_name)
+            self.logger.debug("Published message to queue=%s", queue_name)
         except (DeliveryError, TimeoutError, Exception) as e:
-            self._logger.warning(
+            self.logger.warning(
                 "Publish retry queue=%s attempt=%s error=%s", queue_name, retry_count, e)
             await self.publish_message(queue_name, payload, retry_count + 1)
+
+    async def schedule_retry(
+        self,
+        target_queue: str,
+        payload: dict,
+        *,
+        retry_count: int,
+        headers: Mapping[str, Any] | None = None,
+    ) -> int:
+        """Publish to a TTL queue that dead-letters back onto ``target_queue``.
+
+        Returns the delay (ms) used.
+        """
+        tiers = self.retry_queues.get(target_queue)
+        if not tiers:
+            raise RuntimeError(
+                f"Retry queues are not configured for target_queue={target_queue}"
+            )
+
+        delay_ms = delay_ms_for_attempt(
+            retry_count,
+            base_ms=self.retry_base_ms,
+            max_ms=self.retry_max_ms,
+            tiers=self.retry_tiers_ms,
+        )
+        if delay_ms not in tiers:
+            delay_ms = min(tiers.keys(), key=lambda t: (abs(t - delay_ms), t))
+
+        next_headers = {
+            k: v
+            for k, v in dict(headers or {}).items()
+            if not str(k).startswith("x-death")
+            and not str(k).startswith("x-first-death")
+            and not str(k).startswith("x-last-death")
+            and k not in ("x-delivery-count", "x-acquired-count")
+        }
+        next_headers[RETRY_COUNT_HEADER] = retry_count + 1
+
+        routing_key = retry_queue_name(target_queue, delay_ms)
+        message = Message(
+            body=json.dumps(payload).encode(),
+            delivery_mode=DeliveryMode.PERSISTENT,
+            message_id=str(uuid_utils.uuid7()),
+            headers=next_headers,
+        )
+        await self.channel.default_exchange.publish(
+            message=message,
+            routing_key=routing_key,
+            timeout=5.0,
+        )
+        self.logger.info(
+            "Scheduled retry target=%s attempt=%s delay_ms=%s queue=%s payload_id=%s",
+            target_queue,
+            retry_count + 1,
+            delay_ms,
+            routing_key,
+            payload.get("document_id") or payload.get("id"),
+        )
+        return delay_ms
 
     async def start_consumers(
         self,
@@ -72,7 +179,7 @@ class RabbitMQ:
         document_consumer = await self._start_consumer("document_queue", document_callback)
         mail_dlq_consumer = await self._start_consumer("mail_queue_dlq", dlq_callback)
         document_dlq_consumer = await self._start_consumer("document_queue_dlq", dlq_callback)
-        self._logger.info("Started RabbitMQ consumers")
+        self.logger.info("Started RabbitMQ consumers")
         return [mail_consumer, document_consumer, mail_dlq_consumer, document_dlq_consumer]
 
     async def stop_consumers(self, consumers: list[RabbitMQConsumer]) -> None:
@@ -83,8 +190,9 @@ class RabbitMQ:
                     timeout=2.0,
                 )
             except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
-                self._logger.debug("Consumer cancel interrupted tag=%s: %s", consumer.tag, e)
-        self._logger.info("Stopped RabbitMQ consumers")
+                self.logger.debug(
+                    "Consumer cancel interrupted tag=%s: %s", consumer.tag, e)
+        self.logger.info("Stopped RabbitMQ consumers")
 
     async def _start_consumer(
         self,
@@ -108,3 +216,7 @@ class RabbitMQ:
 
         tag = await queue.consume(callback, no_ack=False)
         return RabbitMQConsumer(queue=queue, tag=tag)
+
+    @property
+    def _logger(self) -> Logger:
+        return self.logger

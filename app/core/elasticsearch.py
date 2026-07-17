@@ -61,7 +61,8 @@ class Elasticsearch:
                 self.elasticsearch,
                 actions,
                 max_retries=3,
-                chunk_size=len(documents),
+                chunk_size=100,
+                max_chunk_bytes=1024 * 1024 * 10,
             ):
                 if ok:
                     success += 1

@@ -24,7 +24,7 @@ from app.core.elasticsearch import Elasticsearch
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
 from app.core.handlers import Handlers
 from app.core.ingest_pipeline import IngestPipeline
-from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer
+from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
 from app.core.redis import RedisClient
 from app.core.supabase import Supabase
 from app.core.vector_store import VectorStore
@@ -84,6 +84,7 @@ class RabbitMQResources:
     email_dlq_queue: aio_pika.Queue
     document_queue: aio_pika.Queue
     document_dlq_queue: aio_pika.Queue
+    retry_queues: dict[str, dict[int, aio_pika.Queue]]
 
 
 MAX_QUEUE_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -116,7 +117,37 @@ async def init_async_rabbitmq_queue(
     return queue, dlq
 
 
-async def init_async_rabbitmq(rabbitmq_url: str, logger: Logger) -> AsyncIterator[RabbitMQResources]:
+async def init_retry_queues(
+    channel: aio_pika.Channel,
+    *,
+    target_queue: str,
+    delay_tiers_ms: list[int],
+) -> dict[int, aio_pika.Queue]:
+    """Classic TTL queues that dead-letter back onto the main document queue."""
+    queues: dict[int, aio_pika.Queue] = {}
+    for delay_ms in delay_tiers_ms:
+        queues[delay_ms] = await channel.declare_queue(
+            name=retry_queue_name(target_queue, delay_ms),
+            durable=True,
+            arguments={
+                "x-message-ttl": delay_ms,
+                "x-dead-letter-exchange": "",
+                "x-dead-letter-routing-key": target_queue,
+                "x-max-length-bytes": MAX_QUEUE_BYTES,
+            },
+        )
+    return queues
+
+
+async def init_async_rabbitmq(
+    rabbitmq_url: str,
+    logger: Logger,
+    max_retries: int,
+    retry_base_ms: int,
+    retry_max_ms: int,
+) -> AsyncIterator[RabbitMQResources]:
+    from app.core.rabbitmq import retry_delay_tiers_ms
+
     try:
         connection = await aio_pika.connect_robust(rabbitmq_url)
         channel = await connection.channel(
@@ -129,7 +160,24 @@ async def init_async_rabbitmq(rabbitmq_url: str, logger: Logger) -> AsyncIterato
     await channel.set_qos(prefetch_count=10)
 
     email_queue, email_dlq_queue = await init_async_rabbitmq_queue(channel, "mail_queue")
-    document_queue, document_dlq_queue = await init_async_rabbitmq_queue(channel, "document_queue")
+    document_queue, document_dlq_queue = await init_async_rabbitmq_queue(
+        channel, "document_queue"
+    )
+
+    tiers = retry_delay_tiers_ms(retry_base_ms, retry_max_ms, max_retries)
+    retry_targets = ("document_queue",)
+    retry_queues: dict[str, dict[int, aio_pika.Queue]] = {}
+    for target in retry_targets:
+        retry_queues[target] = await init_retry_queues(
+            channel,
+            target_queue=target,
+            delay_tiers_ms=tiers,
+        )
+        logger.info(
+            "Declared retry TTL queues target=%s delays_ms=%s",
+            target,
+            tiers,
+        )
 
     try:
         yield RabbitMQResources(
@@ -138,6 +186,7 @@ async def init_async_rabbitmq(rabbitmq_url: str, logger: Logger) -> AsyncIterato
             email_dlq_queue=email_dlq_queue,
             document_queue=document_queue,
             document_dlq_queue=document_dlq_queue,
+            retry_queues=retry_queues,
         )
     finally:
         try:
@@ -298,6 +347,9 @@ class Container(containers.DeclarativeContainer):
         init_async_rabbitmq,
         rabbitmq_url=settings.provided.rabbitmq_url,
         logger=logger,
+        max_retries=settings.provided.rabbitmq_max_retries,
+        retry_base_ms=settings.provided.rabbitmq_retry_base_ms,
+        retry_max_ms=settings.provided.rabbitmq_retry_max_ms,
     )
 
     user_repository = providers.Factory(
@@ -319,6 +371,10 @@ class Container(containers.DeclarativeContainer):
         email_dlq_queue=rabbitmq_resources.provided.email_dlq_queue,
         document_queue=rabbitmq_resources.provided.document_queue,
         document_dlq_queue=rabbitmq_resources.provided.document_dlq_queue,
+        retry_queues=rabbitmq_resources.provided.retry_queues,
+        max_retries=settings.provided.rabbitmq_max_retries,
+        retry_base_ms=settings.provided.rabbitmq_retry_base_ms,
+        retry_max_ms=settings.provided.rabbitmq_retry_max_ms,
         logger=logger,
     )
 
@@ -379,6 +435,7 @@ class Container(containers.DeclarativeContainer):
         document_service=document_service,
         embedding_manager=embedding_manager,
         elasticsearch=elasticsearch,
+        rabbitmq=rabbitmq,
     )
 
     rabbitmq_consumers = providers.Resource(

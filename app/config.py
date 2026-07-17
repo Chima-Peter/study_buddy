@@ -31,3 +31,8 @@ class Settings(BaseSettings):
     supabase_key: str = "sb_publ........"
 
     elasticsearch_url: str = "http://localhost:9200"
+
+    # Document ingest: delayed retries via TTL queues (not broker requeue)
+    rabbitmq_max_retries: int = 3
+    rabbitmq_retry_base_ms: int = 5_000
+    rabbitmq_retry_max_ms: int = 300_000
