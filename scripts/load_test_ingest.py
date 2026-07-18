@@ -4,11 +4,10 @@
 Generates fixtures, uploads via signed URL, starts ingest, and polls status.
 
 Examples:
-  python scripts/load_test_ingest.py \\
-    --email chi@gmail.com --password 'Password@1' --profile quick
+  python scripts/load_test_ingest.py --email ch13pp@gm.com --password '12345678' --profile quick
 
   python scripts/load_test_ingest.py \\
-    --email chi@gmail.com --password 'Password@1' --profile full --parallel 2
+    --email ch13pp@gm.com --password '12345678' --profile full --parallel 2
 
   # Generate fixtures only (no API calls)
   python scripts/load_test_ingest.py --generate-only --profile full
@@ -977,8 +976,8 @@ def print_summary(results: list[Result]) -> int:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Ingest pipeline load test")
     p.add_argument("--base", default=DEFAULT_BASE, help="API base URL")
-    p.add_argument("--email", default="chi@gmail.com")
-    p.add_argument("--password", default="Password@1")
+    p.add_argument("--email", default="ch13pp@gm.com")
+    p.add_argument("--password", default="12345678")
     p.add_argument(
         "--profile",
         choices=sorted(PROFILES),
@@ -1084,5 +1083,5 @@ def main() -> int:
 if __name__ == "__main__":
     sys.exit(main())
 
-    # python scripts/load_test_ingest.py --email chi@gmail.com --password 'Password@1' --profile quick
+    # python scripts/load_test_ingest.py --email ch13pp@gm.com --password '12345678' --profile quick
 # larger: --profile medium | --profile full

@@ -134,15 +134,23 @@ class IngestPipeline:
     def load_pdf_file(
         self, payload: IngestDocumentRequest, file_path: str
     ) -> list[Document]:
-        return self._load_and_split(
-            PyMuPDFLoader(
-                str(file_path),
-                extract_images=True,
-                extract_tables=True,
-            ),
-            loader_name="PyMuPDFLoader",
-            payload=payload,
-        )
+        try:
+            return self._load_and_split(
+                PyMuPDFLoader(
+                    str(file_path),
+                    mode="page",
+                    extract_images=True,
+                ),
+                loader_name="PyMuPDFLoader",
+                payload=payload,
+            )
+        except Exception as e:
+            self.logger.warning(
+                "PyMuPDFLoader failed for file=%s, falling back to UnstructuredLoader: %s",
+                payload.file_name,
+                e,
+            )
+            return self.load_file(payload, file_path, "fast")
 
     def _pdf_needs_hi_res(self, file_path: str) -> bool:
         import fitz

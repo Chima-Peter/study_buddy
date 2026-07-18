@@ -5,7 +5,7 @@ from logging import Logger
 from typing import Annotated, AsyncIterator
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.authentication.schemas import UserResponse
@@ -153,6 +153,7 @@ async def mark_notification_read(
 @inject
 async def live_stream(
     user: Annotated[UserResponse, Depends(get_current_user)],
+    request: Request,
     redis_service: RedisClient = Depends(Provide[Container.redis_client]),
     logger: Logger = Depends(Provide[Container.logger]),
     last_event_id: Annotated[
@@ -166,8 +167,24 @@ async def live_stream(
         nonlocal cursor
         try:
             while True:
+                if await request.is_disconnected():
+                    logger.info(
+                        "SSE client disconnected user_id=%s stream=%s",
+                        user.id,
+                        stream_name,
+                    )
+                    break
+
                 messages = await redis_service.read_stream(stream_name, cursor)
-                if not messages or len(messages) == 0:
+                if await request.is_disconnected():
+                    logger.info(
+                        "SSE client disconnected user_id=%s stream=%s",
+                        user.id,
+                        stream_name,
+                    )
+                    break
+
+                if not messages:
                     yield (
                         f"event: ping\n"
                         f"data: {json.dumps({})}\n\n"
@@ -196,14 +213,11 @@ async def live_stream(
                     )
         except asyncio.CancelledError:
             logger.info(
-                "SSE disconnected user_id=%s stream=%s",
+                "SSE cancelled user_id=%s stream=%s",
                 user.id,
                 stream_name,
             )
-            raise HTTPException(
-                status_code=status.HTTP_408_REQUEST_TIMEOUT,
-                detail="Connection timed out",
-            )
+            raise
         finally:
             await redis_service.expire_connection(user.id)
 
