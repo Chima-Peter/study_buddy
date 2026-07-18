@@ -1,10 +1,27 @@
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
+WebSocketMessageType = Literal["ping", "query", "subscribe", "unsubscribe"]
 
 TOP_K = 5
+
+
+class WebSocketMessage(BaseModel):
+    type: WebSocketMessageType
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+def validate_ws_message(data: str) -> tuple[bool, WebSocketMessage | str]:
+    """Validate incoming WebSocket message. Returns (is_valid, parsed_message_or_error)."""
+    if data == "ping":
+        return True, WebSocketMessage(type="ping")
+    try:
+        msg = WebSocketMessage.model_validate_json(data)
+        return True, msg
+    except ValidationError as e:
+        return False, e.errors()[0].get("msg", "Invalid message")
 
 
 class QueryRequest(BaseModel):

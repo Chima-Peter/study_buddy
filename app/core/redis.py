@@ -7,6 +7,7 @@ from redis.asyncio import Redis
 from app.system.schemas.notification import EventPayload
 
 CONNECTION_TTL_SECONDS = 5 * 60
+CONNECTION_COUNT_TTL_SECONDS = 24 * 60 * 60
 SSE_PING_INTERVAL_MS = 5_000
 
 
@@ -20,6 +21,10 @@ class RedisClient:
     @staticmethod
     def _connection_key(user_id: str) -> str:
         return f"connection_id:{user_id}"
+
+    @staticmethod
+    def _connection_count_key(user_id: str) -> str:
+        return f"connection_count:{user_id}"
 
     @staticmethod
     def _stream_key(stream_id: str) -> str:
@@ -150,3 +155,22 @@ class RedisClient:
             if await self.exists(stream_name):
                 return stream_name
         return await self.create_stream(user_id)
+
+    async def incr_connection_count(self, user_id: str) -> int:
+        key = self._connection_count_key(user_id)
+        count = await self._redis.incr(key)
+        await self._redis.expire(key, CONNECTION_COUNT_TTL_SECONDS)
+        return count
+
+    async def decr_connection_count(self, user_id: str) -> int:
+        key = self._connection_count_key(user_id)
+        count = await self._redis.decr(key)
+        if count <= 0:
+            await self._redis.delete(key)
+            return 0
+        return count
+
+    async def get_connection_count(self, user_id: str) -> int:
+        key = self._connection_count_key(user_id)
+        count = await self._redis.get(key)
+        return int(count) if count else 0

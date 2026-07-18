@@ -12,6 +12,7 @@ def main() -> None:
         reload=settings.debug,
         ws_ping_interval=20,
         ws_ping_timeout=20,
+        ws_max_size=65536,
     )
 
 
