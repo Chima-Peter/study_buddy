@@ -10,6 +10,8 @@ def main() -> None:
         host=settings.host,
         port=settings.port,
         reload=settings.debug,
+        ws_ping_interval=20,
+        ws_ping_timeout=20,
     )
 
 
