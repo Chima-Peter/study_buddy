@@ -8,7 +8,8 @@ FastAPI backend for uploading study documents, ingesting them into a searchable 
 - **Documents** — signed upload/download via Supabase Storage, metadata CRUD, async ingest
 - **Ingest pipeline** — parse → chunk → embed → index (Chroma + Elasticsearch)
 - **Chat / RAG** — hybrid, vector, or BM25 search over user documents; answers via Gemini
-- **Notifications** — ingest status updates with cursor pagination
+- **Realtime** — Redis Streams fan-out: SSE for notifications, WebSocket for chat (replacing HTTP query)
+- **Notifications** — ingest status updates with cursor pagination + live SSE stream
 - **Resilient queues** — RabbitMQ with TTL retries and a dead-letter queue for failed ingest
 
 ## Stack
@@ -98,9 +99,69 @@ Retry a failed document with `POST /api/system/documents/{id}/ingest/retry`.
 
 **Allowed extensions:** `.pdf`, `.txt`, `.csv`, `.json`, `.md`, `.markdown`, `.doc`, `.docx`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`
 
+## Realtime (SSE + WebSocket)
+
+Both live channels read from the same per-user **Redis Stream**. Producers (e.g. ingest workers) call `publish_to_user`; clients consume via SSE or WebSocket.
+
+```
+Ingest worker / services
+        │  publish_to_user(user_id, EventPayload)
+        ▼
+  Redis Stream (per user)  ←── orchestrate_stream() on connect
+        │
+        ├── GET  /api/system/notifications/stream   (SSE, one-way)
+        └── WS   /api/system/chat                   (bidirectional; chat + events)
+```
+
+| Concern | SSE (`/notifications/stream`) | WebSocket (`/chat`) |
+| --- | --- | --- |
+| Direction | Server → client | Bidirectional |
+| Auth | `Authorization: Bearer <token>` | Query `?token=<jwt>` |
+| Resume | `Last-Event-ID` header | Query `?cursor=<stream-id>` (default `0`) |
+| Use case | Live notification / status push | Chat queries + same event stream |
+| Limits | — | Max **5** concurrent connections per user; payload ≤ **64 KB** |
+
+On connect, the server attaches (or creates) the user’s stream. Events are `XREAD`’d, forwarded to the client, then deleted from the stream. After disconnect, the connection key and stream get a short TTL so a quick reconnect can resume.
+
+**Typical event shape** (both channels):
+
+```json
+{ "type": "document.status", "data": { "document_id": "...", "name": "...", "status": "completed", "comment": "..." } }
+```
+
+Ingest publishes `document.status` as the document moves through `pending` → `processing` → `completed` | `failed` | `cancelled`.
+
+### SSE — notifications
+
+`GET /api/system/notifications/stream` (`text/event-stream`)
+
+- Frames use standard SSE fields: `id`, `event`, `data`
+- Idle reads emit `event: ping` keepalives
+- Reconnect with `Last-Event-ID` set to the last received message id
+
+### WebSocket — chat (replaces HTTP query)
+
+`WS /api/system/chat?token=<jwt>&cursor=<optional>`
+
+WebSocket is the intended path for RAG chat; `POST /query` remains for now but will be removed once clients migrate.
+
+**Client → server** (JSON object with `type`, or plain `ping`):
+
+| `type` | Purpose |
+| --- | --- |
+| `ping` | Heartbeat; server replies `pong` (also accepts the bare string `ping`) |
+| `query` | RAG question (payload in `data`) — replaces `POST /query` |
+| `subscribe` / `unsubscribe` | Channel subscription control |
+
+**Server → client:**
+
+- Greeting: `Hello!`
+- Stream events: `{"type": "<event>", "data": {…}}`
+- Errors may include the current `cursor` so the client can reconnect and resume
+
 ## API overview
 
-All system routes (except health) require `Authorization: Bearer <token>`.
+All system routes (except health) require `Authorization: Bearer <token>`, unless noted (WebSocket uses `?token=`).
 
 ### Auth — `/api/authentication`
 
@@ -127,7 +188,8 @@ All system routes (except health) require `Authorization: Bearer <token>`.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/query` | RAG Q&A (`mode`: `hybrid` \| `vector` \| `bm25`, top 5 chunks) |
+| `WS` | `/` | Bidirectional chat + Redis stream events (`?token=` required). **Preferred; replaces HTTP query** |
+| `POST` | `/query` | RAG Q&A (legacy HTTP; top 5 chunks) — migrate to WebSocket `type: "query"` |
 
 ### Notifications — `/api/system/notifications`
 
@@ -135,6 +197,7 @@ All system routes (except health) require `Authorization: Bearer <token>`.
 | --- | --- | --- |
 | `GET` | `/` | List (cursor pagination, optional `unread_only`) |
 | `PATCH` | `/{id}/read` | Mark as read |
+| `GET` | `/stream` | SSE live stream (`Last-Event-ID` to resume) |
 
 ## Project layout
 
