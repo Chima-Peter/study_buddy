@@ -1,4 +1,5 @@
 from logging import Logger
+from typing import AsyncGenerator
 
 from app.core.retriever import RAGRetriever
 from app.system.schemas.chat import QueryResponseData, SourceChunk
@@ -13,23 +14,19 @@ class ChatService:
         self,
         user_id: str,
         query: str,
-    ) -> QueryResponseData:
+    ) -> None:
         self.logger.info(
-            "ChatService query start user_id=%s", user_id
+            "Initiating streaming response for user_id=%s", user_id
         )
-        result = await self.retriever.answer(
+        async for response in self.retriever.answer(
             user_id,
             query,
             mode="hybrid",
-        )
-        return QueryResponseData(
-            answer=result["answer"],
-            sources=[
-                SourceChunk(
-                    content=s["content"],
-                    metadata=s["metadata"],
-                    rrf_score=s["rrf_score"],
-                )
-                for s in result["sources"]
-            ],
+        ):
+            self.logger.info(
+                "Streaming response chunk for user_id=%s", user_id
+            )
+            yield response
+        self.logger.info(
+            "Streaming response completed for user_id=%s", user_id
         )

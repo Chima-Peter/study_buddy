@@ -20,33 +20,13 @@ from app.container import Container
 from app.core.redis import RedisClient
 from app.core.response import BasicResponse
 from app.core.security import get_current_user, get_current_user_websocket
-from app.system.schemas.chat import QueryApiResponse, QueryRequest, validate_ws_message
+from app.system.schemas.chat import QueryApiResponse, QueryRequest
 from app.system.service.chat import ChatService
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
 MAX_PAYLOAD_SIZE = 64 * 1024
 MAX_CONNECTIONS_PER_USER = 5
-ALLOWED_MESSAGE_TYPES = {"ping", "query", "subscribe", "unsubscribe"}
-
-
-def validate_message(data: str) -> tuple[bool, str | dict]:
-    """Validate incoming WebSocket message. Returns (is_valid, parsed_data_or_error)."""
-    if data == "ping":
-        return True, "ping"
-    try:
-        parsed = json.loads(data)
-        if not isinstance(parsed, dict):
-            return False, "Message must be a JSON object"
-        msg_type = parsed.get("type")
-        if not msg_type:
-            return False, "Missing 'type' field"
-        if msg_type not in ALLOWED_MESSAGE_TYPES:
-            return False, f"Invalid message type: {msg_type}"
-        return True, parsed
-    except json.JSONDecodeError:
-        return False, "Invalid JSON"
-
 
 @chat_router.post(
     "/query",
@@ -65,7 +45,7 @@ async def query_documents(
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
-        result = await service.query(
+        await service.query(
             user.id,
             request.query,
         )
@@ -79,7 +59,7 @@ async def query_documents(
         )
 
     return BasicResponse(
-        data=result.model_dump(mode="json"),
+        data={"success": True, "message": "Query completed successfully"},
         message="Query completed successfully",
     )
 
@@ -90,6 +70,7 @@ async def websocket_endpoint(
     websocket: WebSocket,
     user: Annotated[UserResponse, Depends(get_current_user_websocket)],
     logger: Logger = Depends(Provide[Container.logger]),
+    service: ChatService = Depends(Provide[Container.chat_service]),
     redis_service: RedisClient = Depends(Provide[Container.redis_client]),
 ) -> None:
     stream_name: str | None = None
@@ -113,72 +94,51 @@ async def websocket_endpoint(
         await websocket.accept()
         await redis_service.incr_connection_count(user.id)
         connection_counted = True
-        stream_name = await redis_service.orchestrate_stream(user.id)
         await websocket.send_text("Hello!")
 
         while True:
-            recv_task = asyncio.create_task(websocket.receive_text())
-            stream_task = asyncio.create_task(
-                redis_service.read_stream(stream_name, cursor)
-            )
+            chat_task = asyncio.create_task(websocket.receive_text())
 
+            async def idle_ping() -> None:
+                await asyncio.sleep(250)
+                await websocket.send_text("ping")
+
+            ping_task = asyncio.create_task(idle_ping())
             done, pending = await asyncio.wait(
-                {recv_task, stream_task},
+                {chat_task, ping_task},
                 return_when=asyncio.FIRST_COMPLETED,
-                timeout=600,
+                timeout=300,
             )
 
             for task in pending:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
 
-            if recv_task in done:
-                data = recv_task.result()
-                if len(data.encode("utf-8")) > MAX_PAYLOAD_SIZE:
+            if chat_task in done:
+                message = chat_task.result()
+                if len(message.encode("utf-8")) > MAX_PAYLOAD_SIZE:
                     logger.warning(
                         "Message too big user_id=%s size=%d",
                         user.id,
-                        len(data),
+                        len(message),
                     )
                     await websocket.close(code=status.WS_1009_MESSAGE_TOO_BIG)
                     return
 
-                is_valid, result = validate_ws_message(data)
-                if not is_valid:
-                    logger.warning(
-                        "Invalid message user_id=%s error=%s",
-                        user.id,
-                        result,
-                    )
-                    await websocket.close(code=status.WS_1007_INVALID_FRAME_PAYLOAD_DATA)
-                    return
-
-                if result.type == "ping":
+                if message == "ping":
                     await websocket.send_text("pong")
                 else:
                     logger.info(
                         "Received message user_id=%s type=%s",
                         user.id,
-                        result.type,
+                        message,
                     )
-
-            if stream_task in done:
-                messages = stream_task.result()
-                for message_id, fields in messages:
-                    cursor = message_id
-                    event_type = fields.get("type", "message")
-                    raw_data = fields.get("data", "{}")
-                    try:
-                        payload_data = json.loads(raw_data)
-                    except (TypeError, json.JSONDecodeError):
-                        payload_data = raw_data
-
-                    await websocket.send_text(
-                        json.dumps({"type": event_type, "data": payload_data})
-                    )
-                    await redis_service.delete_message_from_stream(
-                        stream_name, message_id
-                    )
+                    async for chunk in service.query(
+                        user_id=user.id,
+                        query=message,
+                    ):
+                        await websocket.send_text(chunk)
+                    await websocket.send_text("DONE")
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected user_id=%s", user.id)
     except asyncio.TimeoutError:
@@ -214,5 +174,3 @@ async def websocket_endpoint(
     finally:
         if connection_counted:
             await redis_service.decr_connection_count(user.id)
-        if stream_name is not None:
-            await redis_service.expire_connection(user.id)

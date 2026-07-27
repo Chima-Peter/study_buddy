@@ -1,7 +1,7 @@
 """RAG retriever: embed → Elasticsearch search → deduplicate → LLM answer."""
 
 from logging import Logger
-from typing import Any, Literal
+from typing import Any, AsyncGenerator, Literal
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -93,7 +93,7 @@ class RAGRetriever:
         query: str,
         *,
         mode: SearchMode = "hybrid",
-    ) -> dict[str, Any]:
+    ) -> AsyncGenerator[str, Any]:
         self.logger.info(
             "Retriever pipeline start user_id=%s mode=%s top_k=%s",
             user_id,
@@ -101,54 +101,60 @@ class RAGRetriever:
             TOP_K,
         )
         results = await self.retrieve(user_id, query, mode=mode)
+        deduped: list[FusedResult] = []
+        context = ""
         if not results:
             self.logger.info(
-                "Retriever pipeline empty context user_id=%s", user_id
+                "No relevant context found for the query. user_id=%s", user_id
             )
-            return {
-                "answer": "No relevant context found for the query.",
-                "sources": [],
-            }
+        else:
+            deduped = _deduplicate_by_document(results)
+            self.logger.info(
+                "Retriever dedupe user_id=%s before=%s after=%s",
+                user_id,
+                len(results),
+                len(deduped),
+            )
+            context = "\n\n".join(r.document.content for r in deduped)
+            self.logger.info(
+                "Retriever LLM invoke user_id=%s context_chars=%s sources=%s",
+                user_id,
+                len(context),
+                len(deduped),
+            )
 
-        deduped = _deduplicate_by_document(results)
-        self.logger.info(
-            "Retriever dedupe user_id=%s before=%s after=%s",
-            user_id,
-            len(results),
-            len(deduped),
-        )
-
-        context = "\n\n".join(r.document.content for r in deduped)
-        self.logger.info(
-            "Retriever LLM invoke user_id=%s context_chars=%s sources=%s",
-            user_id,
-            len(context),
-            len(deduped),
-        )
         prompt = (
-            "You are a helpful study assistant. Use only the following context "
-            "to answer the question. If the context is insufficient, say so by notifying the user to upload relevant documents.\n\n"
+            "You are a helpful study assistant.\n\n"
+            "Use the provided context as the primary source of truth when "
+            "answering questions about the user's documents or study materials.\n\n"
+            "Rules:\n"
+            "1. If the answer can be found in the provided context, answer using "
+            "only that context.\n"
+            "2. If the question is about the uploaded documents but the context "
+            "does not contain enough information, say so clearly and ask the user "
+            "to upload the relevant document(s) or provide additional context. Do "
+            "not guess or fabricate information.\n"
+            "3. If the question is a general knowledge question that is unrelated "
+            'to the uploaded documents (e.g., "What is the capital of France?"), '
+            "answer normally using your general knowledge.\n"
+            "4. If it is unclear whether the question refers to the uploaded "
+            'documents or general knowledge, answer from your general knowledge, '
+            "but explicitly mention that you are answering from your general knowledge.\n"
+            "5. When answering from the provided context, cite or reference the "
+            "relevant sections if they are available.\n\n"
             f"Context:\n{context}\n\n"
             f"Question: {query}\n"
             "Answer:"
         )
-        response = await self.model.ainvoke([prompt])
-        content = response.content
-        if isinstance(content, str):
-            answer = content
-        elif isinstance(content, list):
-            parts = []
-            for block in content:
-                if isinstance(block, str):
-                    parts.append(block)
-                elif isinstance(block, dict) and "text" in block:
-                    parts.append(str(block["text"]))
-                else:
-                    text = getattr(block, "text", None)
-                    parts.append(str(text if text is not None else block))
-            answer = "".join(parts)
-        else:
-            answer = str(content)
+
+        answer = ""
+        async for chunk in self.model.astream(prompt):
+            # Gemini often returns content as list blocks; .text normalizes to str.
+            text = chunk.text
+            if not text:
+                continue
+            yield text
+            answer += text
 
         sources = [
             {
@@ -164,4 +170,3 @@ class RAGRetriever:
             len(answer),
             len(sources),
         )
-        return {"answer": answer, "sources": sources}
