@@ -19,8 +19,9 @@ from app.system.schemas.document import (
     IngestDocumentRequest,
     ingest_failure_comment,
 )
-from app.system.schemas.notification import EventPayload
+from app.system.schemas.notification import EventPayload, CreateNotificationRequest
 from app.system.service.document import DocumentService
+from app.system.service.notification import NotificationService
 from app.utils.errors.rabbitmq import NonRetryableIngestError
 
 
@@ -49,8 +50,16 @@ async def notify_document_status(
     logger: Logger,
     user_id: str,
     document: DocumentResponse,
+    notification_service: NotificationService,
 ) -> None:
     try:
+        document = await notification_service.create_notification(
+            CreateNotificationRequest(
+                user_id=user_id,
+                title="Document Status",
+                message=document.comment,
+            )
+        )
         await redis.publish_to_user(
             user_id,
             EventPayload(
@@ -121,6 +130,7 @@ async def handle_document(
     elasticsearch: Elasticsearch,
     rabbitmq: RabbitMQ,
     redis: RedisClient,
+    notification_service: NotificationService,
 ) -> None:
     document_id: str | None = None
     user_id: str | None = None
@@ -194,7 +204,7 @@ async def handle_document(
                             )
                         else:
                             await notify_document_status(
-                                redis, logger, user_id, completed
+                                redis, logger, user_id, completed, notification_service
                             )
                     else:
                         logger.info(
@@ -209,7 +219,7 @@ async def handle_document(
                             document_id, user_id, existing.path or ""
                         )
                         await notify_document_status(
-                            redis, logger, user_id, cancelled
+                            redis, logger, user_id, cancelled, notification_service
                         )
                         if (
                             ingest_payload.path
@@ -325,7 +335,7 @@ async def handle_document(
                     )
                     return
 
-                await notify_document_status(redis, logger, user_id, completed)
+                await notify_document_status(redis, logger, user_id, completed, notification_service)
                 logger.info(
                     "Ingested file=%s user_id=%s document_id=%s",
                     file_name,
@@ -353,7 +363,7 @@ async def handle_document(
                     comment=comment,
                 )
                 if failed is not None:
-                    await notify_document_status(redis, logger, user_id, failed)
+                    await notify_document_status(redis, logger, user_id, failed, notification_service)
             await message.reject(requeue=False)
             return
         except Exception as e:

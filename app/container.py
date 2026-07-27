@@ -28,7 +28,6 @@ from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
 from app.core.redis import RedisClient
 from app.core.retriever import RAGRetriever
 from app.core.supabase import Supabase
-from app.core.vector_store import VectorStore
 from app.logging_config import init_logging
 from app.system.repository.document import DocumentRepository
 from app.system.repository.notification import NotificationRepository
@@ -405,19 +404,12 @@ class Container(containers.DeclarativeContainer):
         model=embedding_manager.provided.model,
     )
 
-    vector_store = providers.Resource(
-        VectorStore,
-        logger=logger,
-        collection_name="pdf_store",
-    )
-
     ingest_pipeline_service = providers.Factory(
         IngestPipeline,
         logger=logger,
         embedding_manager=embedding_manager,
         supabase=async_supabase,
         semantic_embeddings=langchain_embeddings,
-        vector_store=vector_store,
     )
 
     document_repository = providers.Factory(
@@ -432,7 +424,6 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
         ingest_pipeline=ingest_pipeline_service,
         rabbitmq=rabbitmq,
-        vector_store=vector_store,
         elasticsearch=elasticsearch,
         supabase=async_supabase,
     )
@@ -473,6 +464,7 @@ class Container(containers.DeclarativeContainer):
         elasticsearch=elasticsearch,
         rabbitmq=rabbitmq,
         redis=redis_client,
+        notification_service=notification_service,
     )
 
     rabbitmq_consumers = providers.Resource(

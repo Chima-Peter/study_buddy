@@ -13,10 +13,10 @@ from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTex
 from langchain_unstructured import UnstructuredLoader
 
 from app.core.document_parsers import parse_csv
+from app.core.elasticsearch import Elasticsearch, IndexedDocuments
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
 from app.core.ocr_cleanup import clean_ocr_documents
 from app.core.supabase import Supabase
-from app.core.vector_store import VectorStore
 from app.system.schemas.document import IngestDocumentRequest
 from app.utils.errors.rabbitmq import NonRetryableIngestError
 
@@ -30,13 +30,13 @@ class IngestPipeline:
         embedding_manager: EmbeddingManager = None,
         supabase: Supabase = None,
         semantic_embeddings: SentenceTransformerEmbeddings = None,
-        vector_store: VectorStore = None,
+        elasticsearch: Elasticsearch = None,
     ):
         self.embedding_manager = embedding_manager
         self.semantic_embeddings = semantic_embeddings
-        self.vector_store = vector_store
         self.logger = logger
         self.supabase = supabase
+        self.elasticsearch = elasticsearch
 
     def _ids(self, payload: IngestDocumentRequest) -> tuple[str, str, str]:
         return payload.file_name, payload.user_id, payload.document_id
@@ -72,16 +72,37 @@ class IngestPipeline:
                     user_id,
                     document_id,
                 )
-                return {
-                    "documents": [],
-                    "chunks": chunks,
-                    "embeddings": [],
-                }
-            self.vector_store.add_documents(chunks, embeddings)
+
+            es_payload = [
+                IndexedDocuments(
+                    content=chunk.page_content,
+                    metadata=chunk.metadata,
+                    embedding=embedding.tolist()
+                    if hasattr(embedding, "tolist")
+                    else list(embedding),
+                )
+                for chunk, embedding in zip(chunks, embeddings)
+            ]
+            es_success, _es_failed = await self.elasticsearch.bulk_index_documents(
+                es_payload
+            )
+            if es_success == 0:
+                raise NonRetryableIngestError(
+                    "Document could not be indexed into search"
+                )
+            elif _es_failed > 0:
+                raise NonRetryableIngestError(
+                    f"Document could not be indexed into search: {_es_failed} failed"
+                )
+            else:
+                self.logger.info(
+                    "Document indexed into search success=%s failed=%s",
+                    es_success,
+                    _es_failed,
+                )
             return {
-                "documents": chunks,
-                "chunks": chunks,
-                "embeddings": embeddings,
+                "success": True,
+                "message": f"{len(chunks)} chunks processed"
             }
 
     def _load_and_split(

@@ -6,7 +6,6 @@ from app.core.elasticsearch import Elasticsearch
 from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ
 from app.core.supabase import Supabase
-from app.core.vector_store import VectorStore
 from app.system.models.documents import DocumentModel
 from app.system.repository.document import DocumentRepository
 from app.system.schemas.document import (
@@ -31,14 +30,12 @@ class DocumentService:
         repository: DocumentRepository,
         logger: Logger,
         ingest_pipeline: IngestPipeline,
-        vector_store: VectorStore,
         rabbitmq: RabbitMQ,
         elasticsearch: Elasticsearch,
         supabase: Supabase,
     ):
         self.repository = repository
         self.logger = logger
-        self.vector_store = vector_store
         self.ingest_pipeline = ingest_pipeline
         self.rabbitmq = rabbitmq
         self.elasticsearch = elasticsearch

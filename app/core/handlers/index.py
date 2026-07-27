@@ -12,6 +12,7 @@ from app.core.rabbitmq import RabbitMQ
 from app.core.redis import RedisClient
 from app.core.supabase import Supabase
 from app.system.service.document import DocumentService
+from app.system.service.notification import NotificationService
 
 
 class Handlers:
@@ -25,6 +26,7 @@ class Handlers:
         elasticsearch: Elasticsearch,
         rabbitmq: RabbitMQ,
         redis: RedisClient,
+        notification_service: NotificationService,
     ):
         self._logger = logger
         self._ingest_pipeline = ingest_pipeline
@@ -34,7 +36,7 @@ class Handlers:
         self._elasticsearch = elasticsearch
         self._rabbitmq = rabbitmq
         self._redis = redis
-
+        self._notification_service = notification_service
     async def handle_mail(self, message: AbstractIncomingMessage) -> None:
         await handle_mail(message)
 
