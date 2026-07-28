@@ -1,7 +1,7 @@
 import asyncio
 import json
 from logging import Logger
-from typing import Annotated
+from typing import Annotated, Any
 
 from redis.exceptions import ConnectionError
 from dependency_injector.wiring import Provide, inject
@@ -60,8 +60,6 @@ async def websocket_endpoint(
     service: ChatService = Depends(Provide[Container.chat_service]),
     redis_service: RedisClient = Depends(Provide[Container.redis_client]),
 ) -> None:
-    stream_name: str | None = None
-    cursor = websocket.query_params.get("cursor", "0")
     connection_counted = False
 
     try:
@@ -81,18 +79,17 @@ async def websocket_endpoint(
         await websocket.accept()
         await redis_service.incr_connection_count(user.id)
         connection_counted = True
-        await websocket.send_text("Hello!")
+        await websocket.send_json({
+            "type": "heartbeat",
+            "message": "Ping",
+        })
 
         while True:
-            chat_task = asyncio.create_task(websocket.receive_text())
+            chat_task = asyncio.create_task(websocket.receive_json())
 
-            async def idle_ping() -> None:
-                await asyncio.sleep(80)
-                await websocket.send_text("ping")
 
-            ping_task = asyncio.create_task(idle_ping())
             done, pending = await asyncio.wait(
-                {chat_task, ping_task},
+                {chat_task},
                 return_when=asyncio.FIRST_COMPLETED,
                 timeout=80,
             )
@@ -102,41 +99,89 @@ async def websocket_endpoint(
             await asyncio.gather(*pending, return_exceptions=True)
 
             if chat_task in done:
-                message = chat_task.result()
-                if len(message.encode("utf-8")) > MAX_PAYLOAD_SIZE:
-                    logger.warning(
-                        "Message too big user_id=%s size=%d",
-                        user.id,
-                        len(message),
-                    )
-                    await websocket.close(code=status.WS_1009_MESSAGE_TOO_BIG)
-                    return
+                try:
+                    message: dict[str, Any] = chat_task.result()
+                    if isinstance(message, str):
+                        logger.warning(
+                            "Message is not a JSON object user_id=%s",
+                            user.id,
+                        )
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Message is not a JSON object",
+                        })
+                        continue
 
-                if message == "ping":
-                    await websocket.send_text("pong")
-                else:
-                    logger.info(
-                        "Received message user_id=%s type=%s",
-                        user.id,
-                        message,
+                    query = message.get("query")
+                    if not query:
+                        logger.warning(
+                            "No query in message user_id=%s",
+                            user.id,
+                        )
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "No query in message",
+                        })
+                        continue
+
+                    if len(query.encode("utf-8")) > MAX_PAYLOAD_SIZE:
+                        logger.warning(
+                            "Query too big user_id=%s size=%d",
+                            user.id,
+                            len(query),
+                        )
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Query too big",
+                        })
+                        continue
+
+                    conversation_id = message.get("conversation_id")
+
+                    if query == "ping":
+                        await websocket.send_json({
+                            "type": "heartbeat",
+                            "message": "Pong",
+                        })
+                    else:
+                        logger.info(
+                            "Received message user_id=%s type=%s",
+                            user.id,
+                            query,
+                        )
+                        async for chunk in service.query(
+                            user_id=user.id,
+                            query=query,
+                        ):
+                            await websocket.send_json({
+                                "type": "chat.stream",
+                                "chunk": chunk,
+                            })
+                        await websocket.send_json({
+                            "type": "chat.done",
+                    })
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Invalid JSON message user_id=%s", user.id,
                     )
-                    async for chunk in service.query(
-                        user_id=user.id,
-                        query=message,
-                    ):
-                        await websocket.send_text(chunk)
-                    await websocket.send_text("DONE")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Invalid JSON message",
+                    })
+                    continue
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Timeout error user_id=%s. Sending heartbeat.", user.id
+                    )
+                    await websocket.send_json({
+                        "type": "heartbeat",
+                        "message": "Ping",
+                    })
+                    continue
+                except Exception:
+                    raise
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected user_id=%s", user.id)
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Timeout error user_id=%s", user.id
-        )
-        await websocket.close(
-            code=status.WS_1001_GOING_AWAY,
-            reason="Timeout error",
-        )
-        return
     except ConnectionError:
         logger.exception(
             "Redis connection error user_id=%s", user.id
@@ -148,14 +193,8 @@ async def websocket_endpoint(
         logger.exception(
             "Unexpected error in websocket endpoint user_id=%s", user.id
         )
-        try:
-            await websocket.send_text(json.dumps({"type": "error", "cursor": cursor}))
-        except Exception:
-            logger.exception(
-                "Unexpected error sending error message user_id=%s", user.id
-            )
         raise WebSocketException(
-            code=status.WS_1006_ABNORMAL_CLOSURE,
+            code=status.WS_1011_INTERNAL_ERROR,
             reason="Internal server error",
         )
     finally:
