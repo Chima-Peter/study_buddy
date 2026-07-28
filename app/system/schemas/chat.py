@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
 
@@ -35,9 +35,9 @@ class QueryApiResponse(BaseModel):
     message: Optional[str] = None
     error: Optional[str] = None
 
-class ConversationResponse(BaseModel):
+class ChatResponse(BaseModel):
     id: str
     user_id: str
     query: str
-    conversation: str
+    chat: str
     created_at: datetime

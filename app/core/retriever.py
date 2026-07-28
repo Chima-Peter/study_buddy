@@ -157,7 +157,7 @@ class RAGRetriever:
             await on_complete(
                 user_id=user_id,
                 query=query,
-                conversation=answer,
+                chat=answer,
                 embedding=embedding,
                 source=sources,
                 context=context,

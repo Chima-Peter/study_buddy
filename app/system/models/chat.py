@@ -11,11 +11,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-class ConversationModel(BaseModel):
+class ChatModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
     user_id: str = Field(min_length=36, max_length=36)
     query: str = Field(min_length=1)
-    conversation: str = Field(default="")
+    chat: str = Field(default="")
     audit: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -30,14 +30,14 @@ class ConversationModel(BaseModel):
             "id": self.id,
             "user_id": self.user_id,
             "query": self.query,
-            "conversation": self.conversation,
+            "chat": self.chat,
             "audit": self.audit,
             "created_at": self.created_at,
         }
 
 
-class ConversationDBModel(Base):
-    __tablename__ = "conversations"
+class ChatDBModel(Base):
+    __tablename__ = "chats"
 
     id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
     user_id: Mapped[str] = mapped_column(
@@ -47,7 +47,7 @@ class ConversationDBModel(Base):
         index=True,
     )
     query: Mapped[str] = mapped_column(sa.String(), nullable=False)
-    conversation: Mapped[str] = mapped_column(sa.String(), nullable=False)
+    chat: Mapped[str] = mapped_column(sa.String(), nullable=False)
     audit: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
@@ -58,14 +58,14 @@ class ConversationDBModel(Base):
         nullable=False,
     )
 
-    user = relationship("UserDBModel", back_populates="conversations")
+    user = relationship("UserDBModel", back_populates="chats")
 
     def model_dump(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
             "user_id": str(self.user_id),
             "query": self.query,
-            "conversation": self.conversation,
+            "chat": self.chat,
             "audit": self.audit or {},
             "created_at": self.created_at.isoformat(),
         }

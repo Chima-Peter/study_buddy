@@ -19,7 +19,7 @@ from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.redis import RedisClient
 from app.core.security import get_current_user, get_current_user_websocket
-from app.system.schemas.chat import ConversationResponse
+from app.system.schemas.chat import ChatResponse
 from app.system.service.chat import ChatService
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
@@ -29,21 +29,21 @@ MAX_CONNECTIONS_PER_USER = 5
 
 @chat_router.get(
     "",
-    response_model=list[ConversationResponse],
-    summary="Get conversations",
-    description="Get conversations for a user",
+    response_model=list[ChatResponse],
+    summary="Get chats",
+    description="Get chats for a user",
 )
 @inject
-async def list_conversations(
+async def list_chats(
     user: Annotated[UserResponse, Depends(get_current_user)],
     service: ChatService = Depends(Provide[Container.chat_service]),
     logger: Logger = Depends(Provide[Container.logger]),
-) -> list[ConversationResponse]:
+) -> list[ChatResponse]:
     try:
         return await service.list_by_user(user.id)
     except Exception:
         logger.exception(
-            "Unexpected error listing conversations user_id=%s", user.id
+            "Unexpected error listing chats user_id=%s", user.id
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -136,7 +136,7 @@ async def websocket_endpoint(
                         })
                         continue
 
-                    conversation_id = message.get("conversation_id")
+                    chat_id = message.get("chat_id")
 
                     if query == "ping":
                         await websocket.send_json({

@@ -2,9 +2,9 @@ from logging import Logger
 from typing import Any, AsyncGenerator
 
 from app.core.retriever import RAGRetriever
-from app.system.models.conversations import ConversationModel
+from app.system.models.chat import ChatModel
 from app.system.repository.chat import ChatRepository
-from app.system.schemas.chat import ConversationResponse
+from app.system.schemas.chat import ChatResponse
 
 SAVE_MAX_ATTEMPTS = 3
 
@@ -25,15 +25,15 @@ class ChatService:
         *,
         user_id: str,
         query: str,
-        conversation: str,
+        chat: str,
         embedding: list[float],
         source: list[dict[str, Any]],
         context: str,
     ) -> None:
-        record = ConversationModel(
+        record = ChatModel(
             user_id=user_id,
             query=query,
-            conversation=conversation,
+            chat=chat,
             audit={
                 "embedding": embedding,
                 "source": source,
@@ -44,20 +44,20 @@ class ChatService:
             try:
                 await self.repository.create(record)
                 self.logger.info(
-                    "Conversation saved successfully user_id=%s",
+                    "Chat saved successfully user_id=%s",
                     user_id,
                 )
                 return
             except Exception:
                 self.logger.exception(
-                    "Conversation save failed attempt=%s/%s user_id=%s",
+                    "Chat save failed attempt=%s/%s user_id=%s",
                     attempt,
                     SAVE_MAX_ATTEMPTS,
                     user_id,
                 )
 
         self.logger.error(
-            "Conversation save failed after %s attempts user_id=%s",
+            "Chat save failed after %s attempts user_id=%s",
             SAVE_MAX_ATTEMPTS,
             user_id,
         )
@@ -67,17 +67,17 @@ class ChatService:
         user_id: str,
         *,
         limit: int = 50,
-    ) -> list[ConversationResponse]:
-        conversations = await self.repository.list_by_user(user_id, limit=limit)
+    ) -> list[ChatResponse]:
+        chats = await self.repository.list_by_user(user_id, limit=limit)
         return [
-            ConversationResponse(
+            ChatResponse(
                 id=item.id,
                 user_id=item.user_id,
                 query=item.query,
-                conversation=item.conversation,
+                chat=item.chat,
                 created_at=item.created_at,
             )
-            for item in conversations
+            for item in chats
         ]
 
     async def query(
