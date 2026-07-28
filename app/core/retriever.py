@@ -8,6 +8,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
 from app.system.schemas.chat import TOP_K
+from app.system.service.conversation import ConversationService
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
 
@@ -29,6 +30,7 @@ class RAGRetriever:
         self,
         elasticsearch: Elasticsearch,
         embedding_manager: EmbeddingManager,
+        conversation_service: ConversationService,
         logger: Logger,
         *,
         google_api_key: str | None = None,
@@ -36,6 +38,7 @@ class RAGRetriever:
     ):
         self.elasticsearch = elasticsearch
         self.embedding_manager = embedding_manager
+        self.conversation_service = conversation_service
         self.logger = logger
         self.model = ChatGoogleGenerativeAI(
             model=model_name,
@@ -51,7 +54,7 @@ class RAGRetriever:
         query: str,
         *,
         mode: SearchMode = "hybrid",
-    ) -> list[FusedResult]:
+    ) -> tuple[list[FusedResult], list[float]]:
         self.logger.info(
             "Retriever retrieve start user_id=%s mode=%s top_k=%s query=%r",
             user_id,
@@ -85,7 +88,7 @@ class RAGRetriever:
             mode,
             len(results),
         )
-        return results
+        return results, embedding
 
     async def answer(
         self,
@@ -100,7 +103,7 @@ class RAGRetriever:
             mode,
             TOP_K,
         )
-        results = await self.retrieve(user_id, query, mode=mode)
+        results, embedding = await self.retrieve(user_id, query, mode=mode)
         deduped: list[FusedResult] = []
         context = ""
         if not results:
@@ -138,7 +141,7 @@ class RAGRetriever:
             'to the uploaded documents (e.g., "What is the capital of France?"), '
             "answer normally using your general knowledge.\n"
             "4. If it is unclear whether the question refers to the uploaded "
-            'documents or general knowledge, answer from your general knowledge, '
+            "documents or general knowledge, answer from your general knowledge, "
             "but explicitly mention that you are answering from your general knowledge.\n"
             "5. When answering from the provided context, cite or reference the "
             "relevant sections if they are available.\n\n"
@@ -169,4 +172,12 @@ class RAGRetriever:
             user_id,
             len(answer),
             len(sources),
+        )
+        await self.conversation_service.save(
+            user_id=user_id,
+            query=query,
+            conversation=answer,
+            embedding=embedding,
+            source=sources,
+            context=context,
         )

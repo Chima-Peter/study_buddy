@@ -66,6 +66,10 @@ class UserDBModel(Base):
         "DocumentDBModel",
         back_populates="user",
     )
+    conversations = relationship(
+        "ConversationDBModel",
+        back_populates="user",
+    )
 
     def model_dump(self) -> dict[str, Any]:
         return {
