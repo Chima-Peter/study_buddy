@@ -455,7 +455,9 @@ class Container(containers.DeclarativeContainer):
         ChatService,
         retriever=rag_retriever,
         repository=chat_repository,
+        conversation_repository=conversation_repository,
         logger=logger,
+        redis=redis_client,
     )
 
     conversation_service = providers.Factory(

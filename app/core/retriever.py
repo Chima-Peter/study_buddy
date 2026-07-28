@@ -81,15 +81,19 @@ class RAGRetriever:
         self,
         user_id: str,
         query: str,
+        first_message: bool,
+        conversation_id: str,
         *,
         mode: SearchMode = "hybrid",
         on_complete: OnComplete | None = None,
     ) -> AsyncGenerator[str, Any]:
         self.logger.info(
-            "Retriever pipeline start user_id=%s mode=%s top_k=%s",
+            "Retriever pipeline start user_id=%s mode=%s top_k=%s first_message=%s conversation_id=%s",
             user_id,
             mode,
             TOP_K,
+            first_message,
+            conversation_id,
         )
         results, embedding = await self.retrieve(user_id, query, mode=mode)
         context = ""
@@ -106,7 +110,7 @@ class RAGRetriever:
                 len(results),
             )
 
-        prompt = (
+        query_prompt = (
             "You are a helpful study assistant.\n\n"
             "Use the provided context as the primary source of truth when "
             "answering questions about the user's documents or study materials.\n\n"
@@ -130,14 +134,36 @@ class RAGRetriever:
             "Answer:"
         )
 
+        title: str | None = None
         answer = ""
-        async for chunk in self.model.astream(prompt):
-            # Gemini often returns content as list blocks; .text normalizes to str.
+        async for chunk in self.model.astream(query_prompt):
             text = chunk.text
             if not text:
                 continue
             yield text
             answer += text
+
+        if first_message:
+            title_prompt = (
+                "Generate a short title for this study conversation.\n\n"
+                "Rules:\n"
+                "1. Return only the title text.\n"
+                "2. Keep it under 80 characters.\n"
+                "3. Capture the main topic of the user's question.\n"
+                "4. Do not wrap the title in quotes.\n"
+                "5. Do not end with punctuation.\n\n"
+                f"Question: {query}\n"
+                f"Answer: {answer}\n"
+                "Title:"
+            )
+            title_response = await self.model.ainvoke(title_prompt)
+            title = (title_response.text or "").strip().strip("\"'")[:255] or None
+            self.logger.info(
+                "Generated conversation title user_id=%s title=%r, conversation_id=%s",
+                user_id,
+                title,
+                conversation_id,
+            )
 
         sources = [
             {
@@ -159,6 +185,9 @@ class RAGRetriever:
                 query=query,
                 chat=answer,
                 embedding=embedding,
+                conversation_id=conversation_id,
                 source=sources,
                 context=context,
+                first_message=first_message,
+                title=title,
             )

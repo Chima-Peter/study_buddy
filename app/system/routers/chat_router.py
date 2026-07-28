@@ -77,6 +77,7 @@ async def websocket_endpoint(
 
             if chat_task in done:
                 try:
+                    first_message = False
                     message: dict[str, Any] = chat_task.result()
                     if isinstance(message, str):
                         logger.warning(
@@ -124,10 +125,11 @@ async def websocket_endpoint(
                         if not conversation_id:
                             conversation = await conversation_service.create(
                                 CreateConversationRequest(
-                                    title="New Conversation",  
+                                    title="New Conversation",
                                 ),
                                 user_id=user.id,
                             )
+                            first_message = True
                             conversation_id = conversation.id
                         logger.info(
                             "Received message user_id=%s type=%s",
@@ -136,6 +138,7 @@ async def websocket_endpoint(
                         )
                         async for chunk in service.query(
                             user_id=user.id,
+                            first_message=first_message,
                             conversation_id=conversation_id,
                             query=query,
                         ):

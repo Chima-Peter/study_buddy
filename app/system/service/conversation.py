@@ -25,33 +25,68 @@ class ConversationService:
         request: CreateConversationRequest,
         user_id: str,
     ) -> ConversationResponse:
+        self.logger.info("Creating conversation user_id=%s", user_id)
         conversation = ConversationModel(
             title=request.title,
             user_id=user_id,
         )
         result = await self.repository.create(conversation)
+        self.logger.info(
+            "Conversation creation completed id=%s user_id=%s",
+            result.id,
+            user_id,
+        )
         return ConversationResponse(id=result.id, title=result.title)
 
     async def list_by_user(self, user_id: str) -> list[ConversationResponse]:
+        self.logger.info("Listing conversations user_id=%s", user_id)
         conversations = await self.repository.list_by_user(user_id)
-        return [
+        if not conversations:
+            self.logger.info(
+                "No conversations found user_id=%s",
+                user_id,
+            )
+            return []
+        response = [
             ConversationResponse(id=item.id, title=item.title)
             for item in conversations
         ]
+        self.logger.info(
+            "Conversation listing completed user_id=%s count=%s",
+            user_id,
+            len(response),
+        )
+        return response
 
     async def get(
         self,
         conversation_id: str,
         user_id: str,
     ) -> ConversationDetailResponse:
+        self.logger.info(
+            "Getting conversation id=%s user_id=%s",
+            conversation_id,
+            user_id,
+        )
         result = await self.repository.get_with_chats(
             conversation_id,
             user_id,
         )
         if result is None:
+            self.logger.warning(
+                "Conversation unavailable id=%s user_id=%s",
+                conversation_id,
+                user_id,
+            )
             raise ValueError("Conversation not found")
 
         conversation, chats = result
+        self.logger.info(
+            "Conversation retrieval completed id=%s user_id=%s chat_count=%s",
+            conversation_id,
+            user_id,
+            len(chats),
+        )
         return ConversationDetailResponse(
             id=conversation.id,
             title=conversation.title,
@@ -73,13 +108,28 @@ class ConversationService:
         request: UpdateConversationTitleRequest,
         user_id: str,
     ) -> ConversationResponse:
+        self.logger.info(
+            "Updating conversation title id=%s user_id=%s",
+            conversation_id,
+            user_id,
+        )
         conversation = await self.repository.update_title(
             conversation_id,
             user_id,
             request.title,
         )
         if conversation is None:
+            self.logger.warning(
+                "Conversation unavailable for title update id=%s user_id=%s",
+                conversation_id,
+                user_id,
+            )
             raise ValueError("Conversation not found")
+        self.logger.info(
+            "Conversation title update completed id=%s user_id=%s",
+            conversation_id,
+            user_id,
+        )
         return ConversationResponse(
             id=conversation.id,
             title=conversation.title,

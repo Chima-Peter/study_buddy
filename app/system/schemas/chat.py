@@ -7,6 +7,7 @@ SearchMode = Literal["hybrid", "vector", "bm25"]
 
 TOP_K = 10
 
+
 class QueryRequest(BaseModel):
     query: str = Field(min_length=1, description="User question to retrieve against")
     # mode: SearchMode = Field(
@@ -39,5 +40,5 @@ class ChatResponse(BaseModel):
     id: str
     conversation_id: str
     query: str
-    chat: str
+    response: str
     created_at: datetime

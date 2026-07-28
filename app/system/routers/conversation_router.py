@@ -1,3 +1,4 @@
+from logging import Logger
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
@@ -27,8 +28,26 @@ async def list_conversations(
     service: ConversationService = Depends(
         Provide[Container.conversation_service]
     ),
+    logger: Logger = Depends(Provide[Container.logger]),
 ) -> list[ConversationResponse]:
-    return await service.list_by_user(user.id)
+    logger.info("List conversations request user_id=%s", user.id)
+    try:
+        conversations = await service.list_by_user(user.id)
+        logger.info(
+            "List conversations request completed user_id=%s count=%s",
+            user.id,
+            len(conversations),
+        )
+        return conversations
+    except Exception:
+        logger.exception(
+            "Unexpected error listing conversations user_id=%s",
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
 
 
 @conversation_router.get(
@@ -42,49 +61,39 @@ async def get_conversation(
     service: ConversationService = Depends(
         Provide[Container.conversation_service]
     ),
+    logger: Logger = Depends(Provide[Container.logger]),
 ) -> ConversationDetailResponse:
+    logger.info(
+        "Get conversation request id=%s user_id=%s",
+        conversation_id,
+        user.id,
+    )
     try:
-        return await service.get(conversation_id, user.id)
+        conversation = await service.get(conversation_id, user.id)
+        logger.info(
+            "Get conversation request completed id=%s user_id=%s",
+            conversation_id,
+            user.id,
+        )
+        return conversation
     except ValueError as error:
+        logger.warning(
+            "Get conversation request not found id=%s user_id=%s",
+            conversation_id,
+            user.id,
+        )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(error),
         ) from error
+    except Exception:
+        logger.exception(
+            "Unexpected error getting conversation id=%s user_id=%s",
+            conversation_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
 
-
-# @conversation_router.post(
-#     "",
-#     response_model=ConversationResponse,
-#     status_code=status.HTTP_201_CREATED,
-# )
-# @inject
-# async def create_conversation(
-#     request: CreateConversationRequest,
-#     user: Annotated[UserResponse, Depends(get_current_user)],
-#     service: ConversationService = Depends(
-#         Provide[Container.conversation_service]
-#     ),
-# ) -> ConversationResponse:
-#     return await service.create(request, user.id)
-
-
-# @conversation_router.patch(
-#     "/{conversation_id}",
-#     response_model=ConversationResponse,
-# )
-# @inject
-# async def update_conversation_title(
-#     conversation_id: str,
-#     request: UpdateConversationTitleRequest,
-#     user: Annotated[UserResponse, Depends(get_current_user)],
-#     service: ConversationService = Depends(
-#         Provide[Container.conversation_service]
-#     ),
-# ) -> ConversationResponse:
-#     try:
-#         return await service.update_title(conversation_id, request, user.id)
-#     except ValueError as error:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail=str(error),
-#         ) from error
