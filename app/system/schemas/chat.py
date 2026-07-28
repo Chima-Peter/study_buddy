@@ -37,7 +37,7 @@ class QueryApiResponse(BaseModel):
 
 class ChatResponse(BaseModel):
     id: str
-    user_id: str
+    conversation_id: str
     query: str
     chat: str
     created_at: datetime

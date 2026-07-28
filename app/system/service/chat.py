@@ -1,6 +1,8 @@
+from functools import partial
 from logging import Logger
 from typing import Any, AsyncGenerator
 
+from app.core.redis import RedisClient
 from app.core.retriever import RAGRetriever
 from app.system.models.chat import ChatModel
 from app.system.repository.chat import ChatRepository
@@ -15,15 +17,18 @@ class ChatService:
         retriever: RAGRetriever,
         repository: ChatRepository,
         logger: Logger,
+        redis: RedisClient
     ):
         self.retriever = retriever
         self.repository = repository
         self.logger = logger
+        self.redis = redis
 
     async def save(
         self,
         *,
         user_id: str,
+        conversation_id: str,
         query: str,
         chat: str,
         embedding: list[float],
@@ -31,7 +36,7 @@ class ChatService:
         context: str,
     ) -> None:
         record = ChatModel(
-            user_id=user_id,
+            conversation_id=conversation_id,
             query=query,
             chat=chat,
             audit={
@@ -42,7 +47,7 @@ class ChatService:
         )
         for attempt in range(1, SAVE_MAX_ATTEMPTS + 1):
             try:
-                await self.repository.create(record)
+                await self.repository.create(record, user_id)
                 self.logger.info(
                     "Chat saved successfully user_id=%s",
                     user_id,
@@ -62,29 +67,27 @@ class ChatService:
             user_id,
         )
 
-    async def list_by_user(
-        self,
-        user_id: str,
-        *,
-        limit: int = 50,
-    ) -> list[ChatResponse]:
-        chats = await self.repository.list_by_user(user_id, limit=limit)
-        return [
-            ChatResponse(
-                id=item.id,
-                user_id=item.user_id,
-                query=item.query,
-                chat=item.chat,
-                created_at=item.created_at,
-            )
-            for item in chats
-        ]
-
     async def query(
         self,
         user_id: str,
+        conversation_id: str,
         query: str,
     ) -> AsyncGenerator[str, None]:
+        conversation_owner_id = await self.redis.get(conversation_id)
+        if conversation_owner_id:
+            if conversation_owner_id != user_id:
+                yield "Conversation not found"
+                return
+        else:
+            if not await self.repository.conversation_belongs_to_user(
+                conversation_id,
+                user_id,
+            ):
+                yield "Conversation not found"
+                return
+
+            await self.redis.set(conversation_id, user_id)
+
         self.logger.info(
             "Initiating streaming response for user_id=%s", user_id
         )
@@ -92,7 +95,10 @@ class ChatService:
             user_id,
             query,
             mode="hybrid",
-            on_complete=self.save,
+            on_complete=partial(
+                self.save,
+                conversation_id=conversation_id,
+            ),
         ):
             self.logger.info(
                 "Streaming response chunk for user_id=%s", user_id

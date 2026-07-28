@@ -66,8 +66,8 @@ class UserDBModel(Base):
         "DocumentDBModel",
         back_populates="user",
     )
-    chats = relationship(
-        "ChatDBModel",
+    conversations = relationship(
+        "ConversationDBModel",
         back_populates="user",
     )
     notifications = relationship(

@@ -3,12 +3,13 @@ import json
 from logging import Logger
 from typing import Annotated, Any
 
+from app.system.schemas.conversation import CreateConversationRequest
+from app.system.service.conversation import ConversationService
 from redis.exceptions import ConnectionError
 from dependency_injector.wiring import Provide, inject
 from fastapi import (
     APIRouter,
     Depends,
-    HTTPException,
     WebSocket,
     WebSocketDisconnect,
     WebSocketException,
@@ -18,8 +19,7 @@ from fastapi import (
 from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.redis import RedisClient
-from app.core.security import get_current_user, get_current_user_websocket
-from app.system.schemas.chat import ChatResponse
+from app.core.security import get_current_user_websocket
 from app.system.service.chat import ChatService
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
@@ -27,35 +27,12 @@ chat_router = APIRouter(prefix="/chat", tags=["chat"])
 MAX_PAYLOAD_SIZE = 64 * 1024
 MAX_CONNECTIONS_PER_USER = 5
 
-@chat_router.get(
-    "",
-    response_model=list[ChatResponse],
-    summary="Get chats",
-    description="Get chats for a user",
-)
-@inject
-async def list_chats(
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    service: ChatService = Depends(Provide[Container.chat_service]),
-    logger: Logger = Depends(Provide[Container.logger]),
-) -> list[ChatResponse]:
-    try:
-        return await service.list_by_user(user.id)
-    except Exception:
-        logger.exception(
-            "Unexpected error listing chats user_id=%s", user.id
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        )
-
-
 @chat_router.websocket("")
 @inject
 async def websocket_endpoint(
     websocket: WebSocket,
     user: Annotated[UserResponse, Depends(get_current_user_websocket)],
+    conversation_service: ConversationService = Depends(Provide[Container.conversation_service]),
     logger: Logger = Depends(Provide[Container.logger]),
     service: ChatService = Depends(Provide[Container.chat_service]),
     redis_service: RedisClient = Depends(Provide[Container.redis_client]),
@@ -136,7 +113,7 @@ async def websocket_endpoint(
                         })
                         continue
 
-                    chat_id = message.get("chat_id")
+                    conversation_id = message.get("conversation_id")
 
                     if query == "ping":
                         await websocket.send_json({
@@ -144,6 +121,14 @@ async def websocket_endpoint(
                             "message": "Pong",
                         })
                     else:
+                        if not conversation_id:
+                            conversation = await conversation_service.create(
+                                CreateConversationRequest(
+                                    title="New Conversation",  
+                                ),
+                                user_id=user.id,
+                            )
+                            conversation_id = conversation.id
                         logger.info(
                             "Received message user_id=%s type=%s",
                             user.id,
@@ -151,15 +136,18 @@ async def websocket_endpoint(
                         )
                         async for chunk in service.query(
                             user_id=user.id,
+                            conversation_id=conversation_id,
                             query=query,
                         ):
                             await websocket.send_json({
                                 "type": "chat.stream",
                                 "chunk": chunk,
+                                "conversation_id": conversation_id,
                             })
                         await websocket.send_json({
                             "type": "chat.done",
-                    })
+                            "conversation_id": conversation_id,
+                        })
                 except json.JSONDecodeError:
                     logger.warning(
                         "Invalid JSON message user_id=%s", user.id,

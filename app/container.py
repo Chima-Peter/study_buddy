@@ -29,10 +29,12 @@ from app.core.redis import RedisClient
 from app.core.retriever import RAGRetriever
 from app.core.supabase import Supabase
 from app.logging_config import init_logging
+from app.system.repository.conversation import ConversationRepository
 from app.system.repository.document import DocumentRepository
 from app.system.repository.chat import ChatRepository
 from app.system.repository.notification import NotificationRepository
 from app.system.service.chat import ChatService
+from app.system.service.conversation import ConversationService
 from app.system.service.document import DocumentService
 from app.system.service.notification import NotificationService
 
@@ -425,6 +427,12 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
+    conversation_repository = providers.Factory(
+        ConversationRepository,
+        session_factory=async_session_factory,
+        logger=logger,
+    )
+
     document_service = providers.Factory(
         DocumentService,
         repository=document_repository,
@@ -447,6 +455,12 @@ class Container(containers.DeclarativeContainer):
         ChatService,
         retriever=rag_retriever,
         repository=chat_repository,
+        logger=logger,
+    )
+
+    conversation_service = providers.Factory(
+        ConversationService,
+        repository=conversation_repository,
         logger=logger,
     )
 

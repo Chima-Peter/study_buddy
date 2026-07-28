@@ -13,7 +13,7 @@ from app.database import Base
 
 class ChatModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
-    user_id: str = Field(min_length=36, max_length=36)
+    conversation_id: str = Field(min_length=36, max_length=36)
     query: str = Field(min_length=1)
     chat: str = Field(default="")
     audit: dict[str, Any] = Field(default_factory=dict)
@@ -28,7 +28,7 @@ class ChatModel(BaseModel):
     def model_dump_for_db(self) -> dict[str, Any]:
         return {
             "id": self.id,
-            "user_id": self.user_id,
+            "conversation_id": self.conversation_id,
             "query": self.query,
             "chat": self.chat,
             "audit": self.audit,
@@ -40,9 +40,9 @@ class ChatDBModel(Base):
     __tablename__ = "chats"
 
     id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
-    user_id: Mapped[str] = mapped_column(
+    conversation_id: Mapped[str] = mapped_column(
         sa.UUID,
-        ForeignKey("users.id"),
+        ForeignKey("conversations.id"),
         nullable=False,
         index=True,
     )
@@ -58,12 +58,12 @@ class ChatDBModel(Base):
         nullable=False,
     )
 
-    user = relationship("UserDBModel", back_populates="chats")
+    conversation = relationship("ConversationDBModel", back_populates="chats")
 
     def model_dump(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
-            "user_id": str(self.user_id),
+            "conversation_id": str(self.conversation_id),
             "query": self.query,
             "chat": self.chat,
             "audit": self.audit or {},
