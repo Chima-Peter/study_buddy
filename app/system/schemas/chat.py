@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError
@@ -33,3 +34,10 @@ class QueryApiResponse(BaseModel):
     success: bool = True
     message: Optional[str] = None
     error: Optional[str] = None
+
+class ConversationResponse(BaseModel):
+    id: str
+    user_id: str
+    query: str
+    conversation: str
+    created_at: datetime

@@ -18,9 +18,8 @@ from fastapi import (
 from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.redis import RedisClient
-from app.core.response import BasicResponse
 from app.core.security import get_current_user, get_current_user_websocket
-from app.system.schemas.chat import QueryApiResponse, QueryRequest
+from app.system.schemas.chat import ConversationResponse
 from app.system.service.chat import ChatService
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
@@ -28,40 +27,28 @@ chat_router = APIRouter(prefix="/chat", tags=["chat"])
 MAX_PAYLOAD_SIZE = 64 * 1024
 MAX_CONNECTIONS_PER_USER = 5
 
-@chat_router.post(
-    "/query",
-    response_model=QueryApiResponse,
-    summary="Query documents",
-    description=(
-        "RAG pipeline: embed query → Elasticsearch search (hybrid/vector/bm25) "
-        "→ Gemini answer. Always retrieves the top 5 chunks."
-    ),
+@chat_router.get(
+    "",
+    response_model=list[ConversationResponse],
+    summary="Get conversations",
+    description="Get conversations for a user",
 )
 @inject
-async def query_documents(
-    request: QueryRequest,
+async def list_conversations(
     user: Annotated[UserResponse, Depends(get_current_user)],
     service: ChatService = Depends(Provide[Container.chat_service]),
     logger: Logger = Depends(Provide[Container.logger]),
-) -> BasicResponse:
+) -> list[ConversationResponse]:
     try:
-        await service.query(
-            user.id,
-            request.query,
-        )
+        return await service.list_by_user(user.id)
     except Exception:
         logger.exception(
-            "Unexpected error querying documents user_id=%s", user.id
+            "Unexpected error listing conversations user_id=%s", user.id
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
         )
-
-    return BasicResponse(
-        data={"success": True, "message": "Query completed successfully"},
-        message="Query completed successfully",
-    )
 
 
 @chat_router.websocket("")
@@ -100,14 +87,14 @@ async def websocket_endpoint(
             chat_task = asyncio.create_task(websocket.receive_text())
 
             async def idle_ping() -> None:
-                await asyncio.sleep(250)
+                await asyncio.sleep(80)
                 await websocket.send_text("ping")
 
             ping_task = asyncio.create_task(idle_ping())
             done, pending = await asyncio.wait(
                 {chat_task, ping_task},
                 return_when=asyncio.FIRST_COMPLETED,
-                timeout=300,
+                timeout=80,
             )
 
             for task in pending:

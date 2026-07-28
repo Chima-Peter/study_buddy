@@ -7,7 +7,7 @@ from sqlalchemy.sql import select
 from app.system.models.conversations import ConversationDBModel, ConversationModel
 
 
-class ConversationRepository:
+class ChatRepository:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],

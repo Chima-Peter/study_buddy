@@ -30,10 +30,9 @@ from app.core.retriever import RAGRetriever
 from app.core.supabase import Supabase
 from app.logging_config import init_logging
 from app.system.repository.document import DocumentRepository
-from app.system.repository.conversation import ConversationRepository
+from app.system.repository.chat import ChatRepository
 from app.system.repository.notification import NotificationRepository
 from app.system.service.chat import ChatService
-from app.system.service.conversation import ConversationService
 from app.system.service.document import DocumentService
 from app.system.service.notification import NotificationService
 
@@ -420,15 +419,9 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
-    conversation_repository = providers.Factory(
-        ConversationRepository,
+    chat_repository = providers.Factory(
+        ChatRepository,
         session_factory=async_session_factory,
-        logger=logger,
-    )
-
-    conversation_service = providers.Factory(
-        ConversationService,
-        repository=conversation_repository,
         logger=logger,
     )
 
@@ -446,7 +439,6 @@ class Container(containers.DeclarativeContainer):
         RAGRetriever,
         elasticsearch=elasticsearch,
         embedding_manager=embedding_manager,
-        conversation_service=conversation_service,
         logger=logger,
         google_api_key=settings.provided.google_api_key,
     )
@@ -454,6 +446,7 @@ class Container(containers.DeclarativeContainer):
     chat_service = providers.Factory(
         ChatService,
         retriever=rag_retriever,
+        repository=chat_repository,
         logger=logger,
     )
 

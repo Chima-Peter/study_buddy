@@ -1,5 +1,6 @@
 """RAG retriever: embed → Elasticsearch search → deduplicate → LLM answer."""
 
+from collections.abc import Awaitable, Callable
 from logging import Logger
 from typing import Any, AsyncGenerator, Literal
 
@@ -8,9 +9,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
 from app.system.schemas.chat import TOP_K
-from app.system.service.conversation import ConversationService
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
+OnComplete = Callable[..., Awaitable[None]]
 
 
 def _deduplicate_by_document(results: list[FusedResult]) -> list[FusedResult]:
@@ -30,7 +31,6 @@ class RAGRetriever:
         self,
         elasticsearch: Elasticsearch,
         embedding_manager: EmbeddingManager,
-        conversation_service: ConversationService,
         logger: Logger,
         *,
         google_api_key: str | None = None,
@@ -38,7 +38,6 @@ class RAGRetriever:
     ):
         self.elasticsearch = elasticsearch
         self.embedding_manager = embedding_manager
-        self.conversation_service = conversation_service
         self.logger = logger
         self.model = ChatGoogleGenerativeAI(
             model=model_name,
@@ -96,6 +95,7 @@ class RAGRetriever:
         query: str,
         *,
         mode: SearchMode = "hybrid",
+        on_complete: OnComplete | None = None,
     ) -> AsyncGenerator[str, Any]:
         self.logger.info(
             "Retriever pipeline start user_id=%s mode=%s top_k=%s",
@@ -173,11 +173,12 @@ class RAGRetriever:
             len(answer),
             len(sources),
         )
-        await self.conversation_service.save(
-            user_id=user_id,
-            query=query,
-            conversation=answer,
-            embedding=embedding,
-            source=sources,
-            context=context,
-        )
+        if on_complete is not None:
+            await on_complete(
+                user_id=user_id,
+                query=query,
+                conversation=answer,
+                embedding=embedding,
+                source=sources,
+                context=context,
+            )
