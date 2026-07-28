@@ -82,6 +82,7 @@ async def list_notifications(
 
     try:
         result = await service.list_notifications(
+            user.id,
             limit=limit,
             cursor=cursor,
             created_after=created_after,
@@ -119,7 +120,7 @@ async def mark_notification_read(
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
-        result = await service.mark_as_read(notification_id)
+        result = await service.mark_as_read(notification_id, user.id)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

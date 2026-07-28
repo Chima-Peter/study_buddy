@@ -1,4 +1,4 @@
-"""RAG retriever: embed → Elasticsearch search → deduplicate → LLM answer."""
+"""RAG retriever: embed → Elasticsearch search → LLM answer."""
 
 from collections.abc import Awaitable, Callable
 from logging import Logger
@@ -12,18 +12,6 @@ from app.system.schemas.chat import TOP_K
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
 OnComplete = Callable[..., Awaitable[None]]
-
-
-def _deduplicate_by_document(results: list[FusedResult]) -> list[FusedResult]:
-    """Keep only the highest-scoring chunk per chunk_id."""
-    seen: dict[str, FusedResult] = {}
-    for r in results:
-        doc_id = r.document.metadata.get("chunk_id")
-        if doc_id is None:
-            continue
-        if doc_id not in seen or r.score > seen[doc_id].score:
-            seen[doc_id] = r
-    return list(seen.values())
 
 
 class RAGRetriever:
@@ -104,26 +92,18 @@ class RAGRetriever:
             TOP_K,
         )
         results, embedding = await self.retrieve(user_id, query, mode=mode)
-        deduped: list[FusedResult] = []
         context = ""
         if not results:
             self.logger.info(
                 "No relevant context found for the query. user_id=%s", user_id
             )
         else:
-            deduped = _deduplicate_by_document(results)
-            self.logger.info(
-                "Retriever dedupe user_id=%s before=%s after=%s",
-                user_id,
-                len(results),
-                len(deduped),
-            )
-            context = "\n\n".join(r.document.content for r in deduped)
+            context = "\n\n".join(r.document.content for r in results)
             self.logger.info(
                 "Retriever LLM invoke user_id=%s context_chars=%s sources=%s",
                 user_id,
                 len(context),
-                len(deduped),
+                len(results),
             )
 
         prompt = (
@@ -165,7 +145,7 @@ class RAGRetriever:
                 "metadata": r.document.metadata,
                 "rrf_score": r.score,
             }
-            for r in deduped
+            for r in results
         ]
         self.logger.info(
             "Retriever pipeline done user_id=%s answer_chars=%s sources=%s",

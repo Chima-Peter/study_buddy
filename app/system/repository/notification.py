@@ -37,11 +37,16 @@ class NotificationRepository:
             self.logger.info("Notification created id=%s", db_notification.id)
             return NotificationModel(**db_notification.model_dump())
 
-    async def get_by_id(self, notification_id: str) -> NotificationModel | None:
+    async def get_by_id(
+        self,
+        notification_id: str,
+        user_id: str,
+    ) -> NotificationModel | None:
         async with self.session_factory() as session:
             result = await session.execute(
                 select(NotificationDBModel).where(
-                    NotificationDBModel.id == notification_id
+                    NotificationDBModel.id == notification_id,
+                    NotificationDBModel.user_id == user_id,
                 )
             )
             db_notification = result.scalar_one_or_none()
@@ -51,6 +56,7 @@ class NotificationRepository:
 
     async def list_notifications(
         self,
+        user_id: str,
         *,
         limit: int = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
@@ -61,7 +67,7 @@ class NotificationRepository:
         limit = min(max(limit, 1), MAX_LIST_LIMIT)
 
         async with self.session_factory() as session:
-            filters = []
+            filters = [NotificationDBModel.user_id == user_id]
             if created_after is not None:
                 filters.append(NotificationDBModel.created_at >= created_after)
             if created_before is not None:
@@ -76,8 +82,7 @@ class NotificationRepository:
                 .order_by(NotificationDBModel.id.desc())
                 .limit(limit + 1)
             )
-            if filters:
-                query = query.where(*filters)
+            query = query.where(*filters)
 
             result = await session.execute(query)
             db_notifications = list(result.scalars().all())
@@ -98,12 +103,18 @@ class NotificationRepository:
             )
 
     async def mark_as_read(
-        self, notification_id: str
+        self,
+        notification_id: str,
+        user_id: str,
     ) -> NotificationModel | None:
         async with self.session_factory() as session:
-            db_notification = await session.get(
-                NotificationDBModel, notification_id
+            result = await session.execute(
+                select(NotificationDBModel).where(
+                    NotificationDBModel.id == notification_id,
+                    NotificationDBModel.user_id == user_id,
+                )
             )
+            db_notification = result.scalar_one_or_none()
             if db_notification is None:
                 return None
 

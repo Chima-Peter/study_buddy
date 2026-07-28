@@ -24,13 +24,15 @@ class NotificationService:
     async def create_notification(
         self,
         request: CreateNotificationRequest,
+        user_id: str,
     ) -> NotificationResponse:
-        notification = NotificationModel.from_request(request)
+        notification = NotificationModel.from_request(request, user_id)
         result = await self.repository.create(notification)
         return result.to_response()
 
     async def list_notifications(
         self,
+        user_id: str,
         *,
         limit: int = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
@@ -39,6 +41,7 @@ class NotificationService:
         unread_only: bool = False,
     ) -> NotificationListResponseData:
         notifications, next_cursor, has_more = await self.repository.list_notifications(
+            user_id,
             limit=limit,
             cursor=cursor,
             created_after=created_after,
@@ -52,8 +55,12 @@ class NotificationService:
             limit=min(max(limit, 1), MAX_LIST_LIMIT),
         )
 
-    async def mark_as_read(self, notification_id: str) -> NotificationResponse:
-        notification = await self.repository.mark_as_read(notification_id)
+    async def mark_as_read(
+        self,
+        notification_id: str,
+        user_id: str,
+    ) -> NotificationResponse:
+        notification = await self.repository.mark_as_read(notification_id, user_id)
         if notification is None:
             raise ValueError(f"Notification not found: {notification_id}")
         return notification.to_response()

@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 import uuid_utils
 from pydantic import BaseModel, Field, field_serializer
+from sqlalchemy import ForeignKey
 from sqlalchemy.dialects.postgresql import TIMESTAMP
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 from app.system.schemas.notification import (
@@ -16,6 +17,7 @@ from app.system.schemas.notification import (
 
 class NotificationModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
+    user_id: str = Field(min_length=36, max_length=36)
     title: str = Field(min_length=1, max_length=255)
     content: str = Field(min_length=1)
     created_at: datetime = Field(
@@ -30,6 +32,7 @@ class NotificationModel(BaseModel):
     def model_dump_for_db(self) -> dict:
         return {
             "id": self.id,
+            "user_id": self.user_id,
             "title": self.title,
             "content": self.content,
             "created_at": self.created_at,
@@ -46,8 +49,13 @@ class NotificationModel(BaseModel):
         )
 
     @classmethod
-    def from_request(cls, request: CreateNotificationRequest) -> "NotificationModel":
+    def from_request(
+        cls,
+        request: CreateNotificationRequest,
+        user_id: str,
+    ) -> "NotificationModel":
         return cls(
+            user_id=user_id,
             title=request.title,
             content=request.content,
             created_at=datetime.now(timezone.utc),
@@ -58,6 +66,11 @@ class NotificationDBModel(Base):
     __tablename__ = "notifications"
 
     id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        sa.UUID,
+        ForeignKey("users.id"),
+        nullable=False,
+    )
     title: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     content: Mapped[str] = mapped_column(sa.String(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
@@ -69,9 +82,12 @@ class NotificationDBModel(Base):
         nullable=True,
     )
 
+    user = relationship("UserDBModel", back_populates="notifications")
+
     def model_dump(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
+            "user_id": str(self.user_id),
             "title": self.title,
             "content": self.content,
             "created_at": self.created_at.isoformat(),

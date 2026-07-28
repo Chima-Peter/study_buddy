@@ -70,6 +70,10 @@ class UserDBModel(Base):
         "ConversationDBModel",
         back_populates="user",
     )
+    notifications = relationship(
+        "NotificationDBModel",
+        back_populates="user",
+    )
 
     def model_dump(self) -> dict[str, Any]:
         return {

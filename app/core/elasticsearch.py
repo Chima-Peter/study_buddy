@@ -119,25 +119,33 @@ class Elasticsearch:
         rank_constant: int = 60,
     ) -> list[FusedResult]:
         """
-        Local Reciprocal Rank Fusion (RRF).
+        Local Reciprocal Rank Fusion (RRF), deduped by chunk_id.
 
-        RRF score for document d: sum over all retrievers of 1/(rank_constant + rank_i)
-        where rank_i is 1-based position in that retriever's results.
+        RRF score for chunk c: sum over all retrievers of 1/(rank_constant + rank_i)
+        where rank_i is 1-based position in that retriever's results. Falls back to
+        the Elasticsearch hit id when metadata.chunk_id is missing.
         """
         scores: dict[str, float] = {}
-        docs_by_id: dict[str, IndexedDocuments] = {}
+        docs_by_chunk: dict[str, IndexedDocuments] = {}
 
         for results in results_lists:
-            for rank, (doc_id, doc) in enumerate(results, start=1):
-                scores[doc_id] = scores.get(
-                    doc_id, 0.0) + 1.0 / (rank_constant + rank)
-                docs_by_id[doc_id] = doc
+            seen_chunks: set[str] = set()
+            for rank, (hit_id, doc) in enumerate(results, start=1):
+                chunk_id = doc.metadata.get("chunk_id") or hit_id
+                if chunk_id in seen_chunks:
+                    continue
+                seen_chunks.add(chunk_id)
+                scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (
+                    rank_constant + rank
+                )
+                docs_by_chunk.setdefault(chunk_id, doc)
 
         sorted_ids = sorted(
-            scores.keys(), key=lambda d: scores[d], reverse=True)
+            scores.keys(), key=lambda d: scores[d], reverse=True
+        )
         return [
-            FusedResult(document=docs_by_id[doc_id], score=scores[doc_id])
-            for doc_id in sorted_ids[:k]
+            FusedResult(document=docs_by_chunk[chunk_id], score=scores[chunk_id])
+            for chunk_id in sorted_ids[:k]
         ]
 
     def _user_filter(self, user_id: str) -> dict:
@@ -223,7 +231,7 @@ class Elasticsearch:
         embedding: list[float],
         *,
         k: int = 10,
-        fetch_size: int = 20,
+        fetch_size: int = 50,
         num_candidates: int = 100,
         rank_constant: int = 60,
     ) -> list[FusedResult]:

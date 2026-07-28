@@ -51,6 +51,7 @@ class Handlers:
             self._elasticsearch,
             self._rabbitmq,
             self._redis,
+            self._notification_service,
         )
 
     async def handle_dead_letter_queue(self, message: AbstractIncomingMessage) -> None:
@@ -59,4 +60,5 @@ class Handlers:
             self._logger,
             self._document_service,
             self._redis,
+            self._notification_service,
         )

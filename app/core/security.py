@@ -40,7 +40,6 @@ async def get_current_user_websocket(
     service: AuthService = Depends(Provide[Container.auth_service]),
 ) -> UserResponse:
     token = websocket.query_params.get("token")
-    print(token)
     if not token:
         raise WebSocketException(
             code=status.WS_1008_POLICY_VIOLATION,
@@ -50,19 +49,15 @@ async def get_current_user_websocket(
     payload = verify_token(
         token, service.settings.jwt_secret, service.settings.jwt_algorithm
     )
-    print(payload)
     if payload is None or await service.is_blacklisted(token):
         raise WebSocketException(
             code=status.WS_1008_POLICY_VIOLATION,
             reason="Invalid or expired token",
         )
     user = await service.get_user_by_id(payload["sub"])
-    print(user)
     if user is None:
         raise WebSocketException(
             code=status.WS_1008_POLICY_VIOLATION,
             reason="User not found",
         )
-    print(user)
-    print("--------------------------------")
     return user

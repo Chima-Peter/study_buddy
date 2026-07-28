@@ -3,13 +3,14 @@ from logging import Logger
 
 from aio_pika.abc import AbstractIncomingMessage
 
-from app.core.handlers.document import notify_document_status
+from app.core.handlers.utils import notify_document_status
 from app.core.redis import RedisClient
 from app.system.schemas.document import (
     DOCUMENT_STATUS_COMMENTS,
     ingest_failure_comment,
 )
 from app.system.service.document import DocumentService
+from app.system.service.notification import NotificationService
 
 
 async def handle_dead_letter_queue(
@@ -17,6 +18,7 @@ async def handle_dead_letter_queue(
     logger: Logger,
     document_service: DocumentService,
     redis: RedisClient,
+    notification_service: NotificationService,
 ) -> None:
     async with message.process():
         logger.error(
@@ -69,7 +71,13 @@ async def handle_dead_letter_queue(
                 user_id,
                 comment,
             )
-            await notify_document_status(redis, logger, user_id, existing)
+            await notify_document_status(
+                redis,
+                logger,
+                user_id,
+                existing,
+                notification_service,
+            )
             return
 
         updated = await document_service.update_status(
@@ -87,7 +95,13 @@ async def handle_dead_letter_queue(
             )
             return
 
-        await notify_document_status(redis, logger, user_id, updated)
+        await notify_document_status(
+            redis,
+            logger,
+            user_id,
+            updated,
+            notification_service,
+        )
         logger.info(
             "Marked document failed from DLQ document_id=%s user_id=%s comment=%s",
             document_id,
