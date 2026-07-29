@@ -115,6 +115,33 @@ class ConversationRepository:
             )
             return conversation, chats
 
+    async def get(
+        self,
+        conversation_id: str,
+        user_id: str,
+    ) -> ConversationModel | None:
+        self.logger.info(
+            "Getting conversation id=%s user_id=%s",
+            conversation_id,
+            user_id,
+        )
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(ConversationDBModel).where(
+                    ConversationDBModel.id == conversation_id,
+                    ConversationDBModel.user_id == user_id,
+                )
+            )
+            db_conversation = result.scalar_one_or_none()
+            if db_conversation is None:
+                self.logger.info(
+                    "Conversation not found id=%s user_id=%s",
+                    conversation_id,
+                    user_id,
+                )
+                return None
+            return ConversationModel(**db_conversation.model_dump())
+
     async def update_title(
         self,
         conversation_id: str,
@@ -156,6 +183,52 @@ class ConversationRepository:
             await session.refresh(db_conversation)
             self.logger.info(
                 "Conversation title updated id=%s user_id=%s",
+                conversation_id,
+                user_id,
+            )
+            return ConversationModel(**db_conversation.model_dump())
+
+    async def update_summary(
+        self,
+        conversation_id: str,
+        user_id: str,
+        summary: str,
+    ) -> ConversationModel | None:
+        self.logger.info(
+            "Updating conversation summary id=%s user_id=%s",
+            conversation_id,
+            user_id,
+        )
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(ConversationDBModel).where(
+                    ConversationDBModel.id == conversation_id,
+                    ConversationDBModel.user_id == user_id,
+                )
+            )
+            db_conversation = result.scalar_one_or_none()
+            if db_conversation is None:
+                self.logger.info(
+                    "Conversation not found for summary update id=%s user_id=%s",
+                    conversation_id,
+                    user_id,
+                )
+                return None
+
+            db_conversation.summary = summary
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                self.logger.exception(
+                    "Failed to update conversation summary id=%s user_id=%s",
+                    conversation_id,
+                    user_id,
+                )
+                raise
+            await session.refresh(db_conversation)
+            self.logger.info(
+                "Conversation summary updated id=%s user_id=%s",
                 conversation_id,
                 user_id,
             )

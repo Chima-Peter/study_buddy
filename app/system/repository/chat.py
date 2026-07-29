@@ -17,20 +17,6 @@ class ChatRepository:
         self.session_factory = session_factory
         self.logger = logger
 
-    async def conversation_belongs_to_user(
-        self,
-        conversation_id: str,
-        user_id: str,
-    ) -> bool:
-        async with self.session_factory() as session:
-            conversation = await session.scalar(
-                select(ConversationDBModel.id).where(
-                    ConversationDBModel.id == conversation_id,
-                    ConversationDBModel.user_id == user_id,
-                )
-            )
-            return conversation is not None
-
     async def create(self, chat: ChatModel, user_id: str) -> ChatModel:
         async with self.session_factory() as session:
             conversation = await session.scalar(

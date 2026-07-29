@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from supabase import AsyncClient, create_async_client, create_client, Client
 from elasticsearch import AsyncElasticsearch
 
+from app.agent.graph import AgentGraph
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
@@ -324,7 +325,7 @@ class Container(containers.DeclarativeContainer):
         elasticsearch_url=settings.provided.elasticsearch_url,
     )
 
-    elasticsearch = providers.Factory(
+    elasticsearch = providers.Singleton(
         Elasticsearch,
         elasticsearch=async_elasticsearch_resource,
         logger=logger,
@@ -447,11 +448,8 @@ class Container(containers.DeclarativeContainer):
 
     chat_service = providers.Factory(
         ChatService,
-        retriever=rag_retriever,
         repository=chat_repository,
-        conversation_repository=conversation_repository,
         logger=logger,
-        redis=redis_client,
     )
 
     conversation_service = providers.Factory(
@@ -489,4 +487,12 @@ class Container(containers.DeclarativeContainer):
         init_rabbitmq_consumers,
         rabbitmq=rabbitmq,
         handlers=handlers,
+    )
+
+    agent_graph = providers.Singleton(
+        AgentGraph,
+        retriever=rag_retriever,
+        conversation_service=conversation_service,
+        chat_service=chat_service,
+        logger=logger,
     )

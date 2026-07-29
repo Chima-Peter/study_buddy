@@ -1,6 +1,5 @@
 """RAG retriever: embed → Elasticsearch search → LLM answer."""
 
-from collections.abc import Awaitable, Callable
 from logging import Logger
 from typing import Any, AsyncGenerator, Literal
 
@@ -8,10 +7,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
-from app.system.schemas.chat import TOP_K
+from app.system.schemas.chat import TOP_K, ChatResponse
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
-OnComplete = Callable[..., Awaitable[None]]
 
 
 class RAGRetriever:
@@ -41,7 +39,7 @@ class RAGRetriever:
         query: str,
         *,
         mode: SearchMode = "hybrid",
-    ) -> tuple[list[FusedResult], list[float]]:
+    ) -> list[FusedResult]:
         self.logger.info(
             "Retriever retrieve start user_id=%s mode=%s top_k=%s query=%r",
             user_id,
@@ -75,40 +73,31 @@ class RAGRetriever:
             mode,
             len(results),
         )
-        return results, embedding
+        return results
 
-    async def answer(
+    async def generate_chat_response(
         self,
         user_id: str,
         query: str,
-        first_message: bool,
-        conversation_id: str,
-        *,
-        mode: SearchMode = "hybrid",
-        on_complete: OnComplete | None = None,
+        rag_documents: list[FusedResult],
+        conversation_summary: str,
+        conversation_history: list[ChatResponse],
     ) -> AsyncGenerator[str, Any]:
-        self.logger.info(
-            "Retriever pipeline start user_id=%s mode=%s top_k=%s first_message=%s conversation_id=%s",
-            user_id,
-            mode,
-            TOP_K,
-            first_message,
-            conversation_id,
-        )
-        results, embedding = await self.retrieve(user_id, query, mode=mode)
         context = ""
-        if not results:
+        if not rag_documents:
             self.logger.info(
                 "No relevant context found for the query. user_id=%s", user_id
             )
         else:
-            context = "\n\n".join(r.document.content for r in results)
-            self.logger.info(
-                "Retriever LLM invoke user_id=%s context_chars=%s sources=%s",
-                user_id,
-                len(context),
-                len(results),
-            )
+            context = "\n\n".join(r.document.content for r in rag_documents)
+
+        if conversation_history:
+            conversation_history_prompt = "\n\n".join([
+                f"User: {chat.query}\nAssistant: {chat.response}"
+                for chat in conversation_history[:5]
+            ])
+        else:
+            conversation_history_prompt = ""
 
         query_prompt = (
             "You are a helpful study assistant.\n\n"
@@ -129,65 +118,15 @@ class RAGRetriever:
             "but explicitly mention that you are answering from your general knowledge.\n"
             "5. When answering from the provided context, cite or reference the "
             "relevant sections if they are available.\n\n"
-            f"Context:\n{context}\n\n"
+            f"External Context:\n{context}\n\n"
+            f"Conversation Last 5 Messages:\n{conversation_history_prompt}\n\n"
+            f"Conversation Summary:\n{conversation_summary}\n\n"
             f"Question: {query}\n"
             "Answer:"
         )
 
-        title: str | None = None
-        answer = ""
         async for chunk in self.model.astream(query_prompt):
             text = chunk.text
             if not text:
                 continue
             yield text
-            answer += text
-
-        if first_message:
-            title_prompt = (
-                "Generate a short title for this study conversation.\n\n"
-                "Rules:\n"
-                "1. Return only the title text.\n"
-                "2. Keep it under 80 characters.\n"
-                "3. Capture the main topic of the user's question.\n"
-                "4. Do not wrap the title in quotes.\n"
-                "5. Do not end with punctuation.\n\n"
-                f"Question: {query}\n"
-                f"Answer: {answer}\n"
-                "Title:"
-            )
-            title_response = await self.model.ainvoke(title_prompt)
-            title = (title_response.text or "").strip().strip("\"'")[:255] or None
-            self.logger.info(
-                "Generated conversation title user_id=%s title=%r, conversation_id=%s",
-                user_id,
-                title,
-                conversation_id,
-            )
-
-        sources = [
-            {
-                "content": r.document.content,
-                "metadata": r.document.metadata,
-                "rrf_score": r.score,
-            }
-            for r in results
-        ]
-        self.logger.info(
-            "Retriever pipeline done user_id=%s answer_chars=%s sources=%s",
-            user_id,
-            len(answer),
-            len(sources),
-        )
-        if on_complete is not None:
-            await on_complete(
-                user_id=user_id,
-                query=query,
-                chat=answer,
-                embedding=embedding,
-                conversation_id=conversation_id,
-                source=sources,
-                context=context,
-                first_message=first_message,
-                title=title,
-            )

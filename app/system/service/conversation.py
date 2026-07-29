@@ -62,7 +62,7 @@ class ConversationService:
         self,
         conversation_id: str,
         user_id: str,
-    ) -> ConversationDetailResponse:
+    ) -> ConversationDetailResponse | None:
         self.logger.info(
             "Getting conversation id=%s user_id=%s",
             conversation_id,
@@ -78,7 +78,7 @@ class ConversationService:
                 conversation_id,
                 user_id,
             )
-            raise ValueError("Conversation not found")
+            return None
 
         conversation, chats = result
         self.logger.info(
@@ -90,6 +90,7 @@ class ConversationService:
         return ConversationDetailResponse(
             id=conversation.id,
             title=conversation.title,
+            summary=conversation.summary,
             chats=[
                 ChatResponse(
                     id=chat.id,
@@ -134,3 +135,27 @@ class ConversationService:
             id=conversation.id,
             title=conversation.title,
         )
+
+    async def update_summary(
+        self,
+        conversation_id: str,
+        summary: str,
+        user_id: str,
+    ) -> None:
+        conversation = await self.repository.update_summary(
+            conversation_id,
+            user_id,
+            summary,
+        )
+        if conversation is None:
+            raise ValueError("Conversation not found")
+
+    async def verify_ownership(
+        self,
+        conversation_id: str,
+        user_id: str,
+    ) -> bool:
+        conversation = await self.repository.get(conversation_id, user_id)
+        if conversation is None:
+            return False
+        return conversation

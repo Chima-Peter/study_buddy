@@ -3,8 +3,7 @@ import json
 from logging import Logger
 from typing import Annotated, Any
 
-from app.system.schemas.conversation import CreateConversationRequest
-from app.system.service.conversation import ConversationService
+from app.agent.graph import AgentGraph
 from redis.exceptions import ConnectionError
 from dependency_injector.wiring import Provide, inject
 from fastapi import (
@@ -20,7 +19,6 @@ from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.redis import RedisClient
 from app.core.security import get_current_user_websocket
-from app.system.service.chat import ChatService
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -32,9 +30,8 @@ MAX_CONNECTIONS_PER_USER = 5
 async def websocket_endpoint(
     websocket: WebSocket,
     user: Annotated[UserResponse, Depends(get_current_user_websocket)],
-    conversation_service: ConversationService = Depends(Provide[Container.conversation_service]),
+    agent_graph: AgentGraph = Depends(Provide[Container.agent_graph]),
     logger: Logger = Depends(Provide[Container.logger]),
-    service: ChatService = Depends(Provide[Container.chat_service]),
     redis_service: RedisClient = Depends(Provide[Container.redis_client]),
 ) -> None:
     connection_counted = False
@@ -123,30 +120,36 @@ async def websocket_endpoint(
                         })
                     else:
                         if not conversation_id:
-                            conversation = await conversation_service.create(
-                                CreateConversationRequest(
-                                    title="New Conversation",
-                                ),
-                                user_id=user.id,
-                            )
                             first_message = True
-                            conversation_id = conversation.id
+                            conversation_id = None
                         logger.info(
                             "Received message user_id=%s type=%s",
                             user.id,
                             query,
                         )
-                        async for chunk in service.query(
-                            user_id=user.id,
-                            first_message=first_message,
-                            conversation_id=conversation_id,
-                            query=query,
-                        ):
+                        graph = agent_graph.start()
+                        try:
+                            async for chunk in graph.astream({
+                                "user_id": user.id,
+                                "first_message": first_message,
+                                "conversation_id": conversation_id,
+                                "query": query,
+                                "conversation_summary": "",
+                                "title": "",
+                            }, stream_mode="custom"):
+                                await websocket.send_json({
+                                    "type": "chat.stream",
+                                    "chunk": chunk,
+                                    "conversation_id": conversation_id,
+                                })
+                        except Exception:
+                            logger.exception("Error in agent graph user_id=%s", user.id)
                             await websocket.send_json({
-                                "type": "chat.stream",
-                                "chunk": chunk,
+                                "type": "chat.error",
+                                "message": "Failed to generate response",
                                 "conversation_id": conversation_id,
                             })
+                            continue
                         await websocket.send_json({
                             "type": "chat.done",
                             "conversation_id": conversation_id,

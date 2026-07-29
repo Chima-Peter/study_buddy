@@ -17,4 +17,5 @@ class ConversationResponse(BaseModel):
 
 
 class ConversationDetailResponse(ConversationResponse):
+    summary: str | None
     chats: list[ChatResponse]
