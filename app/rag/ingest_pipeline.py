@@ -12,10 +12,10 @@ from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTextSplitter, RecursiveJsonSplitter
 from langchain_unstructured import UnstructuredLoader
 
-from app.core.document_parsers import parse_csv
 from app.core.elasticsearch import Elasticsearch, IndexedDocuments
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
-from app.core.ocr_cleanup import clean_ocr_documents
+from app.rag.document_parsers import parse_csv
+from app.rag.ocr_cleanup import clean_ocr_documents
 from app.core.supabase import Supabase
 from app.system.schemas.document import IngestDocumentRequest
 from app.utils.errors.rabbitmq import NonRetryableIngestError

@@ -4,13 +4,13 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.core.elasticsearch import Elasticsearch
 from app.core.embedding import EmbeddingManager
-from app.core.handlers.dead_letter_queue import handle_dead_letter_queue as process_dead_letter_queue
-from app.core.handlers.document import handle_document
-from app.core.handlers.mail import handle_mail
-from app.core.ingest_pipeline import IngestPipeline
+from app.handlers.dead_letter_queue import handle_dead_letter_queue as process_dead_letter_queue
+from app.handlers.document import handle_document
+from app.handlers.mail import handle_mail
 from app.core.rabbitmq import RabbitMQ
 from app.core.redis import RedisClient
 from app.core.supabase import Supabase
+from app.rag.ingest_pipeline import IngestPipeline
 from app.system.service.document import DocumentService
 from app.system.service.notification import NotificationService
 

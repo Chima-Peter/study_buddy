@@ -3,7 +3,7 @@ from logging import Logger
 from typing import Any, AsyncGenerator
 
 from app.core.redis import RedisClient
-from app.core.retriever import RAGRetriever
+from app.rag.retriever import RAGRetriever
 from app.system.models.chat import ChatModel
 from app.system.repository.chat import ChatRepository
 from app.system.repository.conversation import ConversationRepository

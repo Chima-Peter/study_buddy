@@ -3,9 +3,9 @@ from logging import Logger
 from pathlib import Path
 
 from app.core.elasticsearch import Elasticsearch
-from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ
 from app.core.supabase import Supabase
+from app.rag.ingest_pipeline import IngestPipeline
 from app.system.models.documents import DocumentModel
 from app.system.repository.document import DocumentRepository
 from app.system.schemas.document import (

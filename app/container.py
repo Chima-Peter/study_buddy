@@ -22,13 +22,13 @@ from app.authentication.services import AuthService
 from app.config import Settings
 from app.core.elasticsearch import Elasticsearch
 from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
-from app.core.handlers import Handlers
-from app.core.ingest_pipeline import IngestPipeline
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
 from app.core.redis import RedisClient
-from app.core.retriever import RAGRetriever
 from app.core.supabase import Supabase
+from app.handlers.index import Handlers
 from app.logging_config import init_logging
+from app.rag.ingest_pipeline import IngestPipeline
+from app.rag.retriever import RAGRetriever
 from app.system.repository.conversation import ConversationRepository
 from app.system.repository.document import DocumentRepository
 from app.system.repository.chat import ChatRepository

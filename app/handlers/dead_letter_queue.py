@@ -3,7 +3,7 @@ from logging import Logger
 
 from aio_pika.abc import AbstractIncomingMessage
 
-from app.core.handlers.utils import notify_document_status
+from app.handlers.utils import notify_document_status
 from app.core.redis import RedisClient
 from app.system.schemas.document import (
     DOCUMENT_STATUS_COMMENTS,
