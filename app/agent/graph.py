@@ -1,3 +1,4 @@
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph.state import CompiledStateGraph
 from app.agent.nodes import (
     CreateConversationNode,
@@ -20,6 +21,7 @@ class AgentGraph:
         self,
         retriever: RAGRetriever,
         conversation_service: ConversationService,
+        query_model: ChatGoogleGenerativeAI,
         chat_service: ChatService,
         logger: Logger,
     ):
@@ -27,6 +29,7 @@ class AgentGraph:
         self.conversation_service = conversation_service
         self.chat_service = chat_service
         self.logger = logger
+        self.query_model = query_model
         graph = StateGraph(AgentState)
 
         graph.add_node("create_conversation", CreateConversationNode(
@@ -51,12 +54,12 @@ class AgentGraph:
         ))
         graph.add_node("update_conversation_title", UpdateConversationTitleNode(
             conversation_service=self.conversation_service,
-            model=self.retriever.model,
+            model=self.query_model,
             logger=self.logger,
         ))
         graph.add_node("update_conversation_summary", UpdateConversationSummaryNode(
             conversation_service=self.conversation_service,
-            model=self.retriever.model,
+            model=self.query_model,
             logger=self.logger,
         ))
 

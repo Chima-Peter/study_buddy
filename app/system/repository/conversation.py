@@ -148,11 +148,6 @@ class ConversationRepository:
         user_id: str,
         title: str,
     ) -> ConversationModel | None:
-        self.logger.info(
-            "Updating conversation title id=%s user_id=%s",
-            conversation_id,
-            user_id,
-        )
         async with self.session_factory() as session:
             result = await session.execute(
                 select(ConversationDBModel).where(

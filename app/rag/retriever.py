@@ -5,6 +5,7 @@ from typing import Any, AsyncGenerator, Literal
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from app.agent.state import SUMMARY_EVERY
 from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
 from app.system.schemas.chat import TOP_K, ChatResponse
@@ -19,19 +20,12 @@ class RAGRetriever:
         embedding_manager: EmbeddingManager,
         logger: Logger,
         *,
-        google_api_key: str | None = None,
-        model_name: str = "gemini-3.1-flash-lite",
+        model: ChatGoogleGenerativeAI,
     ):
         self.elasticsearch = elasticsearch
         self.embedding_manager = embedding_manager
         self.logger = logger
-        self.model = ChatGoogleGenerativeAI(
-            model=model_name,
-            temperature=0.2,
-            max_tokens=1024,
-            max_retries=3,
-            google_api_key=google_api_key,
-        )
+        self.model = model
 
     async def retrieve(
         self,
@@ -91,13 +85,16 @@ class RAGRetriever:
         else:
             context = "\n\n".join(r.document.content for r in rag_documents)
 
-        if conversation_history:
-            conversation_history_prompt = "\n\n".join([
-                f"User: {chat.query}\nAssistant: {chat.response}"
-                for chat in conversation_history[:5]
-            ])
+        if conversation_summary:
+            unsummarized = len(conversation_history) % SUMMARY_EVERY
+            recent = conversation_history[-unsummarized:] if unsummarized else []
         else:
-            conversation_history_prompt = ""
+            recent = conversation_history[-SUMMARY_EVERY:]
+
+        conversation_history_prompt = "\n\n".join(
+            f"User: {chat.query}\nAssistant: {chat.response}"
+            for chat in recent
+        )
 
         query_prompt = (
             "You are a helpful study assistant.\n\n"

@@ -1,7 +1,7 @@
 from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from app.agent.state import AgentState
+from app.agent.state import SUMMARY_EVERY, AgentState
 from app.rag.retriever import RAGRetriever
 from app.system.schemas.conversation import CreateConversationRequest, UpdateConversationTitleRequest
 from app.system.service.chat import ChatService
@@ -256,30 +256,35 @@ class UpdateConversationSummaryNode():
     async def __call__(self, state: AgentState) -> AgentState:
         conversation_history = state["conversation_history"]
         history_count = len(conversation_history)
-        if history_count == 0 or history_count % 5 != 0:
+        if history_count == 0 or history_count % SUMMARY_EVERY != 0:
             self.logger.info(
                 "Update summary node skipped id=%s user_id=%s in count=%s",
                 state["conversation_id"],
                 state["user_id"],
-                history_count % 5,
+                history_count % SUMMARY_EVERY,
             )
             return {}
+
+        user_messages = [chat.query for chat in conversation_history]
 
         self.logger.info(
             "Update summary node started id=%s user_id=%s",
             state["conversation_id"],
             state["user_id"],
         )
+
         summary_prompt = f"""
-            Generate a summary for this study conversation.\n\n
+            Generate a summary for this conversation.
+
+            Current summary: {state["conversation_summary"]}
+            Last {SUMMARY_EVERY} user messages: {user_messages[-SUMMARY_EVERY:]}
+
             Rules:
-            1. Return only the summary text.
-            2. Keep it under 255 characters.
-            3. Capture the main topic of the user's question.
-            4. Do not wrap the summary in quotes.
-            5. Do not end with punctuation.
-            This is the current summary of the conversation: {state["conversation_summary"]}
-            This are the last 5 chats in the conversation: {conversation_history[-5:]}
+            1. Return only the summary text
+            2. Keep it under 255 characters
+            3. Capture the main topic of the user's question
+            4. Do not wrap the summary in quotes
+            5. Do not end with punctuation
         """
 
         summary_response = await self.model.ainvoke(summary_prompt)

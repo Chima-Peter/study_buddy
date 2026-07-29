@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60
     google_api_key: str = "Azia............"
+    chat_model_name: str = "gemini-3.1-flash-lite"
+    query_model_name: str = "gemini-3.1-flash-lite"
 
     supabase_url: str = "https://ljdj.........co"
     supabase_key: str = "sb_publ........"

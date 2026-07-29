@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from logging import Logger
 
 import aio_pika
+from langchain_google_genai import ChatGoogleGenerativeAI
 import redis
 from dependency_injector import containers, providers
 from redis.asyncio import Redis
@@ -438,12 +439,30 @@ class Container(containers.DeclarativeContainer):
         supabase=async_supabase,
     )
 
+    chat_model = providers.Singleton(
+        ChatGoogleGenerativeAI,
+        model=settings.provided.chat_model_name,
+        temperature=0.7,
+        max_tokens=2048,
+        max_retries=3,
+        google_api_key=settings.provided.google_api_key,
+    )
+
+    query_model = providers.Singleton(
+        ChatGoogleGenerativeAI,
+        model=settings.provided.query_model_name,
+        temperature=0.2,
+        max_tokens=1024,
+        max_retries=3,
+        google_api_key=settings.provided.google_api_key,
+    )
+
     rag_retriever = providers.Factory(
         RAGRetriever,
         elasticsearch=elasticsearch,
         embedding_manager=embedding_manager,
         logger=logger,
-        google_api_key=settings.provided.google_api_key,
+        model=chat_model,
     )
 
     chat_service = providers.Factory(
@@ -495,4 +514,5 @@ class Container(containers.DeclarativeContainer):
         conversation_service=conversation_service,
         chat_service=chat_service,
         logger=logger,
+        query_model=query_model,
     )

@@ -18,3 +18,5 @@ class AgentState(TypedDict):
     messages: Annotated[list[AnyMessage], operator.add]
 
     response: str
+
+SUMMARY_EVERY= 5
