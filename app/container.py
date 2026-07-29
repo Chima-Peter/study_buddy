@@ -21,7 +21,7 @@ from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
 from app.core.elasticsearch import Elasticsearch
-from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
+from app.core.embedding import EmbeddingManager
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
 from app.core.redis import RedisClient
 from app.core.supabase import Supabase
@@ -402,17 +402,11 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
-    langchain_embeddings = providers.Singleton(
-        SentenceTransformerEmbeddings,
-        model=embedding_manager.provided.model,
-    )
-
     ingest_pipeline_service = providers.Factory(
         IngestPipeline,
         logger=logger,
         embedding_manager=embedding_manager,
         supabase=async_supabase,
-        semantic_embeddings=langchain_embeddings,
     )
 
     document_repository = providers.Factory(

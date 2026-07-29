@@ -13,7 +13,7 @@ from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTex
 from langchain_unstructured import UnstructuredLoader
 
 from app.core.elasticsearch import Elasticsearch, IndexedDocuments
-from app.core.embedding import EmbeddingManager, SentenceTransformerEmbeddings
+from app.core.embedding import EmbeddingManager
 from app.rag.document_parsers import parse_csv
 from app.rag.ocr_cleanup import clean_ocr_documents
 from app.core.supabase import Supabase
@@ -29,11 +29,9 @@ class IngestPipeline:
         logger: Logger,
         embedding_manager: EmbeddingManager = None,
         supabase: Supabase = None,
-        semantic_embeddings: SentenceTransformerEmbeddings = None,
         elasticsearch: Elasticsearch = None,
     ):
         self.embedding_manager = embedding_manager
-        self.semantic_embeddings = semantic_embeddings
         self.logger = logger
         self.supabase = supabase
         self.elasticsearch = elasticsearch
@@ -381,34 +379,6 @@ class IngestPipeline:
             raise NonRetryableIngestError(
                 f"File could not be parsed ({payload.file_name}): {e}"
             ) from e
-
-    def split_documents(
-        self,
-        documents: list[Document],
-        payload: IngestDocumentRequest | None = None,
-    ) -> list[Document]:
-        if not documents:
-            if payload is not None:
-                file_name, user_id, document_id = self._ids(payload)
-                self.logger.warning(
-                    "No documents to split file=%s user_id=%s document_id=%s",
-                    file_name,
-                    user_id,
-                    document_id,
-                )
-            else:
-                self.logger.warning("No documents to split")
-            return []
-        if self.semantic_embeddings is None:
-            raise NonRetryableIngestError(
-                "embeddings could not be generated: semantic embeddings are not configured"
-            )
-
-        return RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
-            separators=["\n\n", "\n", " ", ""],
-        ).split_documents(documents)
 
     def _add_chunk_overlap(
         self, chunks: list[Document], overlap: int = 50
