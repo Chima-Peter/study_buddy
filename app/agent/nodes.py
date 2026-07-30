@@ -18,14 +18,6 @@ class CreateConversationNode():
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
-        if state["conversation_id"] is not None:
-            self.logger.info(
-                "Create conversation node skipped id=%s user_id=%s",
-                state["conversation_id"],
-                state["user_id"],
-            )
-            return {}
-
         self.logger.info(
             "Create conversation node started user_id=%s",
             state["user_id"],
@@ -191,14 +183,6 @@ class UpdateConversationTitleNode():
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
-        if not state["first_message"]:
-            self.logger.info(
-                "Update title node skipped id=%s user_id=%s",
-                state["conversation_id"],
-                state["user_id"],
-            )
-            return {}
-
         self.logger.info(
             "Update title node started id=%s user_id=%s",
             state["conversation_id"],
@@ -255,16 +239,6 @@ class UpdateConversationSummaryNode():
 
     async def __call__(self, state: AgentState) -> AgentState:
         conversation_history = state["conversation_history"]
-        history_count = len(conversation_history)
-        if history_count == 0 or history_count % SUMMARY_EVERY != 0:
-            self.logger.info(
-                "Update summary node skipped id=%s user_id=%s in count=%s",
-                state["conversation_id"],
-                state["user_id"],
-                history_count % SUMMARY_EVERY,
-            )
-            return {}
-
         user_messages = [chat.query for chat in conversation_history]
 
         self.logger.info(

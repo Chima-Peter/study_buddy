@@ -1,5 +1,6 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph.state import CompiledStateGraph
+from app.agent.edges import create_conversation_router, update_summary_router, update_title_router
 from app.agent.nodes import (
     CreateConversationNode,
     GenerateResponseNode,
@@ -63,16 +64,40 @@ class AgentGraph:
             logger=self.logger,
         ))
 
-        graph.add_edge(START, "create_conversation")
+        graph.add_conditional_edges(
+            START,
+            create_conversation_router,
+            {
+                "create_conversation": "create_conversation",
+                "retrieve_documents": "retrieve_documents",
+                "retrieve_conversation_history": "retrieve_conversation_history",
+            },
+        )
         graph.add_edge("create_conversation", "retrieve_documents")
         graph.add_edge("create_conversation", "retrieve_conversation_history")
-        graph.add_edge("retrieve_documents", "generate_response")
-        graph.add_edge("retrieve_conversation_history", "generate_response")
+        graph.add_edge(
+            ["retrieve_documents", "retrieve_conversation_history"],
+            "generate_response",
+        )
         graph.add_edge("generate_response", "save_chat")
-        graph.add_edge("generate_response", "update_conversation_title")
-        graph.add_edge("save_chat", "update_conversation_summary")
-        graph.add_edge("update_conversation_title", END)
+        graph.add_conditional_edges(
+            "generate_response",
+            update_title_router,
+            {
+                "update_title": "update_conversation_title",
+                "END": END,
+            },
+        )
+        graph.add_conditional_edges(
+            "save_chat",
+            update_summary_router,
+            {
+                "update_summary": "update_conversation_summary",
+                "END": END,
+            },
+        )
         graph.add_edge("update_conversation_summary", END)
+        graph.add_edge("update_conversation_title", END)
 
         self.graph = graph.compile()
 
