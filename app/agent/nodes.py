@@ -1,7 +1,8 @@
 from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from app.agent.state import SUMMARY_EVERY, AgentState
+from app.agent.schema import SUMMARY_EVERY, DeciderResponse
+from app.agent.state import AgentState
 from app.rag.retriever import RAGRetriever
 from app.system.schemas.conversation import CreateConversationRequest, UpdateConversationTitleRequest
 from app.system.service.chat import ChatService
@@ -34,19 +35,124 @@ class CreateConversationNode():
         return {"conversation_id": conversation.id}
 
 
+class RetrievalDeciderNode():
+    def __init__(self, logger: Logger, model: ChatGoogleGenerativeAI):
+        self.logger = logger
+        self.model = model.with_structured_output(DeciderResponse)
+
+    async def __call__(self, state: AgentState) -> AgentState:
+        # First turn has no history worth loading.
+        if state["first_message"]:
+            self.logger.info(
+                "Retrieval decider skipped for first message user_id=%s",
+                state["user_id"],
+            )
+            return {
+                "retrieve_rag": True,
+                "retrieve_conversation_history": False,
+            }
+
+        self.logger.info(
+            "Retrieval decider started id=%s user_id=%s",
+            state["conversation_id"],
+            state["user_id"],
+        )
+        prompt = (
+            "Decide what context is needed to answer the user.\n\n"
+            "Choose exactly one:\n"
+            '- "rag": the question needs uploaded study documents\n'
+            '- "history": the question can be answered from prior chat turns only\n'
+            '- "both": the question needs both documents and prior chat turns\n\n'
+            "Prefer \"rag\" when unsure.\n\n"
+            f"Question: {state['query']}\n"
+        )
+        try:
+            decision = await self.model.ainvoke(prompt)
+            result = decision.decision
+        except Exception:
+            self.logger.exception(
+                "Retrieval decider failed id=%s user_id=%s",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            result = "both"
+
+        mapping = {
+            "rag": (True, False),
+            "history": (False, True),
+            "both": (True, True),
+        }
+        retrieve_rag, retrieve_history = mapping.get(result, (True, True))
+        self.logger.info(
+            "Retrieval decider completed id=%s user_id=%s decision=%s",
+            state["conversation_id"],
+            state["user_id"],
+            result,
+        )
+        return {
+            "retrieve_rag": retrieve_rag,
+            "retrieve_conversation_history": retrieve_history,
+        }
+
+
+class RewriteQueryNode():
+    def __init__(self, logger: Logger, model: ChatGoogleGenerativeAI):
+        self.logger = logger
+        self.model = model
+
+    async def __call__(self, state: AgentState) -> AgentState:
+        if not state["retrieve_rag"]:
+            self.logger.info(
+                "Rewrite query node skipped id=%s user_id=%s",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            return {"rewritten_query": state["query"]}
+
+        self.logger.info(
+            "Rewrite query node started id=%s user_id=%s",
+            state["conversation_id"],
+            state["user_id"],
+        )
+        recent_history = state["conversation_history"][-3:]
+        prompt = (
+            "Rewrite the user's question for hybrid document search.\n"
+            "Resolve references using the conversation context, preserve the "
+            "original meaning and important terms, and do not answer the question.\n"
+            "Return only the rewritten search query.\n\n"
+            f"Conversation summary: {state['conversation_summary'] or ''}\n"
+            f"Recent conversation: {recent_history}\n"
+            f"Question: {state['query']}\n"
+        )
+        response = await self.model.ainvoke(prompt)
+        result = (response.text or "").strip() or state["query"]
+        self.logger.info(
+            "Rewrite query node completed id=%s user_id=%s",
+            state["conversation_id"],
+            state["user_id"],
+        )
+        return {"rewritten_query": result}
+
 class RetrieveDocumentsNode():
     def __init__(self, retriever: RAGRetriever, logger: Logger):
         self.retriever = retriever
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
+        if not state["retrieve_rag"]:
+            self.logger.info(
+                "Retrieve documents node skipped user_id=%s",
+                state["user_id"],
+            )
+            return {"rag_documents": []}
+
         self.logger.info(
             "Retrieve documents node started user_id=%s",
             state["user_id"],
         )
         results = await self.retriever.retrieve(
             user_id=state["user_id"],
-            query=state["query"],
+            query=state["rewritten_query"],
             mode="hybrid",
         )
 
@@ -68,6 +174,17 @@ class RetrieveConversationHistoryNode():
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
+        if not state["retrieve_conversation_history"]:
+            self.logger.info(
+                "Retrieve history node skipped id=%s user_id=%s",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            return {
+                "conversation_history": [],
+                "conversation_summary": None,
+            }
+
         self.logger.info(
             "Retrieve history node started id=%s user_id=%s",
             state["conversation_id"],
@@ -114,7 +231,10 @@ class GenerateResponseNode():
             conversation_summary=state["conversation_summary"],
             conversation_history=state["conversation_history"],
         ):
-            writer(chunk)
+            writer({
+                "chunk": chunk,
+                "conversation_id": state["conversation_id"],
+            })
             answer += chunk
 
         self.logger.info(

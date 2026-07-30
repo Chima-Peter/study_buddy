@@ -139,9 +139,10 @@ async def websocket_endpoint(
                             }, stream_mode="custom"):
                                 await websocket.send_json({
                                     "type": "chat.stream",
-                                    "chunk": chunk,
-                                    "conversation_id": conversation_id,
+                                    "chunk": chunk["chunk"],
+                                    "conversation_id": chunk["conversation_id"],
                                 })
+                                conversation_id = chunk["conversation_id"]
                         except Exception:
                             logger.exception("Error in agent graph user_id=%s", user.id)
                             await websocket.send_json({

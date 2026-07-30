@@ -1,10 +1,11 @@
-from app.agent.state import SUMMARY_EVERY, AgentState
+from app.agent.schema import SUMMARY_EVERY
+from app.agent.state import AgentState
 
 
 def create_conversation_router(state: AgentState) -> list[str]:
     if state["conversation_id"] is None:
         return ["create_conversation"]
-    return ["retrieve_documents", "retrieve_conversation_history"]
+    return ["retrieval_decider"]
 
 
 def update_title_router(state: AgentState) -> list[str]:

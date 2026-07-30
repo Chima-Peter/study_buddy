@@ -1,11 +1,17 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph.state import CompiledStateGraph
-from app.agent.edges import create_conversation_router, update_summary_router, update_title_router
+from app.agent.edges import (
+    create_conversation_router,
+    update_summary_router,
+    update_title_router,
+)
 from app.agent.nodes import (
     CreateConversationNode,
     GenerateResponseNode,
+    RetrievalDeciderNode,
     RetrieveConversationHistoryNode,
     RetrieveDocumentsNode,
+    RewriteQueryNode,
     SaveChatNode,
     UpdateConversationSummaryNode,
     UpdateConversationTitleNode,
@@ -35,6 +41,14 @@ class AgentGraph:
 
         graph.add_node("create_conversation", CreateConversationNode(
             conversation_service=self.conversation_service,
+            logger=self.logger,
+        ))
+        graph.add_node("retrieval_decider", RetrievalDeciderNode(
+            model=self.query_model,
+            logger=self.logger,
+        ))
+        graph.add_node("rewrite_query", RewriteQueryNode(
+            model=self.query_model,
             logger=self.logger,
         ))
         graph.add_node("retrieve_documents", RetrieveDocumentsNode(
@@ -69,12 +83,13 @@ class AgentGraph:
             create_conversation_router,
             {
                 "create_conversation": "create_conversation",
-                "retrieve_documents": "retrieve_documents",
-                "retrieve_conversation_history": "retrieve_conversation_history",
+                "retrieval_decider": "retrieval_decider",
             },
         )
-        graph.add_edge("create_conversation", "retrieve_documents")
-        graph.add_edge("create_conversation", "retrieve_conversation_history")
+        graph.add_edge("create_conversation", "retrieval_decider")
+        graph.add_edge("retrieval_decider", "rewrite_query")
+        graph.add_edge("retrieval_decider", "retrieve_conversation_history")
+        graph.add_edge("rewrite_query", "retrieve_documents")
         graph.add_edge(
             ["retrieve_documents", "retrieve_conversation_history"],
             "generate_response",

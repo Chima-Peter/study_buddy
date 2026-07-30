@@ -5,7 +5,7 @@ from typing import Any, AsyncGenerator, Literal
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from app.agent.state import SUMMARY_EVERY
+from app.agent.schema import SUMMARY_EVERY
 from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
 from app.system.schemas.chat import TOP_K, ChatResponse
@@ -82,6 +82,7 @@ class RAGRetriever:
             self.logger.info(
                 "No relevant context found for the query. user_id=%s", user_id
             )
+            context = ""
         else:
             context = "\n\n".join(r.document.content for r in rag_documents)
 

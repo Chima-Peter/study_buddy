@@ -8,6 +8,7 @@ import operator
 
 class AgentState(TypedDict):
     query: str
+    rewritten_query: str
     conversation_id: str
     user_id: str
     first_message: bool
@@ -17,6 +18,7 @@ class AgentState(TypedDict):
     rag_documents: list[FusedResult]
     messages: Annotated[list[AnyMessage], operator.add]
 
-    response: str
+    retrieve_rag: bool
+    retrieve_conversation_history: bool
 
-SUMMARY_EVERY= 5
+    response: str
