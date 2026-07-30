@@ -44,7 +44,7 @@ class RetrievalDeciderNode():
         # First turn has no history worth loading.
         if state["first_message"]:
             self.logger.info(
-                "Retrieval decider skipped for first message user_id=%s",
+                "Retrieval decider skipped for first message user_id=%s decision=rag",
                 state["user_id"],
             )
             return {
@@ -87,10 +87,13 @@ class RetrievalDeciderNode():
         }
         retrieve_rag, retrieve_history = mapping.get(result, (False, False))
         self.logger.info(
-            "Retrieval decider completed id=%s user_id=%s decision=%s",
+            "Retrieval decider completed id=%s user_id=%s decision=%s "
+            "retrieve_rag=%s retrieve_history=%s",
             state["conversation_id"],
             state["user_id"],
             result,
+            retrieve_rag,
+            retrieve_history,
         )
         return {
             "retrieve_rag": retrieve_rag,
@@ -106,7 +109,7 @@ class RewriteQueryNode():
     async def __call__(self, state: AgentState) -> AgentState:
         if not state["retrieve_rag"]:
             self.logger.info(
-                "Rewrite query node skipped id=%s user_id=%s",
+                "Rewrite query node skipped id=%s user_id=%s reason=rag_disabled",
                 state["conversation_id"],
                 state["user_id"],
             )
@@ -130,9 +133,11 @@ class RewriteQueryNode():
         response = await self.model.ainvoke(prompt)
         result = (response.text or "").strip() or state["query"]
         self.logger.info(
-            "Rewrite query node completed id=%s user_id=%s",
+            "Rewrite query node completed id=%s user_id=%s original=%r rewritten=%r",
             state["conversation_id"],
             state["user_id"],
+            state["query"],
+            result,
         )
         return {"rewritten_query": result}
 
