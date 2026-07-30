@@ -462,7 +462,16 @@ class Container(containers.DeclarativeContainer):
         ChatGoogleGenerativeAI,
         model=settings.provided.chat_model_name,
         temperature=0.7,
-        max_tokens=2048,
+        max_tokens=4096,
+        max_retries=3,
+        google_api_key=settings.provided.google_api_key,
+    )
+
+    summarizer_model = providers.Singleton(
+        ChatGoogleGenerativeAI,
+        model=settings.provided.summarizer_model_name,
+        temperature=0.2,
+        max_tokens=1024,
         max_retries=3,
         google_api_key=settings.provided.google_api_key,
     )
@@ -471,7 +480,7 @@ class Container(containers.DeclarativeContainer):
         ChatGoogleGenerativeAI,
         model=settings.provided.query_model_name,
         temperature=0.2,
-        max_tokens=1024,
+        max_tokens=512,
         max_retries=3,
         google_api_key=settings.provided.google_api_key,
     )
@@ -539,5 +548,6 @@ class Container(containers.DeclarativeContainer):
         chat_service=chat_service,
         logger=logger,
         query_model=query_model,
+        summarizer_model=summarizer_model,
         checkpointer=checkpoint_saver,
     )

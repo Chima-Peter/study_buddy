@@ -29,6 +29,7 @@ class AgentGraph:
         retriever: RAGRetriever,
         conversation_service: ConversationService,
         query_model: ChatGoogleGenerativeAI,
+        summarizer_model: ChatGoogleGenerativeAI,
         chat_service: ChatService,
         logger: Logger,
         checkpointer: AsyncPostgresSaver,
@@ -38,6 +39,7 @@ class AgentGraph:
         self.chat_service = chat_service
         self.logger = logger
         self.query_model = query_model
+        self.summarizer_model = summarizer_model
         self.checkpointer = checkpointer
         graph = StateGraph(AgentState)
 
@@ -67,12 +69,12 @@ class AgentGraph:
         ))
         graph.add_node("update_conversation_title", UpdateConversationTitleNode(
             conversation_service=self.conversation_service,
-            model=self.query_model,
+            model=self.summarizer_model,
             logger=self.logger,
         ))
         graph.add_node("update_conversation_summary", UpdateConversationSummaryNode(
             conversation_service=self.conversation_service,
-            model=self.query_model,
+            model=self.summarizer_model,
             logger=self.logger,
         ))
         graph.add_node("cleanup", CleanupNode(logger=self.logger))
