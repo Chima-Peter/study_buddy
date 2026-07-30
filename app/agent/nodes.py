@@ -60,10 +60,12 @@ class RetrievalDeciderNode():
         prompt = (
             "Decide what context is needed to answer the user.\n\n"
             "Choose exactly one:\n"
-            '- "rag": the question needs uploaded study documents\n'
-            '- "history": the question can be answered from prior chat turns only\n'
-            '- "both": the question needs both documents and prior chat turns\n\n'
-            "Prefer \"rag\" when unsure.\n\n"
+            '- "rag": the question is about uploaded study documents\n'
+            '- "history": the question refers to prior chat turns only\n'
+            '- "both": the question needs both documents and prior chat turns\n'
+            '- "none": general knowledge question (e.g. capitals, math, definitions)\n\n'
+            'Choose "none" for questions you can answer from general knowledge.\n'
+            'Choose "rag" only when the question is clearly about study materials.\n\n'
             f"Question: {state['query']}\n"
         )
         try:
@@ -81,8 +83,9 @@ class RetrievalDeciderNode():
             "rag": (True, False),
             "history": (False, True),
             "both": (True, True),
+            "none": (False, False),
         }
-        retrieve_rag, retrieve_history = mapping.get(result, (True, True))
+        retrieve_rag, retrieve_history = mapping.get(result, (False, False))
         self.logger.info(
             "Retrieval decider completed id=%s user_id=%s decision=%s",
             state["conversation_id"],
