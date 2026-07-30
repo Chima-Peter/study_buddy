@@ -28,6 +28,7 @@ class AgentGraph:
         self,
         retriever: RAGRetriever,
         conversation_service: ConversationService,
+        chat_model: ChatGoogleGenerativeAI,
         query_model: ChatGoogleGenerativeAI,
         summarizer_model: ChatGoogleGenerativeAI,
         chat_service: ChatService,
@@ -38,6 +39,7 @@ class AgentGraph:
         self.conversation_service = conversation_service
         self.chat_service = chat_service
         self.logger = logger
+        self.chat_model = chat_model
         self.query_model = query_model
         self.summarizer_model = summarizer_model
         self.checkpointer = checkpointer
@@ -60,7 +62,7 @@ class AgentGraph:
             logger=self.logger,
         ))
         graph.add_node("generate_response", GenerateResponseNode(
-            retriever=self.retriever,
+            model=self.chat_model,
             logger=self.logger,
         ))
         graph.add_node("save_chat", SaveChatNode(

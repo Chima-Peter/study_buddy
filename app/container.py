@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from psycopg_pool import AsyncConnectionPool
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from sqlalchemy.orm import sessionmaker
 from supabase import AsyncClient, create_async_client, create_client, Client
 from elasticsearch import AsyncElasticsearch
@@ -24,7 +25,7 @@ from app.agent.graph import AgentGraph
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
-from app.core.elasticsearch import Elasticsearch
+from app.core.elasticsearch import Elasticsearch, FusedResult, IndexedDocuments
 from app.core.embedding import EmbeddingManager
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
 from app.core.redis import RedisClient
@@ -37,6 +38,7 @@ from app.system.repository.conversation import ConversationRepository
 from app.system.repository.document import DocumentRepository
 from app.system.repository.chat import ChatRepository
 from app.system.repository.notification import NotificationRepository
+from app.system.schemas.chat import ChatResponse
 from app.system.service.chat import ChatService
 from app.system.service.conversation import ConversationService
 from app.system.service.document import DocumentService
@@ -78,7 +80,11 @@ async def init_checkpointer(database_url: str) -> AsyncIterator[AsyncPostgresSav
         kwargs={"autocommit": True, "prepare_threshold": 0},
     )
     await checkpoint_pool.open()
-    checkpointer = AsyncPostgresSaver(checkpoint_pool)
+    # Agent state types must be allowlisted or deserialization breaks on future versions.
+    serde = JsonPlusSerializer(
+        allowed_msgpack_modules=(ChatResponse, FusedResult, IndexedDocuments),
+    )
+    checkpointer = AsyncPostgresSaver(checkpoint_pool, serde=serde)
     try:
         await checkpointer.setup()
         yield checkpointer
@@ -490,7 +496,6 @@ class Container(containers.DeclarativeContainer):
         elasticsearch=elasticsearch,
         embedding_manager=embedding_manager,
         logger=logger,
-        model=chat_model,
     )
 
     chat_service = providers.Factory(
@@ -547,6 +552,7 @@ class Container(containers.DeclarativeContainer):
         conversation_service=conversation_service,
         chat_service=chat_service,
         logger=logger,
+        chat_model=chat_model,
         query_model=query_model,
         summarizer_model=summarizer_model,
         checkpointer=checkpoint_saver,

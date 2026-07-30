@@ -2,6 +2,7 @@ from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from app.agent.prompts import (
+    chat_response_prompt,
     retrieval_decider_prompt,
     rewrite_query_prompt,
     summary_prompt,
@@ -191,8 +192,8 @@ class RetrieveConversationHistoryNode():
 
 
 class GenerateResponseNode():
-    def __init__(self, retriever: RAGRetriever, logger: Logger):
-        self.retriever = retriever
+    def __init__(self, model: ChatGoogleGenerativeAI, logger: Logger):
+        self.model = model
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
@@ -203,18 +204,48 @@ class GenerateResponseNode():
             len(state["rag_documents"]),
             len(state["conversation_history"]),
         )
+
+        rag_documents = state["rag_documents"]
+        if not rag_documents:
+            self.logger.info(
+                "No relevant context found for the query. user_id=%s",
+                state["user_id"],
+            )
+            context = ""
+        else:
+            context = "\n\n".join(r.document.content for r in rag_documents)
+
+        if state["retrieve_conversation_history"]:
+            conversation_history = state["conversation_history"]
+            conversation_summary = state["conversation_summary"]
+            if conversation_summary:
+                unsummarized = len(conversation_history) % SUMMARY_EVERY
+                recent = conversation_history[-unsummarized:] if unsummarized else []
+            else:
+                recent = conversation_history[-SUMMARY_EVERY:]
+
+            history_text = "\n\n".join(
+                f"User: {chat.query}\nAssistant: {chat.response}"
+                for chat in recent
+            )
+        else:
+            history_text = ""
+
+        prompt = chat_response_prompt(
+            context=context,
+            conversation_history_prompt=history_text,
+            conversation_summary=state["conversation_summary"],
+            query=state["query"],
+        )
+
         writer = get_stream_writer()
         answer = ""
-        async for chunk in self.retriever.generate_chat_response(
-            user_id=state["user_id"],
-            query=state["query"],
-            rag_documents=state["rag_documents"],
-            conversation_summary=state["conversation_summary"],
-            conversation_history=state["conversation_history"],
-            retrieve_history=state["retrieve_conversation_history"],
-        ):
-            writer(chunk)
-            answer += chunk
+        async for chunk in self.model.astream(prompt):
+            text = chunk.text
+            if not text:
+                continue
+            writer(text)
+            answer += text
 
         self.logger.info(
             "Generate response node completed id=%s user_id=%s response_chars=%s",

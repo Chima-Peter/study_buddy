@@ -1,15 +1,11 @@
-"""RAG retriever: embed → Elasticsearch search → LLM answer."""
+"""RAG retriever: embed → Elasticsearch search."""
 
 from logging import Logger
-from typing import Any, AsyncGenerator, Literal
+from typing import Literal
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-from app.agent.prompts import chat_response_prompt
-from app.agent.schema import SUMMARY_EVERY
 from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
-from app.system.schemas.chat import TOP_K, ChatResponse
+from app.system.schemas.chat import TOP_K
 
 SearchMode = Literal["hybrid", "vector", "bm25"]
 
@@ -20,13 +16,10 @@ class RAGRetriever:
         elasticsearch: Elasticsearch,
         embedding_manager: EmbeddingManager,
         logger: Logger,
-        *,
-        model: ChatGoogleGenerativeAI,
     ):
         self.elasticsearch = elasticsearch
         self.embedding_manager = embedding_manager
         self.logger = logger
-        self.model = model
 
     async def retrieve(
         self,
@@ -69,48 +62,3 @@ class RAGRetriever:
             len(results),
         )
         return results
-
-    async def generate_chat_response(
-        self,
-        user_id: str,
-        query: str,
-        retrieve_history: bool,
-        rag_documents: list[FusedResult],
-        conversation_summary: str,
-        conversation_history: list[ChatResponse],
-    ) -> AsyncGenerator[str, Any]:
-        context = ""
-        if not rag_documents:
-            self.logger.info(
-                "No relevant context found for the query. user_id=%s", user_id
-            )
-            context = ""
-        else:
-            context = "\n\n".join(r.document.content for r in rag_documents)
-
-        if retrieve_history:
-            if conversation_summary:
-                unsummarized = len(conversation_history) % SUMMARY_EVERY
-                recent = conversation_history[-unsummarized:] if unsummarized else []
-            else:
-                recent = conversation_history[-SUMMARY_EVERY:]
-
-            history_text = "\n\n".join(
-                f"User: {chat.query}\nAssistant: {chat.response}"
-                for chat in recent
-            )
-        else:
-            history_text = ""
-
-        prompt = chat_response_prompt(
-            context=context,
-            conversation_history_prompt=history_text,
-            conversation_summary=conversation_summary,
-            query=query,
-        )
-
-        async for chunk in self.model.astream(prompt):
-            text = chunk.text
-            if not text:
-                continue
-            yield text
