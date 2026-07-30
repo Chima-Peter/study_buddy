@@ -19,3 +19,6 @@ class ConversationResponse(BaseModel):
 class ConversationDetailResponse(ConversationResponse):
     summary: str | None
     chats: list[ChatResponse]
+
+class ConversationHistoryResponse(ConversationResponse):
+    chats: list[ChatResponse]

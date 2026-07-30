@@ -10,35 +10,10 @@ from app.agent.prompts import (
 from app.agent.schema import SUMMARY_EVERY, DeciderResponse
 from app.agent.state import AgentState
 from app.rag.retriever import RAGRetriever
-from app.system.schemas.conversation import CreateConversationRequest, UpdateConversationTitleRequest
+from app.system.schemas.conversation import UpdateConversationTitleRequest
 from app.system.service.chat import ChatService
 from app.system.service.conversation import ConversationService
 from langgraph.config import get_stream_writer
-
-class CreateConversationNode():
-    def __init__(
-        self,
-        conversation_service: ConversationService,
-        logger: Logger,
-    ):
-        self.conversation_service = conversation_service
-        self.logger = logger
-
-    async def __call__(self, state: AgentState) -> AgentState:
-        self.logger.info(
-            "Create conversation node started user_id=%s",
-            state["user_id"],
-        )
-        conversation = await self.conversation_service.create(
-            CreateConversationRequest(title="New Conversation"),
-            user_id=state["user_id"],
-        )
-        self.logger.info(
-            "Create conversation node completed id=%s user_id=%s",
-            conversation.id,
-            state["user_id"],
-        )
-        return {"conversation_id": conversation.id}
 
 
 class RetrievalDeciderNode():
@@ -180,10 +155,15 @@ class RetrieveConversationHistoryNode():
                 state["conversation_id"],
                 state["user_id"],
             )
-            return {
-                "conversation_history": [],
-                "conversation_summary": None,
-            }
+            return {}
+
+        if len(state["conversation_history"]) > 0:
+            self.logger.info(
+                "Retrieve history node skipped id=%s user_id=%s reason=history_exists",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            return {}
 
         self.logger.info(
             "Retrieve history node started id=%s user_id=%s",
@@ -206,6 +186,7 @@ class RetrieveConversationHistoryNode():
         return {
             "conversation_history": results.chats,
             "conversation_summary": results.summary or "",
+            "title": results.title or "",
         }
 
 
@@ -230,11 +211,9 @@ class GenerateResponseNode():
             rag_documents=state["rag_documents"],
             conversation_summary=state["conversation_summary"],
             conversation_history=state["conversation_history"],
+            retrieve_history=state["retrieve_conversation_history"],
         ):
-            writer({
-                "chunk": chunk,
-                "conversation_id": state["conversation_id"],
-            })
+            writer(chunk)
             answer += chunk
 
         self.logger.info(
@@ -288,7 +267,9 @@ class SaveChatNode():
             state["user_id"],
         )
 
-        return {"conversation_history": [chat]}
+        return {
+            "conversation_history": [chat],
+        }
 
 
 class UpdateConversationTitleNode():
@@ -378,3 +359,27 @@ class UpdateConversationSummaryNode():
             len(summary),
         )
         return {"conversation_summary": summary}
+
+
+class CleanupNode:
+    """Clears transient state before checkpointing."""
+
+    def __init__(self, logger: Logger):
+        self.logger = logger
+
+    async def __call__(self, state: AgentState) -> AgentState:
+        self.logger.info(
+            "Cleanup node started id=%s user_id=%s",
+            state["conversation_id"],
+            state["user_id"],
+        )
+        return {
+            "query": "",
+            "rewritten_query": "",
+            "first_message": False,
+            "rag_documents": [],
+            "retrieve_rag": False,
+            "retrieve_conversation_history": False,
+            "response": "",
+            "messages": [],
+        }

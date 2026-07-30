@@ -1,12 +1,12 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from app.agent.edges import (
-    create_conversation_router,
     update_summary_router,
     update_title_router,
 )
 from app.agent.nodes import (
-    CreateConversationNode,
+    CleanupNode,
     GenerateResponseNode,
     RetrievalDeciderNode,
     RetrieveConversationHistoryNode,
@@ -31,18 +31,16 @@ class AgentGraph:
         query_model: ChatGoogleGenerativeAI,
         chat_service: ChatService,
         logger: Logger,
+        checkpointer: AsyncPostgresSaver,
     ):
         self.retriever = retriever
         self.conversation_service = conversation_service
         self.chat_service = chat_service
         self.logger = logger
         self.query_model = query_model
+        self.checkpointer = checkpointer
         graph = StateGraph(AgentState)
 
-        graph.add_node("create_conversation", CreateConversationNode(
-            conversation_service=self.conversation_service,
-            logger=self.logger,
-        ))
         graph.add_node("retrieval_decider", RetrievalDeciderNode(
             model=self.query_model,
             logger=self.logger,
@@ -77,16 +75,9 @@ class AgentGraph:
             model=self.query_model,
             logger=self.logger,
         ))
+        graph.add_node("cleanup", CleanupNode(logger=self.logger))
 
-        graph.add_conditional_edges(
-            START,
-            create_conversation_router,
-            {
-                "create_conversation": "create_conversation",
-                "retrieval_decider": "retrieval_decider",
-            },
-        )
-        graph.add_edge("create_conversation", "retrieval_decider")
+        graph.add_edge(START, "retrieval_decider")
         graph.add_edge("retrieval_decider", "rewrite_query")
         graph.add_edge("retrieval_decider", "retrieve_conversation_history")
         graph.add_edge("rewrite_query", "retrieve_documents")
@@ -100,7 +91,7 @@ class AgentGraph:
             update_title_router,
             {
                 "update_title": "update_conversation_title",
-                "END": END,
+                "cleanup": "cleanup",
             },
         )
         graph.add_conditional_edges(
@@ -108,13 +99,14 @@ class AgentGraph:
             update_summary_router,
             {
                 "update_summary": "update_conversation_summary",
-                "END": END,
+                "cleanup": "cleanup",
             },
         )
-        graph.add_edge("update_conversation_summary", END)
-        graph.add_edge("update_conversation_title", END)
+        graph.add_edge("update_conversation_summary", "cleanup")
+        graph.add_edge("update_conversation_title", "cleanup")
+        graph.add_edge("cleanup", END)
 
-        self.graph = graph.compile()
+        self.graph = graph.compile(checkpointer=self.checkpointer)
 
     def start(self) -> CompiledStateGraph:
         return self.graph

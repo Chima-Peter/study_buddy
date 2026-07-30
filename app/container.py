@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from psycopg_pool import AsyncConnectionPool
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.orm import sessionmaker
 from supabase import AsyncClient, create_async_client, create_client, Client
 from elasticsearch import AsyncElasticsearch
@@ -65,6 +67,23 @@ async def init_async_engine(database_url: str) -> AsyncIterator[AsyncEngine]:
 
 def init_async_session_factory(engine: AsyncEngine) -> async_sessionmaker:
     return async_sessionmaker(bind=engine, expire_on_commit=False)
+
+async def init_checkpointer(database_url: str) -> AsyncIterator[AsyncPostgresSaver]:
+    checkpoint_pool = AsyncConnectionPool(
+        conninfo=database_url,
+        max_size=5,
+        min_size=1,
+        open=False,
+        # setup() runs CREATE INDEX CONCURRENTLY, which cannot run in a transaction.
+        kwargs={"autocommit": True, "prepare_threshold": 0},
+    )
+    await checkpoint_pool.open()
+    checkpointer = AsyncPostgresSaver(checkpoint_pool)
+    try:
+        await checkpointer.setup()
+        yield checkpointer
+    finally:
+        await checkpoint_pool.close()
 
 
 def init_sync_redis(redis_url: str) -> Iterator[redis.Redis]:
@@ -508,6 +527,11 @@ class Container(containers.DeclarativeContainer):
         handlers=handlers,
     )
 
+    checkpoint_saver = providers.Resource(
+        init_checkpointer,
+        database_url=settings.provided.checkpoint_database_url,
+    )
+
     agent_graph = providers.Singleton(
         AgentGraph,
         retriever=rag_retriever,
@@ -515,4 +539,5 @@ class Container(containers.DeclarativeContainer):
         chat_service=chat_service,
         logger=logger,
         query_model=query_model,
+        checkpointer=checkpoint_saver,
     )

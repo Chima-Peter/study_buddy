@@ -8,7 +8,7 @@ from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.security import get_current_user
 from app.system.schemas.conversation import (
-    ConversationDetailResponse,
+    ConversationHistoryResponse,
     ConversationResponse,
 )
 from app.system.service.conversation import ConversationService
@@ -50,7 +50,7 @@ async def list_conversations(
 
 @conversation_router.get(
     "/{conversation_id}",
-    response_model=ConversationDetailResponse,
+    response_model=ConversationHistoryResponse,
 )
 @inject
 async def get_conversation(
@@ -60,20 +60,24 @@ async def get_conversation(
         Provide[Container.conversation_service]
     ),
     logger: Logger = Depends(Provide[Container.logger]),
-) -> ConversationDetailResponse:
+) -> ConversationHistoryResponse:
     logger.info(
         "Get conversation request id=%s user_id=%s",
         conversation_id,
         user.id,
     )
-    try:
+    try:        
         conversation = await service.get(conversation_id, user.id)
         logger.info(
             "Get conversation request completed id=%s user_id=%s",
             conversation_id,
             user.id,
         )
-        return conversation
+        return ConversationHistoryResponse(
+            id=conversation_id,
+            title=conversation.title,
+            chats=conversation.chats,
+        )
     except ValueError as error:
         logger.warning(
             "Get conversation request not found id=%s user_id=%s",

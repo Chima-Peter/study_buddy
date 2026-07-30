@@ -74,6 +74,7 @@ class RAGRetriever:
         self,
         user_id: str,
         query: str,
+        retrieve_history: bool,
         rag_documents: list[FusedResult],
         conversation_summary: str,
         conversation_history: list[ChatResponse],
@@ -87,16 +88,19 @@ class RAGRetriever:
         else:
             context = "\n\n".join(r.document.content for r in rag_documents)
 
-        if conversation_summary:
-            unsummarized = len(conversation_history) % SUMMARY_EVERY
-            recent = conversation_history[-unsummarized:] if unsummarized else []
-        else:
-            recent = conversation_history[-SUMMARY_EVERY:]
+        if retrieve_history:
+            if conversation_summary:
+                unsummarized = len(conversation_history) % SUMMARY_EVERY
+                recent = conversation_history[-unsummarized:] if unsummarized else []
+            else:
+                recent = conversation_history[-SUMMARY_EVERY:]
 
-        history_text = "\n\n".join(
-            f"User: {chat.query}\nAssistant: {chat.response}"
-            for chat in recent
-        )
+            history_text = "\n\n".join(
+                f"User: {chat.query}\nAssistant: {chat.response}"
+                for chat in recent
+            )
+        else:
+            history_text = ""
 
         prompt = chat_response_prompt(
             context=context,
