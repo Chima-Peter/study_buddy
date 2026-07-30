@@ -111,43 +111,6 @@ class Elasticsearch:
             for hit in response.get("hits", {}).get("hits", [])
         ]
 
-    def _rrf_fuse(
-        self,
-        results_lists: list[list[tuple[str, IndexedDocuments]]],
-        *,
-        k: int,
-        rank_constant: int = 60,
-    ) -> list[FusedResult]:
-        """
-        Local Reciprocal Rank Fusion (RRF), deduped by chunk_id.
-
-        RRF score for chunk c: sum over all retrievers of 1/(rank_constant + rank_i)
-        where rank_i is 1-based position in that retriever's results. Falls back to
-        the Elasticsearch hit id when metadata.chunk_id is missing.
-        """
-        scores: dict[str, float] = {}
-        docs_by_chunk: dict[str, IndexedDocuments] = {}
-
-        for results in results_lists:
-            seen_chunks: set[str] = set()
-            for rank, (hit_id, doc) in enumerate(results, start=1):
-                chunk_id = doc.metadata.get("chunk_id") or hit_id
-                if chunk_id in seen_chunks:
-                    continue
-                seen_chunks.add(chunk_id)
-                scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (
-                    rank_constant + rank
-                )
-                docs_by_chunk.setdefault(chunk_id, doc)
-
-        sorted_ids = sorted(
-            scores.keys(), key=lambda d: scores[d], reverse=True
-        )
-        return [
-            FusedResult(document=docs_by_chunk[chunk_id], score=scores[chunk_id])
-            for chunk_id in sorted_ids[:k]
-        ]
-
     def _user_filter(self, user_id: str) -> dict:
         return {"term": {"metadata.user_id": user_id}}
 
@@ -230,27 +193,21 @@ class Elasticsearch:
         query: str,
         embedding: list[float],
         *,
-        k: int = 10,
         fetch_size: int = 50,
         num_candidates: int = 100,
-        rank_constant: int = 60,
-    ) -> list[FusedResult]:
-        """Hybrid search: concurrent BM25 + kNN with local RRF fusion.
+    ) -> list[list[tuple[str, IndexedDocuments]]]:
+        """Run concurrent BM25 and kNN searches for later fusion.
 
         Args:
-            k: Final number of results to return.
-            fetch_size: Docs fetched per branch before fusion (default 20).
+            fetch_size: Docs fetched per branch before fusion (default 50).
             num_candidates: kNN ANN search pool size (default 100).
-            rank_constant: RRF constant (default 60).
         """
         self.logger.info(
-            "ES search_hybrid start user_id=%s k=%s fetch_size=%s "
-            "num_candidates=%s rank_constant=%s dims=%s query=%r",
+            "ES search_hybrid start user_id=%s fetch_size=%s "
+            "num_candidates=%s dims=%s query=%r",
             user_id,
-            k,
             fetch_size,
             num_candidates,
-            rank_constant,
             len(embedding),
             query[:120],
         )
@@ -309,14 +266,12 @@ class Elasticsearch:
             self.logger.error("Both BM25 and kNN searches failed")
             return []
 
-        fused = self._rrf_fuse(results_lists, k=k, rank_constant=rank_constant)
         self.logger.info(
-            "ES search_hybrid done user_id=%s fused=%s top_score=%s",
+            "ES search_hybrid done user_id=%s results_lists=%s",
             user_id,
-            len(fused),
-            fused[0].score if fused else None,
+            len(results_lists),
         )
-        return fused
+        return results_lists
 
     async def delete_by_document_id(self, user_id: str, document_id: str) -> int:
         """Delete all chunks for a document_id, filtered by user_id."""

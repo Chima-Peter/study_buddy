@@ -33,7 +33,7 @@ from app.core.supabase import Supabase
 from app.handlers.index import Handlers
 from app.logging_config import init_logging
 from app.rag.ingest_pipeline import IngestPipeline
-from app.rag.retriever import RAGRetriever
+from app.rag.rag_retriever import RAGRetriever
 from app.system.repository.conversation import ConversationRepository
 from app.system.repository.document import DocumentRepository
 from app.system.repository.chat import ChatRepository

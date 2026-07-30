@@ -19,7 +19,7 @@ from app.agent.nodes import (
 from app.agent.state import AgentState
 from langgraph.graph import START, StateGraph, END
 from logging import Logger
-from app.rag.retriever import RAGRetriever
+from app.rag.rag_retriever import RAGRetriever
 from app.system.service.chat import ChatService
 from app.system.service.conversation import ConversationService
 

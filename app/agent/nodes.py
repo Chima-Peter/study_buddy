@@ -10,7 +10,7 @@ from app.agent.prompts import (
 )
 from app.agent.schema import SUMMARY_EVERY, DeciderResponse
 from app.agent.state import AgentState
-from app.rag.retriever import RAGRetriever
+from app.rag.rag_retriever import RAGRetriever
 from app.system.schemas.conversation import UpdateConversationTitleRequest
 from app.system.service.chat import ChatService
 from app.system.service.conversation import ConversationService
@@ -129,7 +129,6 @@ class RetrieveDocumentsNode():
         results = await self.retriever.retrieve(
             user_id=state["user_id"],
             query=state["rewritten_query"],
-            mode="hybrid",
         )
 
         self.logger.info(
