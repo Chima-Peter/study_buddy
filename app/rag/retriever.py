@@ -5,6 +5,7 @@ from typing import Any, AsyncGenerator, Literal
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from app.agent.prompts import chat_response_prompt
 from app.agent.schema import SUMMARY_EVERY
 from app.core.elasticsearch import Elasticsearch, FusedResult
 from app.core.embedding import EmbeddingManager
@@ -92,37 +93,19 @@ class RAGRetriever:
         else:
             recent = conversation_history[-SUMMARY_EVERY:]
 
-        conversation_history_prompt = "\n\n".join(
+        history_text = "\n\n".join(
             f"User: {chat.query}\nAssistant: {chat.response}"
             for chat in recent
         )
 
-        query_prompt = (
-            "You are a helpful study assistant.\n\n"
-            "Use the provided context as the primary source of truth when "
-            "answering questions about the user's documents or study materials.\n\n"
-            "Rules:\n"
-            "1. If the answer can be found in the provided context, answer using "
-            "only that context.\n"
-            "2. If the question is about the uploaded documents but the context "
-            "does not contain enough information, ask the user "
-            "to upload the relevant document(s) or provide additional context. Do "
-            "not guess or fabricate information.\n"
-            "3. If the question is a general knowledge question that is unrelated "
-            'to the uploaded documents (e.g., "What is the capital of France?"), '
-            "answer normally using your general knowledge.\n"
-            "4. If it is unclear whether the question refers to the uploaded "
-            "documents or general knowledge, answer from your general knowledge.\n"
-            "5. When answering from the provided context, cite or reference the "
-            "relevant sections if they are available.\n\n"
-            f"External Context:\n{context}\n\n"
-            f"Conversation Last 5 Messages:\n{conversation_history_prompt}\n\n"
-            f"Conversation Summary:\n{conversation_summary}\n\n"
-            f"Question: {query}\n"
-            "Answer:"
+        prompt = chat_response_prompt(
+            context=context,
+            conversation_history_prompt=history_text,
+            conversation_summary=conversation_summary,
+            query=query,
         )
 
-        async for chunk in self.model.astream(query_prompt):
+        async for chunk in self.model.astream(prompt):
             text = chunk.text
             if not text:
                 continue

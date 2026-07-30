@@ -1,6 +1,12 @@
 from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from app.agent.prompts import (
+    retrieval_decider_prompt,
+    rewrite_query_prompt,
+    summary_prompt,
+    title_prompt,
+)
 from app.agent.schema import SUMMARY_EVERY, DeciderResponse
 from app.agent.state import AgentState
 from app.rag.retriever import RAGRetriever
@@ -57,17 +63,7 @@ class RetrievalDeciderNode():
             state["conversation_id"],
             state["user_id"],
         )
-        prompt = (
-            "Decide what context is needed to answer the user.\n\n"
-            "Choose exactly one:\n"
-            '- "rag": the question is about uploaded study documents\n'
-            '- "history": the question refers to prior chat turns only\n'
-            '- "both": the question needs both documents and prior chat turns\n'
-            '- "none": general knowledge question (e.g. capitals, math, definitions)\n\n'
-            'Choose "none" for questions you can answer from general knowledge.\n'
-            'Choose "rag" only when the question is clearly about study materials.\n\n'
-            f"Question: {state['query']}\n"
-        )
+        prompt = retrieval_decider_prompt(state["query"])
         try:
             decision = await self.model.ainvoke(prompt)
             result = decision.decision
@@ -121,14 +117,10 @@ class RewriteQueryNode():
             state["user_id"],
         )
         recent_history = state["conversation_history"][-3:]
-        prompt = (
-            "Rewrite the user's question for hybrid document search.\n"
-            "Resolve references using the conversation context, preserve the "
-            "original meaning and important terms, and do not answer the question.\n"
-            "Return only the rewritten search query.\n\n"
-            f"Conversation summary: {state['conversation_summary'] or ''}\n"
-            f"Recent conversation: {recent_history}\n"
-            f"Question: {state['query']}\n"
+        prompt = rewrite_query_prompt(
+            query=state["query"],
+            conversation_summary=state["conversation_summary"],
+            recent_history=recent_history,
         )
         response = await self.model.ainvoke(prompt)
         result = (response.text or "").strip() or state["query"]
@@ -316,19 +308,8 @@ class UpdateConversationTitleNode():
             state["conversation_id"],
             state["user_id"],
         )
-        title_prompt = (
-                "Generate a short title for this study conversation.\n\n"
-                "Rules:\n"
-                "1. Return only the title text.\n"
-                "2. Keep it under 80 characters.\n"
-                "3. Capture the main topic of the user's question.\n"
-                "4. Do not wrap the title in quotes.\n"
-                "5. Do not end with punctuation.\n\n"
-                f"Question: {state["query"]}\n"
-                f"Answer: {state["response"]}\n"
-                "Title:"
-            )
-        title_response = await self.model.ainvoke(title_prompt)
+        prompt = title_prompt(state["query"], state["response"])
+        title_response = await self.model.ainvoke(prompt)
         title = (title_response.text or "").strip().strip("\"'")[:255] or None
         if title is None:
             self.logger.warning(
@@ -367,7 +348,10 @@ class UpdateConversationSummaryNode():
 
     async def __call__(self, state: AgentState) -> AgentState:
         conversation_history = state["conversation_history"]
-        user_messages = [chat.query for chat in conversation_history]
+        recent_exchanges = [
+            f"Q: {chat.query}\nA: {chat.response[:200]}"
+            for chat in conversation_history[-SUMMARY_EVERY:]
+        ]
 
         self.logger.info(
             "Update summary node started id=%s user_id=%s",
@@ -375,21 +359,8 @@ class UpdateConversationSummaryNode():
             state["user_id"],
         )
 
-        summary_prompt = f"""
-            Generate a summary for this conversation.
-
-            Current summary: {state["conversation_summary"]}
-            Last {SUMMARY_EVERY} user messages: {user_messages[-SUMMARY_EVERY:]}
-
-            Rules:
-            1. Return only the summary text
-            2. Keep it under 255 characters
-            3. Capture the main topic of the user's question
-            4. Do not wrap the summary in quotes
-            5. Do not end with punctuation
-        """
-
-        summary_response = await self.model.ainvoke(summary_prompt)
+        prompt = summary_prompt(state["conversation_summary"], recent_exchanges)
+        summary_response = await self.model.ainvoke(prompt)
         summary = (
             (summary_response.text or "").strip().strip("\"'")[:255]
             or state["conversation_summary"]
