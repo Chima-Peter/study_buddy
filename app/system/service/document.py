@@ -170,7 +170,7 @@ class DocumentService:
         document = await self._get_owned_document(document_id, user_id)
 
         deleted_chunks = await self.elasticsearch.delete_by_document_id(
-            user_id, document_id
+            user_id, document_id, index="documents"
         )
         self.logger.info(
             "Deleted %s Elasticsearch chunks for document_id=%s",

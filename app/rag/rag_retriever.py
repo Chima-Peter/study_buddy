@@ -2,7 +2,8 @@
 
 from logging import Logger
 
-from app.core.elasticsearch import Elasticsearch, FusedResult
+from app.core.elasticsearch import Elasticsearch
+from app.core.elasticsearch_schema import FusedResult
 from app.core.embedding import EmbeddingManager
 from app.core.retriever import Retriever
 from app.system.schemas.chat import TOP_K
@@ -38,7 +39,7 @@ class RAGRetriever(Retriever):
         )
 
         results_lists = await self.elasticsearch.search_hybrid(
-            user_id, query, embedding
+            user_id, query, embedding, index="documents"
         )
         results = await super().reciprocal_rank_fusion(results_lists, k=TOP_K)
 

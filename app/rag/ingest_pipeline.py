@@ -1,6 +1,7 @@
 import tempfile
 from logging import Logger
 from pathlib import Path
+from typing import cast
 
 from langchain_community.document_loaders import (
     UnstructuredMarkdownLoader,
@@ -12,7 +13,8 @@ from langchain_core.documents import Document
 from langchain_text_splitters import MarkdownTextSplitter, RecursiveCharacterTextSplitter, RecursiveJsonSplitter
 from langchain_unstructured import UnstructuredLoader
 
-from app.core.elasticsearch import Elasticsearch, IndexedDocuments
+from app.core.elasticsearch import Elasticsearch
+from app.core.elasticsearch_schema import DocumentMetadata, IndexedRecord
 from app.core.embedding import EmbeddingManager
 from app.rag.document_parsers import parse_csv
 from app.rag.ocr_cleanup import clean_ocr_documents
@@ -72,9 +74,9 @@ class IngestPipeline:
                 )
 
             es_payload = [
-                IndexedDocuments(
+                IndexedRecord(
                     content=chunk.page_content,
-                    metadata=chunk.metadata,
+                    metadata=cast(DocumentMetadata, chunk.metadata),
                     embedding=embedding.tolist()
                     if hasattr(embedding, "tolist")
                     else list(embedding),
@@ -82,7 +84,7 @@ class IngestPipeline:
                 for chunk, embedding in zip(chunks, embeddings)
             ]
             es_success, _es_failed = await self.elasticsearch.bulk_index_documents(
-                es_payload
+                es_payload, index="documents"
             )
             if es_success == 0:
                 raise NonRetryableIngestError(

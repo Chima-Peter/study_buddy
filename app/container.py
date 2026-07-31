@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from logging import Logger
 
 import aio_pika
+from app.core.mappings import DOCUMENTS_INDEX_MAPPINGS, USER_MEMORIES_INDEX_MAPPINGS
 from langchain_google_genai import ChatGoogleGenerativeAI
 import redis
 from dependency_injector import containers, providers
@@ -25,7 +26,8 @@ from app.agent.graph import AgentGraph
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
-from app.core.elasticsearch import Elasticsearch, FusedResult, IndexedDocuments
+from app.core.elasticsearch import Elasticsearch
+from app.core.elasticsearch_schema import FusedResult, IndexedRecord
 from app.core.embedding import EmbeddingManager
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
 from app.core.redis import RedisClient
@@ -82,7 +84,7 @@ async def init_checkpointer(database_url: str) -> AsyncIterator[AsyncPostgresSav
     await checkpoint_pool.open()
     # Agent state types must be allowlisted or deserialization breaks on future versions.
     serde = JsonPlusSerializer(
-        allowed_msgpack_modules=(ChatResponse, FusedResult, IndexedDocuments),
+        allowed_msgpack_modules=(ChatResponse, FusedResult, IndexedRecord),
     )
     checkpointer = AsyncPostgresSaver(checkpoint_pool, serde=serde)
     try:
@@ -266,30 +268,6 @@ async def init_async_supabase(supabase_url: str, supabase_key: str) -> AsyncClie
     )
 
 
-DOCUMENTS_INDEX_MAPPINGS = {
-    "properties": {
-        "content": {"type": "text"},
-        "embedding": {
-            "type": "dense_vector",
-            "dims": 384,  # all-MiniLM-L6-v2
-            "index": True,
-            "similarity": "cosine",
-        },
-        "metadata": {
-            "properties": {
-                "page": {"type": "integer"},
-                "source": {"type": "keyword"},
-                "category": {"type": "keyword"},
-                "name": {"type": "keyword"},
-                "user_id": {"type": "keyword"},
-                "document_id": {"type": "keyword"},
-                "chunk_index": {"type": "integer"},
-            }
-        },
-    }
-}
-
-
 async def init_async_elasticsearch(
     elasticsearch_url: str,
 ) -> AsyncIterator[AsyncElasticsearch]:
@@ -305,6 +283,11 @@ async def init_async_elasticsearch(
         await es.indices.create(
             index="documents",
             mappings=DOCUMENTS_INDEX_MAPPINGS,
+        )
+    if not await es.indices.exists(index="user_memories"):
+        await es.indices.create(
+            index="user_memories",
+            mappings=USER_MEMORIES_INDEX_MAPPINGS,
         )
     try:
         yield es

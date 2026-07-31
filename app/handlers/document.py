@@ -5,10 +5,12 @@ import tempfile
 from logging import Logger
 from pathlib import Path
 from time import perf_counter
+from typing import cast
 
 from aio_pika.abc import AbstractIncomingMessage
 
-from app.core.elasticsearch import Elasticsearch, IndexedDocuments
+from app.core.elasticsearch import Elasticsearch
+from app.core.elasticsearch_schema import DocumentMetadata, IndexedRecord
 from app.core.embedding import EmbeddingManager
 from app.handlers.utils import continue_ingestion, is_file_not_found_error, notify_document_status
 from app.core.rabbitmq import RabbitMQ, read_retry_count
@@ -196,9 +198,9 @@ async def handle_document(
 
                 start_time = perf_counter()
                 es_payload = [
-                    IndexedDocuments(
+                    IndexedRecord(
                         content=chunk.page_content,
-                        metadata=chunk.metadata,
+                        metadata=cast(DocumentMetadata, chunk.metadata),
                         embedding=embedding.tolist()
                         if hasattr(embedding, "tolist")
                         else list(embedding),
@@ -206,11 +208,13 @@ async def handle_document(
                     for chunk, embedding in zip(chunks, embeddings)
                 ]
                 es_success, _es_failed = await elasticsearch.bulk_index_documents(
-                    es_payload
+                    es_payload, index="documents"
                 )
                 indexed = es_success > 0
                 if not indexed:
-                    await elasticsearch.delete_by_document_id(user_id, document_id)
+                    await elasticsearch.delete_by_document_id(
+                        user_id, document_id, index="documents"
+                    )
                     raise NonRetryableIngestError(
                         "Document could not be indexed into search"
                     )
@@ -227,7 +231,9 @@ async def handle_document(
                     document_id, user_id, file_hash
                 )
                 if completed is None:
-                    await elasticsearch.delete_by_document_id(user_id, document_id)
+                    await elasticsearch.delete_by_document_id(
+                        user_id, document_id, index="documents"
+                    )
                     indexed = False
                     logger.info(
                         "Cancelled before complete; cleaned indexed docs "
@@ -247,7 +253,9 @@ async def handle_document(
                 )
         except NonRetryableIngestError as e:
             if indexed and user_id and document_id:
-                await elasticsearch.delete_by_document_id(user_id, document_id)
+                await elasticsearch.delete_by_document_id(
+                    user_id, document_id, index="documents"
+                )
             reason = e.message or str(e)
             comment = ingest_failure_comment(reason)
             logger.warning(
@@ -271,7 +279,9 @@ async def handle_document(
             return
         except Exception as e:
             if indexed and user_id and document_id:
-                await elasticsearch.delete_by_document_id(user_id, document_id)
+                await elasticsearch.delete_by_document_id(
+                    user_id, document_id, index="documents"
+                )
             logger.exception(
                 "Error ingesting file=%s user_id=%s document_id=%s: %s",
                 file_name,

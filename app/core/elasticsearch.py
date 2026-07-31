@@ -1,25 +1,18 @@
 import asyncio
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
 from logging import Logger
-from typing import Any
+from typing import Any, cast
 
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.helpers import async_streaming_bulk
 from elasticsearch.helpers.actions import _TYPE_BULK_ACTION
 
-
-@dataclass
-class IndexedDocuments:
-    content: str
-    metadata: dict[str, Any]
-    embedding: list[float]
-
-
-@dataclass
-class FusedResult:
-    document: IndexedDocuments
-    score: float
+from app.core.elasticsearch_schema import (
+    ALLOWED_INDICES,
+    IndexedRecord,
+    IndexMetadata,
+    IndexName,
+)
 
 
 class Elasticsearch:
@@ -28,27 +21,35 @@ class Elasticsearch:
         self.logger = logger
         self.logger.info("Elasticsearch client ready")
 
-    def _to_source(self, document: IndexedDocuments) -> dict[str, Any]:
+    def _resolve_index(self, index: str) -> IndexName:
+        if index not in ALLOWED_INDICES:
+            raise ValueError(
+                f"Invalid index {index!r}; allowed: {sorted(ALLOWED_INDICES)}"
+            )
+        return cast(IndexName, index)
+
+    def _to_source(self, record: IndexedRecord) -> dict[str, Any]:
         return {
-            "content": document.content,
-            "metadata": document.metadata,
-            "embedding": document.embedding,
+            "content": record.content,
+            "metadata": record.metadata,
+            "embedding": record.embedding,
         }
 
-    def _document_actions(
-        self, documents: Iterable[IndexedDocuments]
+    def _record_actions(
+        self, records: Iterable[IndexedRecord], index: IndexName
     ) -> Iterator[_TYPE_BULK_ACTION]:
-        for document in documents:
+        for record in records:
             yield {
-                "_index": "documents",
-                "_source": self._to_source(document),
+                "_index": index,
+                "_source": self._to_source(record),
             }
 
-    async def index_document(self, document: IndexedDocuments) -> None:
+    async def index_document(self, record: IndexedRecord, index: str) -> None:
+        index = self._resolve_index(index)
         try:
             await self.elasticsearch.index(
-                index="documents",
-                document=self._to_source(document),
+                index=index,
+                document=self._to_source(record),
             )
             return True
         except Exception as e:
@@ -56,12 +57,12 @@ class Elasticsearch:
             raise
 
     async def bulk_index_documents(
-        self, documents: list[IndexedDocuments]
+        self, records: list[IndexedRecord], index: str
     ) -> tuple[int, int]:
+        index = self._resolve_index(index)
         success = 0
         failed = 0
-        actions: Iterable[_TYPE_BULK_ACTION] = self._document_actions(
-            documents)
+        actions: Iterable[_TYPE_BULK_ACTION] = self._record_actions(records, index)
 
         try:
             async for ok, result in async_streaming_bulk(
@@ -81,15 +82,20 @@ class Elasticsearch:
             raise
 
         self.logger.info(
-            "Bulk indexed documents success=%s failed=%s", success, failed
+            "Bulk indexed documents success=%s failed=%s index=%s",
+            success,
+            failed,
+            index,
         )
         return success, failed
 
-    def _parse_hits(self, response: dict) -> list[IndexedDocuments]:
+    def _parse_hits(self, response: dict) -> list[IndexedRecord]:
         return [
-            IndexedDocuments(
+            IndexedRecord(
                 content=hit["_source"]["content"],
-                metadata=hit["_source"].get("metadata", {}),
+                metadata=cast(
+                    IndexMetadata, hit["_source"].get("metadata", {})
+                ),
                 embedding=hit["_source"].get("embedding", []),
             )
             for hit in response.get("hits", {}).get("hits", [])
@@ -97,14 +103,16 @@ class Elasticsearch:
 
     def _parse_hits_with_ids(
         self, response: dict
-    ) -> list[tuple[str, IndexedDocuments]]:
-        """Parse hits returning (doc_id, IndexedDocuments) tuples for RRF fusion."""
+    ) -> list[tuple[str, IndexedRecord]]:
+        """Parse hits returning (doc_id, IndexedRecord) tuples for RRF fusion."""
         return [
             (
                 hit["_id"],
-                IndexedDocuments(
+                IndexedRecord(
                     content=hit["_source"]["content"],
-                    metadata=hit["_source"].get("metadata", {}),
+                    metadata=cast(
+                        IndexMetadata, hit["_source"].get("metadata", {})
+                    ),
                     embedding=hit["_source"].get("embedding", []),
                 ),
             )
@@ -128,20 +136,23 @@ class Elasticsearch:
         self,
         user_id: str,
         embedding: list[float],
+        index: str,
         *,
         k: int = 10,
         num_candidates: int = 100,
-    ) -> list[IndexedDocuments]:
+    ) -> list[IndexedRecord]:
         """kNN vector search using dense embeddings, filtered by user_id."""
+        index = self._resolve_index(index)
         self.logger.info(
-            "ES search_vector start user_id=%s k=%s num_candidates=%s dims=%s",
+            "ES search_vector start user_id=%s index=%s k=%s num_candidates=%s dims=%s",
             user_id,
+            index,
             k,
             num_candidates,
             len(embedding),
         )
         response = await self.elasticsearch.search(
-            index="documents",
+            index=index,
             knn={
                 "field": "embedding",
                 "query_vector": embedding,
@@ -153,7 +164,10 @@ class Elasticsearch:
         )
         hits = self._parse_hits(response)
         self.logger.info(
-            "ES search_vector done user_id=%s hits=%s", user_id, len(hits)
+            "ES search_vector done user_id=%s index=%s hits=%s",
+            user_id,
+            index,
+            len(hits),
         )
         return hits
 
@@ -161,18 +175,21 @@ class Elasticsearch:
         self,
         user_id: str,
         query: str,
+        index: str,
         *,
         size: int = 10,
-    ) -> list[IndexedDocuments]:
+    ) -> list[IndexedRecord]:
         """BM25 text search on content field, filtered by user_id."""
+        index = self._resolve_index(index)
         self.logger.info(
-            "ES search_bm25 start user_id=%s size=%s query=%r",
+            "ES search_bm25 start user_id=%s index=%s size=%s query=%r",
             user_id,
+            index,
             size,
             query[:120],
         )
         response = await self.elasticsearch.search(
-            index="documents",
+            index=index,
             query={
                 "bool": {
                     "must": {"match": {"content": query}},
@@ -183,7 +200,10 @@ class Elasticsearch:
         )
         hits = self._parse_hits(response)
         self.logger.info(
-            "ES search_bm25 done user_id=%s hits=%s", user_id, len(hits)
+            "ES search_bm25 done user_id=%s index=%s hits=%s",
+            user_id,
+            index,
+            len(hits),
         )
         return hits
 
@@ -192,20 +212,23 @@ class Elasticsearch:
         user_id: str,
         query: str,
         embedding: list[float],
+        index: str,
         *,
         fetch_size: int = 50,
         num_candidates: int = 100,
-    ) -> list[list[tuple[str, IndexedDocuments]]]:
+    ) -> list[list[tuple[str, IndexedRecord]]]:
         """Run concurrent BM25 and kNN searches for later fusion.
 
         Args:
             fetch_size: Docs fetched per branch before fusion (default 50).
             num_candidates: kNN ANN search pool size (default 100).
         """
+        index = self._resolve_index(index)
         self.logger.info(
-            "ES search_hybrid start user_id=%s fetch_size=%s "
+            "ES search_hybrid start user_id=%s index=%s fetch_size=%s "
             "num_candidates=%s dims=%s query=%r",
             user_id,
+            index,
             fetch_size,
             num_candidates,
             len(embedding),
@@ -214,7 +237,7 @@ class Elasticsearch:
         user_filter = self._user_filter(user_id)
 
         bm25_coro = self.elasticsearch.search(
-            index="documents",
+            index=index,
             query={
                 "bool": {
                     "must": {"match": {"content": query}},
@@ -224,7 +247,7 @@ class Elasticsearch:
             size=fetch_size,
         )
         knn_coro = self.elasticsearch.search(
-            index="documents",
+            index=index,
             knn={
                 "field": "embedding",
                 "query_vector": embedding,
@@ -238,7 +261,7 @@ class Elasticsearch:
         results = await asyncio.gather(bm25_coro, knn_coro, return_exceptions=True)
         bm25_response, knn_response = results
 
-        results_lists: list[list[tuple[str, IndexedDocuments]]] = []
+        results_lists: list[list[tuple[str, IndexedRecord]]] = []
 
         if isinstance(bm25_response, Exception):
             self.logger.warning("BM25 search failed: %s", bm25_response)
@@ -267,24 +290,29 @@ class Elasticsearch:
             return []
 
         self.logger.info(
-            "ES search_hybrid done user_id=%s results_lists=%s",
+            "ES search_hybrid done user_id=%s index=%s results_lists=%s",
             user_id,
+            index,
             len(results_lists),
         )
         return results_lists
 
-    async def delete_by_document_id(self, user_id: str, document_id: str) -> int:
+    async def delete_by_document_id(
+        self, user_id: str, document_id: str, index: str
+    ) -> int:
         """Delete all chunks for a document_id, filtered by user_id."""
+        index = self._resolve_index(index)
         response = await self.elasticsearch.delete_by_query(
-            index="documents",
+            index=index,
             query=self._document_filter(user_id, document_id),
         )
         return response.get("deleted", 0)
 
-    async def delete_all(self, user_id: str) -> int:
+    async def delete_all(self, user_id: str, index: str) -> int:
         """Delete all documents for a user."""
+        index = self._resolve_index(index)
         response = await self.elasticsearch.delete_by_query(
-            index="documents",
+            index=index,
             query=self._user_filter(user_id),
         )
         return response.get("deleted", 0)
@@ -295,10 +323,12 @@ class Elasticsearch:
         document_id: str,
         content: str,
         embedding: list[float],
+        index: str,
     ) -> int:
         """Update content and embedding for all chunks of a document_id, filtered by user_id."""
+        index = self._resolve_index(index)
         response = await self.elasticsearch.update_by_query(
-            index="documents",
+            index=index,
             query=self._document_filter(user_id, document_id),
             script={
                 "source": "ctx._source.content = params.content; ctx._source.embedding = params.embedding",

@@ -1,7 +1,7 @@
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
-from app.core.elasticsearch import FusedResult
+from app.core.elasticsearch_schema import FusedResult
 from app.system.schemas.chat import ChatResponse
 
 import operator
