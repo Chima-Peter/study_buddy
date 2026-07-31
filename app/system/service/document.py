@@ -169,8 +169,8 @@ class DocumentService:
     async def delete_document(self, document_id: str, user_id: str) -> bool:
         document = await self._get_owned_document(document_id, user_id)
 
-        deleted_chunks = await self.elasticsearch.delete_by_document_id(
-            user_id, document_id, index="documents"
+        deleted_chunks = await self.elasticsearch.delete_by_metadata(
+            user_id, index="documents", document_id=document_id
         )
         self.logger.info(
             "Deleted %s Elasticsearch chunks for document_id=%s",

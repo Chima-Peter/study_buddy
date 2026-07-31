@@ -83,7 +83,7 @@ class IngestPipeline:
                 )
                 for chunk, embedding in zip(chunks, embeddings)
             ]
-            es_success, _es_failed = await self.elasticsearch.bulk_index_documents(
+            es_success, _es_failed = await self.elasticsearch.bulk_index(
                 es_payload, index="documents"
             )
             if es_success == 0:

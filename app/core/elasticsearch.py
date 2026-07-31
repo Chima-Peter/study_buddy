@@ -44,19 +44,18 @@ class Elasticsearch:
                 "_source": self._to_source(record),
             }
 
-    async def index_document(self, record: IndexedRecord, index: str) -> None:
+    async def index_record(self, record: IndexedRecord, index: str) -> None:
         index = self._resolve_index(index)
         try:
             await self.elasticsearch.index(
                 index=index,
                 document=self._to_source(record),
             )
-            return True
         except Exception as e:
-            self.logger.exception("Error indexing document: %s", e)
+            self.logger.exception("Error indexing record: %s", e)
             raise
 
-    async def bulk_index_documents(
+    async def bulk_index(
         self, records: list[IndexedRecord], index: str
     ) -> tuple[int, int]:
         index = self._resolve_index(index)
@@ -76,13 +75,13 @@ class Elasticsearch:
                     success += 1
                 else:
                     failed += 1
-                    self.logger.warning("Failed to index document: %s", result)
+                    self.logger.warning("Failed to index record: %s", result)
         except Exception as e:
-            self.logger.exception("Error bulk indexing documents: %s", e)
+            self.logger.exception("Error bulk indexing records: %s", e)
             raise
 
         self.logger.info(
-            "Bulk indexed documents success=%s failed=%s index=%s",
+            "Bulk indexed records success=%s failed=%s index=%s",
             success,
             failed,
             index,
@@ -104,7 +103,7 @@ class Elasticsearch:
     def _parse_hits_with_ids(
         self, response: dict
     ) -> list[tuple[str, IndexedRecord]]:
-        """Parse hits returning (doc_id, IndexedRecord) tuples for RRF fusion."""
+        """Parse hits returning (hit_id, IndexedRecord) tuples for RRF fusion."""
         return [
             (
                 hit["_id"],
@@ -122,15 +121,11 @@ class Elasticsearch:
     def _user_filter(self, user_id: str) -> dict:
         return {"term": {"metadata.user_id": user_id}}
 
-    def _document_filter(self, user_id: str, document_id: str) -> dict:
-        return {
-            "bool": {
-                "filter": [
-                    {"term": {"metadata.user_id": user_id}},
-                    {"term": {"metadata.document_id": document_id}},
-                ]
-            }
-        }
+    def _metadata_filter(self, user_id: str, **metadata_terms: str) -> dict:
+        filters: list[dict] = [{"term": {"metadata.user_id": user_id}}]
+        for field, value in metadata_terms.items():
+            filters.append({"term": {f"metadata.{field}": value}})
+        return {"bool": {"filter": filters}}
 
     async def search_vector(
         self,
@@ -220,7 +215,7 @@ class Elasticsearch:
         """Run concurrent BM25 and kNN searches for later fusion.
 
         Args:
-            fetch_size: Docs fetched per branch before fusion (default 50).
+            fetch_size: Records fetched per branch before fusion (default 50).
             num_candidates: kNN ANN search pool size (default 100).
         """
         index = self._resolve_index(index)
@@ -297,19 +292,21 @@ class Elasticsearch:
         )
         return results_lists
 
-    async def delete_by_document_id(
-        self, user_id: str, document_id: str, index: str
+    async def delete_by_metadata(
+        self, user_id: str, index: str, **metadata_terms: str
     ) -> int:
-        """Delete all chunks for a document_id, filtered by user_id."""
+        """Delete records matching user_id and metadata term filters."""
+        if not metadata_terms:
+            raise ValueError("At least one metadata term is required")
         index = self._resolve_index(index)
         response = await self.elasticsearch.delete_by_query(
             index=index,
-            query=self._document_filter(user_id, document_id),
+            query=self._metadata_filter(user_id, **metadata_terms),
         )
         return response.get("deleted", 0)
 
-    async def delete_all(self, user_id: str, index: str) -> int:
-        """Delete all documents for a user."""
+    async def delete_by_user(self, user_id: str, index: str) -> int:
+        """Delete all records for a user in the given index."""
         index = self._resolve_index(index)
         response = await self.elasticsearch.delete_by_query(
             index=index,
@@ -317,19 +314,21 @@ class Elasticsearch:
         )
         return response.get("deleted", 0)
 
-    async def update_by_document_id(
+    async def update_by_metadata(
         self,
         user_id: str,
-        document_id: str,
         content: str,
         embedding: list[float],
         index: str,
+        **metadata_terms: str,
     ) -> int:
-        """Update content and embedding for all chunks of a document_id, filtered by user_id."""
+        """Update content and embedding for records matching metadata terms."""
+        if not metadata_terms:
+            raise ValueError("At least one metadata term is required")
         index = self._resolve_index(index)
         response = await self.elasticsearch.update_by_query(
             index=index,
-            query=self._document_filter(user_id, document_id),
+            query=self._metadata_filter(user_id, **metadata_terms),
             script={
                 "source": "ctx._source.content = params.content; ctx._source.embedding = params.embedding",
                 "params": {"content": content, "embedding": embedding},

@@ -207,13 +207,13 @@ async def handle_document(
                     )
                     for chunk, embedding in zip(chunks, embeddings)
                 ]
-                es_success, _es_failed = await elasticsearch.bulk_index_documents(
+                es_success, _es_failed = await elasticsearch.bulk_index(
                     es_payload, index="documents"
                 )
                 indexed = es_success > 0
                 if not indexed:
-                    await elasticsearch.delete_by_document_id(
-                        user_id, document_id, index="documents"
+                    await elasticsearch.delete_by_metadata(
+                        user_id, index="documents", document_id=document_id
                     )
                     raise NonRetryableIngestError(
                         "Document could not be indexed into search"
@@ -231,8 +231,8 @@ async def handle_document(
                     document_id, user_id, file_hash
                 )
                 if completed is None:
-                    await elasticsearch.delete_by_document_id(
-                        user_id, document_id, index="documents"
+                    await elasticsearch.delete_by_metadata(
+                        user_id, index="documents", document_id=document_id
                     )
                     indexed = False
                     logger.info(
@@ -253,8 +253,8 @@ async def handle_document(
                 )
         except NonRetryableIngestError as e:
             if indexed and user_id and document_id:
-                await elasticsearch.delete_by_document_id(
-                    user_id, document_id, index="documents"
+                await elasticsearch.delete_by_metadata(
+                    user_id, index="documents", document_id=document_id
                 )
             reason = e.message or str(e)
             comment = ingest_failure_comment(reason)
@@ -279,8 +279,8 @@ async def handle_document(
             return
         except Exception as e:
             if indexed and user_id and document_id:
-                await elasticsearch.delete_by_document_id(
-                    user_id, document_id, index="documents"
+                await elasticsearch.delete_by_metadata(
+                    user_id, index="documents", document_id=document_id
                 )
             logger.exception(
                 "Error ingesting file=%s user_id=%s document_id=%s: %s",
