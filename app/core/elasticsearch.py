@@ -232,6 +232,20 @@ class Elasticsearch:
 
     # --- search ---
 
+    def _search_filter(
+        self, user_id: str, **metadata_terms: str
+    ) -> dict:
+        if metadata_terms:
+            return self._metadata_filter(user_id, **metadata_terms)
+        return self._user_filter(user_id)
+
+    def _records_for_fusion(
+        self, records: list[IndexedRecord]
+    ) -> list[tuple[str, IndexedRecord]]:
+        return [
+            (str(record.metadata.get("id") or ""), record) for record in records
+        ]
+
     async def search_vector(
         self,
         user_id: str,
@@ -240,28 +254,36 @@ class Elasticsearch:
         *,
         k: int = 10,
         num_candidates: int = 100,
+        min_score: float | None = None,
+        **metadata_terms: str,
     ) -> list[IndexedRecord]:
-        """kNN vector search using dense embeddings, filtered by user_id."""
+        """kNN vector search using dense embeddings, filtered by user/metadata."""
         index = self._resolve_index(index)
         self.logger.info(
-            "ES search_vector start user_id=%s index=%s k=%s num_candidates=%s dims=%s",
+            "ES search_vector start user_id=%s index=%s k=%s "
+            "num_candidates=%s min_score=%s dims=%s metadata_terms=%s",
             user_id,
             index,
             k,
             num_candidates,
+            min_score,
             len(embedding),
+            metadata_terms,
         )
-        response = await self.elasticsearch.search(
-            index=index,
-            knn={
+        request: dict[str, Any] = {
+            "index": index,
+            "knn": {
                 "field": "embedding",
                 "query_vector": embedding,
                 "k": k,
                 "num_candidates": num_candidates,
-                "filter": self._user_filter(user_id),
+                "filter": self._search_filter(user_id, **metadata_terms),
             },
-            size=k,
-        )
+            "size": k,
+        }
+        if min_score is not None:
+            request["min_score"] = min_score
+        response = await self.elasticsearch.search(**request)
         hits = self._parse_hits(response)
         self.logger.info(
             "ES search_vector done user_id=%s index=%s hits=%s",
@@ -278,14 +300,17 @@ class Elasticsearch:
         index: str,
         *,
         size: int = 10,
+        **metadata_terms: str,
     ) -> list[IndexedRecord]:
-        """BM25 text search on content field, filtered by user_id."""
+        """BM25 text search on content field, filtered by user/metadata."""
         index = self._resolve_index(index)
         self.logger.info(
-            "ES search_bm25 start user_id=%s index=%s size=%s query=%r",
+            "ES search_bm25 start user_id=%s index=%s size=%s "
+            "metadata_terms=%s query=%r",
             user_id,
             index,
             size,
+            metadata_terms,
             query[:120],
         )
         response = await self.elasticsearch.search(
@@ -293,7 +318,7 @@ class Elasticsearch:
             query={
                 "bool": {
                     "must": {"match": {"content": query}},
-                    "filter": self._user_filter(user_id),
+                    "filter": self._search_filter(user_id, **metadata_terms),
                 }
             },
             size=size,
@@ -316,57 +341,53 @@ class Elasticsearch:
         *,
         fetch_size: int = 50,
         num_candidates: int = 100,
+        **metadata_terms: str,
     ) -> list[list[tuple[str, IndexedRecord]]]:
         """Run concurrent BM25 and kNN searches for later fusion.
 
         Args:
             fetch_size: Records fetched per branch before fusion (default 50).
             num_candidates: kNN ANN search pool size (default 100).
+            **metadata_terms: Optional metadata term filters (e.g. category, type).
         """
-        index = self._resolve_index(index)
         self.logger.info(
             "ES search_hybrid start user_id=%s index=%s fetch_size=%s "
-            "num_candidates=%s dims=%s query=%r",
+            "num_candidates=%s dims=%s metadata_terms=%s query=%r",
             user_id,
             index,
             fetch_size,
             num_candidates,
             len(embedding),
+            metadata_terms,
             query[:120],
         )
-        user_filter = self._user_filter(user_id)
 
-        bm25_coro = self.elasticsearch.search(
-            index=index,
-            query={
-                "bool": {
-                    "must": {"match": {"content": query}},
-                    "filter": user_filter,
-                }
-            },
-            size=fetch_size,
+        results = await asyncio.gather(
+            self.search_bm25(
+                user_id,
+                query,
+                index,
+                size=fetch_size,
+                **metadata_terms,
+            ),
+            self.search_vector(
+                user_id,
+                embedding,
+                index,
+                k=fetch_size,
+                num_candidates=num_candidates,
+                **metadata_terms,
+            ),
+            return_exceptions=True,
         )
-        knn_coro = self.elasticsearch.search(
-            index=index,
-            knn={
-                "field": "embedding",
-                "query_vector": embedding,
-                "k": fetch_size,
-                "num_candidates": num_candidates,
-                "filter": user_filter,
-            },
-            size=fetch_size,
-        )
-
-        results = await asyncio.gather(bm25_coro, knn_coro, return_exceptions=True)
-        bm25_response, knn_response = results
+        bm25_result, knn_result = results
 
         results_lists: list[list[tuple[str, IndexedRecord]]] = []
 
-        if isinstance(bm25_response, Exception):
-            self.logger.warning("BM25 search failed: %s", bm25_response)
+        if isinstance(bm25_result, Exception):
+            self.logger.warning("BM25 search failed: %s", bm25_result)
         else:
-            bm25_hits = self._parse_hits_with_ids(bm25_response)
+            bm25_hits = self._records_for_fusion(bm25_result)
             self.logger.info(
                 "ES search_hybrid BM25 branch user_id=%s hits=%s",
                 user_id,
@@ -374,10 +395,10 @@ class Elasticsearch:
             )
             results_lists.append(bm25_hits)
 
-        if isinstance(knn_response, Exception):
-            self.logger.warning("kNN search failed: %s", knn_response)
+        if isinstance(knn_result, Exception):
+            self.logger.warning("kNN search failed: %s", knn_result)
         else:
-            knn_hits = self._parse_hits_with_ids(knn_response)
+            knn_hits = self._records_for_fusion(knn_result)
             self.logger.info(
                 "ES search_hybrid kNN branch user_id=%s hits=%s",
                 user_id,

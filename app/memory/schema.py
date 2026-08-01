@@ -143,10 +143,21 @@ class MemoryExtractionResult(BaseModel):
         ),
     )
 
+class MemorySearch(BaseModel):
+    user_id: str
+    content: str
+    embedding: list[float]
+    category: MEMORY_CATEGORY
+    type: MEMORY_TYPE
+    status: MEMORY_STATUS
+
+
 class MemoryDuplicateSearch(BaseModel):
     user_id: str
     content: str
     embedding: list[float]
+    category: MEMORY_CATEGORY
+    type: MEMORY_TYPE
 
 
 class IdenticalDecision(BaseModel):

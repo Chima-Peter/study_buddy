@@ -16,6 +16,7 @@ from app.memory.schema import (
     MemoryDeduplicationResult,
     MemoryDuplicateSearch,
     MemoryExtractionResult,
+    MemorySearch,
 )
 
 
@@ -32,8 +33,21 @@ class MemoryService:
         self.repository = repository
         self.embedding_manager = embedding_manager
 
-    async def retrieve(self):
-        pass
+    async def retrieve(self, search: MemorySearch) -> list[Memory]:
+        try:
+            self.logger.info(
+                "MemoryService retrieve start search=%s",
+                search,
+            )
+            results = await self.repository.retrieve(search)
+            self.logger.info(
+                "MemoryService retrieve done results=%s",
+                len(results),
+            )
+            return results
+        except Exception as e:
+            self.logger.exception(f"MemoryService retrieve failed: {e}")
+            raise ValueError("Failed to retrieve") from e
 
     async def store(self, user_id: str, context: str):
         try:
@@ -112,6 +126,8 @@ class MemoryService:
                             user_id=user_id,
                             content=candidate.content,
                             embedding=candidate.embedding,
+                            category=candidate.category,
+                            type=candidate.type,
                         )
                     )
                 )
