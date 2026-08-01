@@ -9,7 +9,7 @@ from app.memory.schema import Memory, MemoryDuplicateSearch, MemorySearch
 MEMORY_INDEX = "user_memories"
 DUPLICATE_TOP_K = 5
 DUPLICATE_MIN_SCORE = 0.8
-SEARCH_TOP_K = 10
+SEARCH_TOP_K = 5
 
 
 class MemoryRepository:
@@ -59,7 +59,8 @@ class MemoryRepository:
                 status=search.status,
             )
             fused = await self.retriever.reciprocal_rank_fusion(
-                results_lists, k=SEARCH_TOP_K
+                results_lists,
+                k=SEARCH_TOP_K
             )
 
             self.logger.info(

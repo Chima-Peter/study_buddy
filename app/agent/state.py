@@ -2,6 +2,7 @@ from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage
 from app.core.elasticsearch_schema import FusedResult
+from app.memory.schema import Memory, MemoryRetrievalQuery
 from app.system.schemas.chat import ChatResponse
 
 import operator
@@ -20,5 +21,13 @@ class AgentState(TypedDict):
 
     retrieve_rag: bool
     retrieve_conversation_history: bool
+    retrieve_memory: bool
+
+    memory_queries: list[MemoryRetrievalQuery]
+    memories: list[Memory]
+
+    # Persist across turns; fetched from memory store when missing.
+    student_name: str | None
+    student_gender: str | None
 
     response: str

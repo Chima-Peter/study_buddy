@@ -11,14 +11,17 @@ from app.agent.nodes import (
     RetrievalDeciderNode,
     RetrieveConversationHistoryNode,
     RetrieveDocumentsNode,
+    RetrieveMemoryNode,
     RewriteQueryNode,
     SaveChatNode,
+    StoreMemoryNode,
     UpdateConversationSummaryNode,
     UpdateConversationTitleNode,
 )
 from app.agent.state import AgentState
 from langgraph.graph import START, StateGraph, END
 from logging import Logger
+from app.memory.service import MemoryService
 from app.rag.rag_retriever import RAGRetriever
 from app.system.service.chat import ChatService
 from app.system.service.conversation import ConversationService
@@ -27,6 +30,7 @@ class AgentGraph:
     def __init__(
         self,
         retriever: RAGRetriever,
+        memory_service: MemoryService,
         conversation_service: ConversationService,
         chat_model: ChatGoogleGenerativeAI,
         query_model: ChatGoogleGenerativeAI,
@@ -36,6 +40,7 @@ class AgentGraph:
         checkpointer: AsyncPostgresSaver,
     ):
         self.retriever = retriever
+        self.memory_service = memory_service
         self.conversation_service = conversation_service
         self.chat_service = chat_service
         self.logger = logger
@@ -55,6 +60,10 @@ class AgentGraph:
         ))
         graph.add_node("retrieve_documents", RetrieveDocumentsNode(
             retriever=self.retriever,
+            logger=self.logger,
+        ))
+        graph.add_node("retrieve_memory", RetrieveMemoryNode(
+            memory_service=self.memory_service,
             logger=self.logger,
         ))
         graph.add_node("retrieve_conversation_history", RetrieveConversationHistoryNode(
@@ -79,14 +88,23 @@ class AgentGraph:
             model=self.summarizer_model,
             logger=self.logger,
         ))
+        graph.add_node("store_memory", StoreMemoryNode(
+            memory_service=self.memory_service,
+            logger=self.logger,
+        ))
         graph.add_node("cleanup", CleanupNode(logger=self.logger))
 
         graph.add_edge(START, "retrieval_decider")
         graph.add_edge("retrieval_decider", "rewrite_query")
         graph.add_edge("retrieval_decider", "retrieve_conversation_history")
         graph.add_edge("rewrite_query", "retrieve_documents")
+        graph.add_edge("rewrite_query", "retrieve_memory")
         graph.add_edge(
-            ["retrieve_documents", "retrieve_conversation_history"],
+            [
+                "retrieve_documents",
+                "retrieve_conversation_history",
+                "retrieve_memory",
+            ],
             "generate_response",
         )
         graph.add_edge("generate_response", "save_chat")
@@ -103,10 +121,14 @@ class AgentGraph:
             update_summary_router,
             {
                 "update_summary": "update_conversation_summary",
+                "store_memory": "store_memory",
                 "cleanup": "cleanup",
             },
         )
-        graph.add_edge("update_conversation_summary", "cleanup")
+        graph.add_edge(
+            ["update_conversation_summary", "store_memory"],
+            "cleanup",
+        )
         graph.add_edge("update_conversation_title", "cleanup")
         graph.add_edge("cleanup", END)
 

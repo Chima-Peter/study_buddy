@@ -1,3 +1,4 @@
+import asyncio
 from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -8,8 +9,15 @@ from app.agent.prompts import (
     summary_prompt,
     title_prompt,
 )
-from app.agent.schema import SUMMARY_EVERY, DeciderResponse
+from app.agent.schema import SUMMARY_EVERY, DeciderResponse, RewriteQueryResponse
 from app.agent.state import AgentState
+from app.memory.schema import (
+    CORE_GENDER_QUERY,
+    CORE_NAME_QUERY,
+    Memory,
+    MemoryRetrievalQuery,
+)
+from app.memory.service import MemoryService
 from app.rag.rag_retriever import RAGRetriever
 from app.system.schemas.conversation import UpdateConversationTitleRequest
 from app.system.service.chat import ChatService
@@ -23,33 +31,25 @@ class RetrievalDeciderNode():
         self.model = model.with_structured_output(DeciderResponse)
 
     async def __call__(self, state: AgentState) -> AgentState:
-        # First turn has no history worth loading.
-        if state["first_message"]:
-            self.logger.info(
-                "Retrieval decider skipped for first message user_id=%s decision=rag",
-                state["user_id"],
-            )
-            return {
-                "retrieve_rag": True,
-                "retrieve_conversation_history": False,
-            }
-
         self.logger.info(
-            "Retrieval decider started id=%s user_id=%s",
+            "Retrieval decider started id=%s user_id=%s first_message=%s",
             state["conversation_id"],
             state["user_id"],
+            state["first_message"],
         )
         prompt = retrieval_decider_prompt(state["query"])
         try:
             decision = await self.model.ainvoke(prompt)
             result = decision.decision
+            retrieve_memory = decision.retrieve_memory
         except Exception:
             self.logger.exception(
                 "Retrieval decider failed id=%s user_id=%s",
                 state["conversation_id"],
                 state["user_id"],
             )
-            result = "both"
+            result = "both" if not state["first_message"] else "rag"
+            retrieve_memory = False
 
         mapping = {
             "rag": (True, False),
@@ -58,18 +58,24 @@ class RetrievalDeciderNode():
             "none": (False, False),
         }
         retrieve_rag, retrieve_history = mapping.get(result, (False, False))
+        # First turn has no history worth loading.
+        if state["first_message"]:
+            retrieve_history = False
+
         self.logger.info(
             "Retrieval decider completed id=%s user_id=%s decision=%s "
-            "retrieve_rag=%s retrieve_history=%s",
+            "retrieve_rag=%s retrieve_history=%s retrieve_memory=%s",
             state["conversation_id"],
             state["user_id"],
             result,
             retrieve_rag,
             retrieve_history,
+            retrieve_memory,
         )
         return {
             "retrieve_rag": retrieve_rag,
             "retrieve_conversation_history": retrieve_history,
+            "retrieve_memory": retrieve_memory,
         }
 
 
@@ -79,35 +85,83 @@ class RewriteQueryNode():
         self.model = model
 
     async def __call__(self, state: AgentState) -> AgentState:
-        if not state["retrieve_rag"]:
+        retrieve_rag = state["retrieve_rag"]
+        retrieve_memory = state["retrieve_memory"]
+
+        if not retrieve_rag and not retrieve_memory:
             self.logger.info(
-                "Rewrite query node skipped id=%s user_id=%s reason=rag_disabled",
+                "Rewrite query node skipped id=%s user_id=%s "
+                "reason=no_retrieval",
                 state["conversation_id"],
                 state["user_id"],
             )
-            return {"rewritten_query": state["query"]}
+            return {
+                "rewritten_query": state["query"],
+                "memory_queries": [],
+            }
 
         self.logger.info(
-            "Rewrite query node started id=%s user_id=%s",
+            "Rewrite query node started id=%s user_id=%s "
+            "retrieve_rag=%s retrieve_memory=%s",
             state["conversation_id"],
             state["user_id"],
+            retrieve_rag,
+            retrieve_memory,
         )
         recent_history = state["conversation_history"][-3:]
         prompt = rewrite_query_prompt(
             query=state["query"],
             conversation_summary=state["conversation_summary"],
             recent_history=recent_history,
+            retrieve_rag=retrieve_rag,
+            retrieve_memory=retrieve_memory,
         )
-        response = await self.model.ainvoke(prompt)
-        result = (response.text or "").strip() or state["query"]
+        try:
+            result: RewriteQueryResponse = (
+                await self.model.with_structured_output(
+                    RewriteQueryResponse
+                ).ainvoke(prompt)
+            )
+        except Exception:
+            self.logger.exception(
+                "Rewrite query node failed id=%s user_id=%s",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            fallback_queries: list[MemoryRetrievalQuery] = []
+            if retrieve_memory:
+                fallback_queries = [
+                    MemoryRetrievalQuery(
+                        content=state["query"],
+                    )
+                ]
+            return {
+                "rewritten_query": state["query"],
+                "memory_queries": fallback_queries,
+            }
+
+        rewritten = state["query"]
+        if retrieve_rag:
+            rewritten = (result.rag_query or "").strip() or state["query"]
+
+        memory_queries: list[MemoryRetrievalQuery] = []
+        if retrieve_memory:
+            memory_queries = list(result.memory_queries)
+
         self.logger.info(
-            "Rewrite query node completed id=%s user_id=%s original=%r rewritten=%r",
+            "Rewrite query node completed id=%s user_id=%s original=%r "
+            "rewritten=%r memory_queries=%s",
             state["conversation_id"],
             state["user_id"],
             state["query"],
-            result,
+            rewritten,
+            len(memory_queries),
         )
-        return {"rewritten_query": result}
+        return {
+            "rewritten_query": rewritten,
+            "memory_queries": memory_queries,
+        }
+
 
 class RetrieveDocumentsNode():
     def __init__(self, retriever: RAGRetriever, logger: Logger):
@@ -137,6 +191,96 @@ class RetrieveDocumentsNode():
             len(results),
         )
         return {"rag_documents": results}
+
+
+class RetrieveMemoryNode():
+    def __init__(self, memory_service: MemoryService, logger: Logger):
+        self.memory_service = memory_service
+        self.logger = logger
+
+    @staticmethod
+    def _top_content(memories: list[Memory]) -> str | None:
+        if not memories:
+            return None
+        return memories[0].content
+
+    async def __call__(self, state: AgentState) -> AgentState:
+        student_name = state.get("student_name")
+        student_gender = state.get("student_gender")
+        need_name = not student_name
+        need_gender = not student_gender
+        turn_queries = (
+            list(state.get("memory_queries") or [])
+            if state.get("retrieve_memory")
+            else []
+        )
+
+        if not turn_queries and not need_name and not need_gender:
+            self.logger.info(
+                "Retrieve memory node skipped user_id=%s reason=nothing_to_fetch",
+                state["user_id"],
+            )
+            return {"memories": []}
+
+        self.logger.info(
+            "Retrieve memory node started user_id=%s turn_queries=%s "
+            "need_name=%s need_gender=%s",
+            state["user_id"],
+            len(turn_queries),
+            need_name,
+            need_gender,
+        )
+
+        name_task = None
+        gender_task = None
+        turn_task = None
+        async with asyncio.TaskGroup() as tg:
+            if need_name:
+                name_task = tg.create_task(
+                    self.memory_service.retrieve_for_query(
+                        state["user_id"], CORE_NAME_QUERY
+                    )
+                )
+            if need_gender:
+                gender_task = tg.create_task(
+                    self.memory_service.retrieve_for_query(
+                        state["user_id"], CORE_GENDER_QUERY
+                    )
+                )
+            if turn_queries:
+                turn_task = tg.create_task(
+                    self.memory_service.retrieve_for_queries(
+                        state["user_id"], turn_queries
+                    )
+                )
+
+        by_id: dict[str, Memory] = {}
+        if name_task is not None:
+            name_hits = name_task.result()
+            if student_name is None:
+                student_name = self._top_content(name_hits)
+        if gender_task is not None:
+            gender_hits = gender_task.result()
+            if student_gender is None:
+                student_gender = self._top_content(gender_hits)
+        if turn_task is not None:
+            for memory in turn_task.result():
+                by_id[memory.id] = memory
+
+        results = list(by_id.values())
+        self.logger.info(
+            "Retrieve memory node completed user_id=%s count=%s "
+            "student_name=%s student_gender=%s",
+            state["user_id"],
+            len(results),
+            bool(student_name),
+            bool(student_gender),
+        )
+        return {
+            "memories": results,
+            "student_name": student_name,
+            "student_gender": student_gender,
+        }
 
 
 class RetrieveConversationHistoryNode():
@@ -196,12 +340,15 @@ class GenerateResponseNode():
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
+        memories = state.get("memories") or []
         self.logger.info(
-            "Generate response node started id=%s user_id=%s documents=%s history=%s",
+            "Generate response node started id=%s user_id=%s documents=%s "
+            "history=%s memories=%s",
             state["conversation_id"],
             state["user_id"],
             len(state["rag_documents"]),
             len(state["conversation_history"]),
+            len(memories),
         )
 
         rag_documents = state["rag_documents"]
@@ -213,6 +360,13 @@ class GenerateResponseNode():
             context = ""
         else:
             context = "\n\n".join(r.document.content for r in rag_documents)
+
+        if memories:
+            memories_text = "\n".join(
+                f"- [{m.category}/{m.type}] {m.content}" for m in memories
+            )
+        else:
+            memories_text = ""
 
         if state["retrieve_conversation_history"]:
             conversation_history = state["conversation_history"]
@@ -235,6 +389,9 @@ class GenerateResponseNode():
             conversation_history_prompt=history_text,
             conversation_summary=state["conversation_summary"],
             query=state["query"],
+            memories=memories_text,
+            student_name=state.get("student_name"),
+            student_gender=state.get("student_gender"),
         )
 
         writer = get_stream_writer()
@@ -391,6 +548,52 @@ class UpdateConversationSummaryNode():
         return {"conversation_summary": summary}
 
 
+class StoreMemoryNode:
+    """Extract and store memories from recent user messages every SUMMARY_EVERY chats."""
+
+    def __init__(self, memory_service: MemoryService, logger: Logger):
+        self.memory_service = memory_service
+        self.logger = logger
+
+    async def __call__(self, state: AgentState) -> AgentState:
+        recent = state["conversation_history"][-SUMMARY_EVERY:]
+        user_messages = [chat.query.strip() for chat in recent if chat.query.strip()]
+        if not user_messages:
+            self.logger.info(
+                "Store memory node skipped id=%s user_id=%s reason=no_user_messages",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            return {}
+
+        context = "\n".join(f"User: {message}" for message in user_messages)
+        self.logger.info(
+            "Store memory node started id=%s user_id=%s messages=%s",
+            state["conversation_id"],
+            state["user_id"],
+            len(user_messages),
+        )
+        try:
+            await self.memory_service.store(
+                user_id=state["user_id"],
+                context=context,
+            )
+        except Exception:
+            self.logger.exception(
+                "Store memory node failed id=%s user_id=%s",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            return {}
+
+        self.logger.info(
+            "Store memory node completed id=%s user_id=%s",
+            state["conversation_id"],
+            state["user_id"],
+        )
+        return {}
+
+
 class CleanupNode:
     """Clears transient state before checkpointing."""
 
@@ -410,6 +613,9 @@ class CleanupNode:
             "rag_documents": [],
             "retrieve_rag": False,
             "retrieve_conversation_history": False,
+            "retrieve_memory": False,
+            "memory_queries": [],
+            "memories": [],
             "response": "",
             "messages": [],
         }

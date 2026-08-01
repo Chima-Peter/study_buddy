@@ -11,5 +11,5 @@ def update_title_router(state: AgentState) -> list[str]:
 def update_summary_router(state: AgentState) -> list[str]:
     history_count = len(state["conversation_history"])
     if history_count > 0 and history_count % SUMMARY_EVERY == 0:
-        return ["update_summary"]
+        return ["update_summary", "store_memory"]
     return ["cleanup"]

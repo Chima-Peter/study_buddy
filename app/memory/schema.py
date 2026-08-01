@@ -143,13 +143,54 @@ class MemoryExtractionResult(BaseModel):
         ),
     )
 
+class MemoryRetrievalQuery(BaseModel):
+    """LLM-facing memory search intent before embedding."""
+
+    content: str = Field(
+        description=(
+            "Concise search query for the student memory index. "
+            "Resolve references; do not answer the question."
+        ),
+    )
+    category: MEMORY_CATEGORY = Field(
+        description="Likely memory category to scope the search.",
+    )
+    type: MEMORY_TYPE = Field(
+        description="Likely memory type that must belong to the chosen category.",
+    )
+
+    @model_validator(mode="after")
+    def check_category_type(self) -> "MemoryRetrievalQuery":
+        validate_category_type(self.category, self.type)
+        return self
+
+
+# Always kept in agent state; fetched from the memory index when missing.
+CORE_NAME_QUERY = MemoryRetrievalQuery(
+    content="student's name",
+    category="personal",
+    type="profile",
+)
+CORE_GENDER_QUERY = MemoryRetrievalQuery(
+    content="student's gender",
+    category="personal",
+    type="profile",
+)
+CORE_PROFILE_QUERIES = (CORE_NAME_QUERY, CORE_GENDER_QUERY)
+
+
 class MemorySearch(BaseModel):
     user_id: str
     content: str
     embedding: list[float]
     category: MEMORY_CATEGORY
     type: MEMORY_TYPE
-    status: MEMORY_STATUS
+    status: MEMORY_STATUS = "active"
+
+    @model_validator(mode="after")
+    def check_category_type(self) -> "MemorySearch":
+        validate_category_type(self.category, self.type)
+        return self
 
 
 class MemoryDuplicateSearch(BaseModel):
@@ -158,6 +199,11 @@ class MemoryDuplicateSearch(BaseModel):
     embedding: list[float]
     category: MEMORY_CATEGORY
     type: MEMORY_TYPE
+
+    @model_validator(mode="after")
+    def check_category_type(self) -> "MemoryDuplicateSearch":
+        validate_category_type(self.category, self.type)
+        return self
 
 
 class IdenticalDecision(BaseModel):

@@ -548,6 +548,7 @@ class Container(containers.DeclarativeContainer):
     agent_graph = providers.Singleton(
         AgentGraph,
         retriever=rag_retriever,
+        memory_service=memory_service,
         conversation_service=conversation_service,
         chat_service=chat_service,
         logger=logger,

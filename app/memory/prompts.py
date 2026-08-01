@@ -14,30 +14,30 @@ def memory_extraction_prompt(
     reference_utc = reference.astimezone(timezone.utc).isoformat()
 
     return f"""
-Extract durable student memories that will improve future tutoring.
+        Extract durable student memories that will improve future tutoring.
 
-Keep: profile, preferences, strengths/weaknesses, learning style, goals, exams, schedule, habits, constraints.
-Skip: chit-chat, one-off requests, assistant replies, document-only facts, speculation.
+        Keep: profile (especially name and gender — always extract when stated), preferences, strengths/weaknesses, learning style, goals, exams, schedule, habits, constraints.
+        Skip: chit-chat, one-off requests, assistant replies, document-only facts, speculation.
 
-Rules:
-1. Student facts only; one atomic fact per memory; concise third-person statements.
-2. Prefer fewer high-quality memories; return [] if none.
-3. On corrections, extract only the new fact.
-4. When uncertain, skip. Use only valid category/type pairs from the taxonomy.
+        Rules:
+        1. Student facts only; one atomic fact per memory; concise third-person statements.
+        2. Prefer fewer high-quality memories; return [] if none.
+        3. On corrections, extract only the new fact.
+        4. When uncertain, skip. Use only valid category/type pairs from the taxonomy.
 
-Scoring (0.0–1.0):
-- importance: high=changes tutoring; medium=useful personalization; low=minor detail.
-- confidence: high=explicit; medium=strongly implied; low=ambiguous.
+        Scoring (0.0–1.0):
+        - importance: high=changes tutoring; medium=useful personalization; low=minor detail.
+        - confidence: high=explicit; medium=strongly implied; low=ambiguous.
 
-Set expires_at only when the student marks it temporary; else null.
-Resolve relative times from {reference_utc} (UTC).
+        Set expires_at only when the student marks it temporary; else null.
+        Resolve relative times from {reference_utc} (UTC).
 
-Taxonomy:
-{taxonomy_description()}
+        Taxonomy:
+        {taxonomy_description()}
 
-Conversation:
-{context}
-""".strip()
+        Conversation:
+        {context}
+    """.strip()
 
 
 def memory_deduplication_prompt(

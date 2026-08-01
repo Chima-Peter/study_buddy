@@ -1,16 +1,30 @@
 """Centralized prompts for the study buddy agent."""
 
+from app.memory.schema import taxonomy_description
+
 
 def retrieval_decider_prompt(query: str) -> str:
     return (
         "Decide what context is needed to answer the user.\n\n"
-        "Choose exactly one:\n"
+        "Choose exactly one document/history decision:\n"
         '- "rag": the question is about uploaded study documents\n'
         '- "history": the question refers to prior chat turns only\n'
         '- "both": the question needs both documents and prior chat turns\n'
-        '- "none": general knowledge question (e.g. capitals, math, definitions)\n\n'
-        'Choose "none" for questions you can answer from general knowledge.\n'
-        'Choose "rag" only when the question is clearly about study materials.\n\n'
+        '- "none": no document or chat-history retrieval needed\n\n'
+        "Separately set retrieve_memory:\n"
+        "- true when the answer depends on durable facts about this student "
+        "(preferences, goals, subjects, strengths/weaknesses, "
+        "progress, resources, habits, achievements)\n"
+        "- false when the question is only about uploaded documents, "
+        "general knowledge, or this chat without needing stored student facts\n"
+        "- name and gender are always loaded when missing; do not set "
+        "retrieve_memory=true only for those\n\n"
+        "Memory taxonomy (category: types):\n"
+        f"{taxonomy_description()}\n\n"
+        'Choose "none" for document/history when general knowledge is enough.\n'
+        'Choose "rag" only when the question is clearly about study materials.\n'
+        "Memory retrieval can be true even when decision is \"none\" "
+        "(e.g. personalization-only questions).\n\n"
         f"Question: {query}\n"
     )
 
@@ -19,16 +33,46 @@ def rewrite_query_prompt(
     query: str,
     conversation_summary: str | None,
     recent_history: list,
+    *,
+    retrieve_rag: bool,
+    retrieve_memory: bool,
 ) -> str:
-    return (
-        "Rewrite the user's question for hybrid document search.\n"
+    parts = [
+        "Rewrite the user's question for retrieval. "
         "Resolve references using the conversation context, preserve the "
-        "original meaning and important terms, and do not answer the question.\n"
-        "Return only the rewritten search query.\n\n"
-        f"Conversation summary: {conversation_summary or ''}\n"
+        "original meaning and important terms, and do not answer the question.\n",
+    ]
+    if retrieve_rag:
+        parts.append(
+            "Set rag_query to a rewritten hybrid document-search query.\n"
+        )
+    else:
+        parts.append("Set rag_query to null (document retrieval is disabled).\n")
+
+    if retrieve_memory:
+        parts.append(
+            "Set memory_queries to one or more memory-index searches. "
+            "Each entry needs content, category, and type from the taxonomy. "
+            "Use multiple entries when the question needs distinct memory "
+            "slices (e.g. learning weaknesses and study habits). "
+            "Each content value should be a concise fact-seeking query "
+            "scoped to that slice. "
+            "Do not include name or gender lookups; those are fetched "
+            "automatically.\n"
+            f"Memory taxonomy (category: types):\n{taxonomy_description()}\n"
+        )
+    else:
+        parts.append(
+            "Set memory_queries to an empty list "
+            "(memory retrieval is disabled).\n"
+        )
+
+    parts.append(
+        f"\nConversation summary: {conversation_summary or ''}\n"
         f"Recent conversation: {recent_history}\n"
         f"Question: {query}\n"
     )
+    return "".join(parts)
 
 
 def title_prompt(query: str, response: str) -> str:
@@ -72,11 +116,17 @@ def chat_response_prompt(
     conversation_history_prompt: str,
     conversation_summary: str,
     query: str,
+    memories: str = "",
+    student_name: str | None = None,
+    student_gender: str | None = None,
 ) -> str:
     return (
         "You are a helpful study assistant.\n\n"
         "Use the provided context as the primary source of truth when "
-        "answering questions about the user's documents or study materials.\n\n"
+        "answering questions about the user's documents or study materials.\n"
+        "Use student memories to personalize tutoring when relevant "
+        "(preferences, goals, strengths, schedule, etc.).\n"
+        "Address the student by name when known.\n\n"
         "Rules:\n"
         "1. If the answer can be found in the provided context, answer using "
         "only that context.\n"
@@ -90,8 +140,13 @@ def chat_response_prompt(
         "4. If it is unclear whether the question refers to the uploaded "
         "documents or general knowledge, answer from your general knowledge.\n"
         "5. When answering from the provided context, cite or reference the "
-        "relevant sections if they are available.\n\n"
+        "relevant sections if they are available.\n"
+        "6. Treat student memories as known facts about this learner; do not "
+        "invent memories that are not listed.\n\n"
+        f"Student name: {student_name or '(unknown)'}\n"
+        f"Student gender: {student_gender or '(unknown)'}\n\n"
         f"External Context:\n{context}\n\n"
+        f"Student Memories:\n{memories or '(none)'}\n\n"
         f"Conversation Last 5 Messages:\n{conversation_history_prompt}\n\n"
         f"Conversation Summary:\n{conversation_summary}\n\n"
         f"Question: {query}\n"

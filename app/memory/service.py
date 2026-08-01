@@ -10,12 +10,15 @@ from app.core.embedding import EmbeddingManager
 from app.memory.prompts import memory_deduplication_prompt, memory_extraction_prompt
 from app.memory.repository import MemoryRepository
 from app.memory.schema import (
+    CONFIDENCE_BUMP,
     ExtractedMemory,
     Memory,
     MemoryDeduplicationDecision,
     MemoryDeduplicationResult,
     MemoryDuplicateSearch,
     MemoryExtractionResult,
+    MEMORY_STATUS,
+    MemoryRetrievalQuery,
     MemorySearch,
 )
 
@@ -48,6 +51,75 @@ class MemoryService:
         except Exception as e:
             self.logger.exception(f"MemoryService retrieve failed: {e}")
             raise ValueError("Failed to retrieve") from e
+
+    async def retrieve_for_query(
+        self,
+        user_id: str,
+        query: MemoryRetrievalQuery,
+        *,
+        status: MEMORY_STATUS = "active",
+    ) -> list[Memory]:
+        """Embed a rewritten memory query and search the memory store."""
+        try:
+            self.logger.info(
+                "MemoryService retrieve_for_query start user_id=%s "
+                "category=%s type=%s content=%r",
+                user_id,
+                query.category,
+                query.type,
+                query.content[:120],
+            )
+            embedding = await asyncio.to_thread(
+                self.embedding_manager.embed_query,
+                query.content,
+            )
+            embedding_list = (
+                embedding.tolist()
+                if hasattr(embedding, "tolist")
+                else list(embedding)
+            )
+            return await self.retrieve(
+                MemorySearch(
+                    user_id=user_id,
+                    content=query.content,
+                    embedding=embedding_list,
+                    category=query.category,
+                    type=query.type,
+                    status=status,
+                )
+            )
+        except Exception as e:
+            self.logger.exception(
+                f"MemoryService retrieve_for_query failed: {e}"
+            )
+            raise ValueError("Failed to retrieve") from e
+
+    async def retrieve_for_queries(
+        self,
+        user_id: str,
+        queries: list[MemoryRetrievalQuery],
+        *,
+        status: MEMORY_STATUS = "active",
+    ) -> list[Memory]:
+        """Run multiple memory searches in parallel and dedupe by id."""
+        if not queries:
+            return []
+
+        async with asyncio.TaskGroup() as tg:
+            tasks = [
+                tg.create_task(
+                    self.retrieve_for_query(
+                        user_id, query, status=status
+                    )
+                )
+                for query in queries
+            ]
+
+        by_id: dict[str, Memory] = {}
+        for task in tasks:
+            for memory in task.result():
+                by_id[memory.id] = memory
+        return list(by_id.values())
 
     async def store(self, user_id: str, context: str):
         try:
