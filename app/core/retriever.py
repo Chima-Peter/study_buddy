@@ -8,11 +8,7 @@ class Retriever:
         self.logger = logger
 
     def _record_id(self, hit_id: str, metadata: IndexMetadata) -> str:
-        if "chunk_id" in metadata and metadata["chunk_id"]:
-            return metadata["chunk_id"]
-        if "memory_id" in metadata and metadata["memory_id"]:
-            return metadata["memory_id"]
-        return hit_id
+        return metadata.get("id") or hit_id
 
     async def reciprocal_rank_fusion(
         self,
@@ -26,8 +22,7 @@ class Retriever:
 
         RRF score for record r: sum over all retrievers of 1/(rank_constant + rank_i)
         where rank_i is 1-based position in that retriever's results. Uses
-        metadata.chunk_id for documents, metadata.memory_id for memories, and
-        falls back to the Elasticsearch hit id when neither is present.
+        metadata.id when present, otherwise the Elasticsearch hit id.
         """
         scores: dict[str, float] = {}
         docs_by_id: dict[str, IndexedRecord] = {}

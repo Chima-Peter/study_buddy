@@ -9,6 +9,7 @@ DOCUMENTS_INDEX_MAPPINGS = {
         },
         "metadata": {
             "properties": {
+                "id": {"type": "keyword"},
                 "page": {"type": "integer"},
                 "source": {"type": "keyword"},
                 "category": {"type": "keyword"},
@@ -32,8 +33,9 @@ USER_MEMORIES_INDEX_MAPPINGS = {
         },
         "metadata": {
             "properties": {
-                "memory_id": {"type": "keyword"},
+                "id": {"type": "keyword"},
                 "category": {"type": "keyword"},
+                "type": {"type": "keyword"},
                 "status": {"type": "keyword"},
                 "importance": {"type": "float"},
                 "confidence": {"type": "float"},
@@ -44,6 +46,8 @@ USER_MEMORIES_INDEX_MAPPINGS = {
                 "created_at": {"type": "date"},
                 "updated_at": {"type": "date"},
                 "expires_at": {"type": "date"},
+                "valid_from": {"type": "date"},
+                "valid_to": {"type": "date"},
             }
         },
     }

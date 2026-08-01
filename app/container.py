@@ -36,6 +36,8 @@ from app.handlers.index import Handlers
 from app.logging_config import init_logging
 from app.rag.ingest_pipeline import IngestPipeline
 from app.rag.rag_retriever import RAGRetriever
+from app.memory.repository import MemoryRepository
+from app.memory.service import MemoryService
 from app.system.repository.conversation import ConversationRepository
 from app.system.repository.document import DocumentRepository
 from app.system.repository.chat import ChatRepository
@@ -485,6 +487,20 @@ class Container(containers.DeclarativeContainer):
         ChatService,
         repository=chat_repository,
         logger=logger,
+    )
+
+    memory_repository = providers.Factory(
+        MemoryRepository,
+        logger=logger,
+        elasticsearch=elasticsearch,
+    )
+
+    memory_service = providers.Factory(
+        MemoryService,
+        logger=logger,
+        model=summarizer_model,
+        repository=memory_repository,
+        embedding_manager=embedding_manager,
     )
 
     conversation_service = providers.Factory(

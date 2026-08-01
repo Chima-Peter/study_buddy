@@ -6,10 +6,10 @@ ALLOWED_INDICES: frozenset[str] = frozenset({"documents", "user_memories"})
 
 
 class DocumentMetadata(TypedDict, total=False):
+    id: str
     user_id: str
     document_id: str
     chunk_index: int
-    chunk_id: str
     page: int
     source: str
     category: str
@@ -17,9 +17,10 @@ class DocumentMetadata(TypedDict, total=False):
 
 
 class MemoryMetadata(TypedDict, total=False):
+    id: str
     user_id: str
-    memory_id: str
     category: str
+    type: str
     status: str
     importance: float
     confidence: float
@@ -29,6 +30,8 @@ class MemoryMetadata(TypedDict, total=False):
     created_at: str
     updated_at: str
     expires_at: str
+    valid_from: str
+    valid_to: str
 
 
 IndexMetadata = DocumentMetadata | MemoryMetadata
