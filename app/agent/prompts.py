@@ -16,8 +16,8 @@ def retrieval_decider_prompt(query: str) -> str:
         "(personal, academic, or learning memories)\n"
         "- false when the question is only about uploaded documents, "
         "general knowledge, or this chat without needing stored student facts\n"
-        "- name and gender are always loaded when missing; do not set "
-        "retrieve_memory=true only for those\n\n"
+        "- name and gender of this student only come from the user profile and are loaded when "
+        "missing; do not set retrieve_memory=true only for those\n\n"
         "Memory categories:\n"
         f"{taxonomy_description()}\n\n"
         'Choose "none" for document/history when general knowledge is enough.\n'
@@ -63,8 +63,8 @@ def rewrite_query_prompt(
             "- academic: university, subjects, exams, resources\n"
             "- learning: strengths, weaknesses, style, pace, mastery\n"
             "Use multiple entries when distinct categories are needed. "
-            "Do not include name or gender lookups; those are fetched "
-            "automatically.\n"
+            "Do not include name or gender lookups; those come from the "
+            "user profile automatically.\n"
             f"Categories:\n{taxonomy_description()}\n"
         )
     else:
@@ -161,13 +161,12 @@ def chat_response_prompt(
         "5. When answering from the provided context, cite or reference the "
         "relevant sections if they are available.\n"
         "6. Treat student memories as known facts about this learner; do not "
-        "invent memories that are not listed.\n\n"
+        "invent memories that are not listed.\n"
         f"Student name: {student_name or '(unknown)'}\n"
-        f"Student gender: {student_gender or '(unknown)'}\n\n"
+        f"Student gender: {student_gender or '(unknown)'}\n"
         f"External Context:\n{context}\n\n"
         f"Student Memories:\n{memories or '(none)'}\n\n"
         f"Conversation Last 5 Messages:\n{conversation_history_prompt}\n\n"
         f"Conversation Summary:\n{conversation_summary}\n\n"
         f"Question: {query}\n"
-        "Answer:"
     )

@@ -18,15 +18,16 @@ class EmbeddingManager:
             raise ValueError("Model not loaded")
 
         texts = [doc.page_content for doc in documents]
-        embeddings = self._model.encode(texts)
-        self.logger.info(
-            f"Embedded {len(texts)} texts with shape {embeddings.shape} "
-            f"and type {type(embeddings)}"
+        embeddings = self._model.encode(texts, show_progress_bar=False)
+        self.logger.debug(
+            "Embedded %s texts shape=%s",
+            len(texts),
+            embeddings.shape,
         )
         return embeddings
 
     def embed_query(self, query: str) -> np.ndarray:
-        return self._model.encode(query)
+        return self._model.encode(query, show_progress_bar=False)
 
     def _load_model(self):
         try:

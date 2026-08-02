@@ -260,7 +260,7 @@ class Elasticsearch:
     ) -> list[IndexedRecord]:
         """kNN vector search using dense embeddings, filtered by user/metadata."""
         index = self._resolve_index(index)
-        self.logger.info(
+        self.logger.debug(
             "ES search_vector start user_id=%s index=%s k=%s "
             "num_candidates=%s min_score=%s dims=%s metadata_terms=%s",
             user_id,
@@ -286,7 +286,7 @@ class Elasticsearch:
             request["min_score"] = min_score
         response = await self.elasticsearch.search(**request)
         hits = self._parse_hits(response)
-        self.logger.info(
+        self.logger.debug(
             "ES search_vector done user_id=%s index=%s hits=%s",
             user_id,
             index,
@@ -305,7 +305,7 @@ class Elasticsearch:
     ) -> list[IndexedRecord]:
         """BM25 text search on content field, filtered by user/metadata."""
         index = self._resolve_index(index)
-        self.logger.info(
+        self.logger.debug(
             "ES search_bm25 start user_id=%s index=%s size=%s "
             "metadata_terms=%s query=%r",
             user_id,
@@ -325,7 +325,7 @@ class Elasticsearch:
             size=size,
         )
         hits = self._parse_hits(response)
-        self.logger.info(
+        self.logger.debug(
             "ES search_bm25 done user_id=%s index=%s hits=%s",
             user_id,
             index,
@@ -389,7 +389,7 @@ class Elasticsearch:
             self.logger.warning("BM25 search failed: %s", bm25_result)
         else:
             bm25_hits = self._records_for_fusion(bm25_result)
-            self.logger.info(
+            self.logger.debug(
                 "ES search_hybrid BM25 branch user_id=%s hits=%s",
                 user_id,
                 len(bm25_hits),
@@ -400,7 +400,7 @@ class Elasticsearch:
             self.logger.warning("kNN search failed: %s", knn_result)
         else:
             knn_hits = self._records_for_fusion(knn_result)
-            self.logger.info(
+            self.logger.debug(
                 "ES search_hybrid kNN branch user_id=%s hits=%s",
                 user_id,
                 len(knn_hits),

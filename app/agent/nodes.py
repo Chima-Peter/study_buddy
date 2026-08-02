@@ -16,12 +16,8 @@ from app.agent.schema import (
     RewriteQueryResponse,
 )
 from app.agent.state import AgentState
-from app.memory.schema import (
-    CORE_GENDER_QUERY,
-    CORE_NAME_QUERY,
-    Memory,
-    MemoryRetrievalQuery,
-)
+from app.authentication.repository.user_repository import UserRepository
+from app.memory.schema import Memory, MemoryRetrievalQuery
 from app.memory.service import MemoryService
 from app.rag.rag_retriever import RAGRetriever
 from app.system.schemas.conversation import UpdateConversationTitleRequest
@@ -200,28 +196,27 @@ class RetrieveDocumentsNode():
 
 
 class RetrieveMemoryNode():
-    def __init__(self, memory_service: MemoryService, logger: Logger):
+    def __init__(
+        self,
+        memory_service: MemoryService,
+        user_repository: UserRepository,
+        logger: Logger,
+    ):
         self.memory_service = memory_service
+        self.user_repository = user_repository
         self.logger = logger
-
-    @staticmethod
-    def _top_content(memories: list[Memory]) -> str | None:
-        if not memories:
-            return None
-        return memories[0].content
 
     async def __call__(self, state: AgentState) -> AgentState:
         student_name = state.get("student_name")
         student_gender = state.get("student_gender")
-        need_name = not student_name
-        need_gender = not student_gender
+        need_profile = not student_name or not student_gender
         turn_queries = (
             list(state.get("memory_queries") or [])
             if state.get("retrieve_memory")
             else []
         )
 
-        if not turn_queries and not need_name and not need_gender:
+        if not turn_queries and not need_profile:
             self.logger.info(
                 "Retrieve memory node skipped user_id=%s reason=nothing_to_fetch",
                 state["user_id"],
@@ -230,28 +225,18 @@ class RetrieveMemoryNode():
 
         self.logger.info(
             "Retrieve memory node started user_id=%s turn_queries=%s "
-            "need_name=%s need_gender=%s",
+            "need_profile=%s",
             state["user_id"],
             len(turn_queries),
-            need_name,
-            need_gender,
+            need_profile,
         )
 
-        name_task = None
-        gender_task = None
+        profile_task = None
         turn_task = None
         async with asyncio.TaskGroup() as tg:
-            if need_name:
-                name_task = tg.create_task(
-                    self.memory_service.retrieve_for_query(
-                        state["user_id"], CORE_NAME_QUERY
-                    )
-                )
-            if need_gender:
-                gender_task = tg.create_task(
-                    self.memory_service.retrieve_for_query(
-                        state["user_id"], CORE_GENDER_QUERY
-                    )
+            if need_profile:
+                profile_task = tg.create_task(
+                    self.user_repository.get_by_id(state["user_id"])
                 )
             if turn_queries:
                 turn_task = tg.create_task(
@@ -261,14 +246,13 @@ class RetrieveMemoryNode():
                 )
 
         by_id: dict[str, Memory] = {}
-        if name_task is not None:
-            name_hits = name_task.result()
-            if student_name is None:
-                student_name = self._top_content(name_hits)
-        if gender_task is not None:
-            gender_hits = gender_task.result()
-            if student_gender is None:
-                student_gender = self._top_content(gender_hits)
+        if profile_task is not None:
+            user = profile_task.result()
+            if user is not None:
+                if not student_name:
+                    student_name = user.name
+                if not student_gender:
+                    student_gender = user.gender or "unknown"
         if turn_task is not None:
             for memory in turn_task.result():
                 by_id[memory.id] = memory
@@ -406,7 +390,10 @@ class GenerateResponseNode():
             text = chunk.text
             if not text:
                 continue
-            writer(text)
+            writer({
+                "type": "chat.response",
+                "response": text,
+            })
             answer += text
 
         self.logger.info(
@@ -428,7 +415,6 @@ class SaveChatNode():
             {
                 "content": r.document.content,
                 "metadata": r.document.metadata,
-                "embedding": r.document.embedding,
                 "rrf_score": r.score,
             }
             for r in state["rag_documents"]
@@ -492,6 +478,12 @@ class UpdateConversationTitleNode():
                 state["user_id"],
             )
             return {"title": None}
+
+        writer = get_stream_writer()
+        writer({
+            "type": "chat.title",
+            "response": title,
+        })
 
         await self.conversation_service.update_title(
             conversation_id=state["conversation_id"],
@@ -562,22 +554,19 @@ class StoreMemoryNode:
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
-        recent = state["conversation_history"][-SUMMARY_EVERY:]
-        user_messages = [chat.query.strip() for chat in recent if chat.query.strip()]
-        if not user_messages:
+        if not state["query"]:
             self.logger.info(
-                "Store memory node skipped id=%s user_id=%s reason=no_user_messages",
+                "Store memory node skipped id=%s user_id=%s reason=no_query",
                 state["conversation_id"],
                 state["user_id"],
             )
             return {}
 
-        context = "\n".join(f"User: {message}" for message in user_messages)
+        context = f"User: {state['query']}"
         self.logger.info(
-            "Store memory node started id=%s user_id=%s messages=%s",
+            "Store memory node started id=%s user_id=%s",
             state["conversation_id"],
             state["user_id"],
-            len(user_messages),
         )
         try:
             await self.memory_service.store(

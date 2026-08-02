@@ -32,7 +32,7 @@ class RAGRetriever(Retriever):
             query[:120],
         )
         embedding = self.embedding_manager.embed_query(query).tolist()
-        self.logger.info(
+        self.logger.debug(
             "Retriever embed done user_id=%s dims=%s",
             user_id,
             len(embedding),

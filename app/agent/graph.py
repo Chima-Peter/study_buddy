@@ -21,6 +21,7 @@ from app.agent.nodes import (
 from app.agent.state import AgentState
 from langgraph.graph import START, StateGraph, END
 from logging import Logger
+from app.authentication.repository.user_repository import UserRepository
 from app.memory.service import MemoryService
 from app.rag.rag_retriever import RAGRetriever
 from app.system.service.chat import ChatService
@@ -36,6 +37,7 @@ class AgentGraph:
         query_model: ChatGoogleGenerativeAI,
         summarizer_model: ChatGoogleGenerativeAI,
         chat_service: ChatService,
+        user_repository: UserRepository,
         logger: Logger,
         checkpointer: AsyncPostgresSaver,
     ):
@@ -43,6 +45,7 @@ class AgentGraph:
         self.memory_service = memory_service
         self.conversation_service = conversation_service
         self.chat_service = chat_service
+        self.user_repository = user_repository
         self.logger = logger
         self.chat_model = chat_model
         self.query_model = query_model
@@ -64,6 +67,7 @@ class AgentGraph:
         ))
         graph.add_node("retrieve_memory", RetrieveMemoryNode(
             memory_service=self.memory_service,
+            user_repository=self.user_repository,
             logger=self.logger,
         ))
         graph.add_node("retrieve_conversation_history", RetrieveConversationHistoryNode(
@@ -122,13 +126,13 @@ class AgentGraph:
             {
                 "update_summary": "update_conversation_summary",
                 "store_memory": "store_memory",
-                "cleanup": "cleanup",
             },
         )
         graph.add_edge(
             ["update_conversation_summary", "store_memory"],
             "cleanup",
         )
+        graph.add_edge("store_memory", "cleanup")
         graph.add_edge("update_conversation_title", "cleanup")
         graph.add_edge("cleanup", END)
 

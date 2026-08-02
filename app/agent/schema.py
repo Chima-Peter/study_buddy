@@ -23,7 +23,8 @@ class DeciderResponse(BaseModel):
             "personal, academic, or learning. "
             "False for pure document lookup, general knowledge, or chat that "
             "does not depend on stored student facts. "
-            "Name and gender are always loaded separately when missing."
+            "Name and gender come from the user profile and are loaded "
+            "separately when missing."
         ),
     )
 
@@ -44,7 +45,7 @@ class RewriteQueryResponse(BaseModel):
             "One or more simple questions for the memory index, each with "
             "content and an exact category (personal, academic, or learning). "
             "Empty when memory retrieval is not needed. "
-            "Do not include name/gender lookups; those are fetched "
-            "automatically."
+            "Do not include name/gender lookups; those come from the "
+            "user profile automatically."
         ),
     )

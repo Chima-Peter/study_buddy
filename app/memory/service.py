@@ -39,8 +39,11 @@ class MemoryService:
     async def retrieve(self, search: MemorySearch) -> list[Memory]:
         try:
             self.logger.info(
-                "MemoryService retrieve start search=%s",
-                search,
+                "MemoryService retrieve start user_id=%s category=%s "
+                "status=%s",
+                search.user_id,
+                search.category,
+                search.status,
             )
             results = await self.repository.retrieve(search)
             self.logger.info(
@@ -304,8 +307,10 @@ class MemoryService:
     ) -> list[Memory]:
         try:
             self.logger.info(
-                "MemoryService search_for_duplicates start search=%s",
-                search,
+                "MemoryService search_for_duplicates start user_id=%s "
+                "category=%s",
+                search.user_id,
+                search.category,
             )
             results = await self.repository.search_for_duplicates(search)
             self.logger.info(

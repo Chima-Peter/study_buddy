@@ -11,7 +11,6 @@ from fastapi import (
     Depends,
     WebSocket,
     WebSocketDisconnect,
-    WebSocketException,
     status,
 )
 
@@ -158,13 +157,17 @@ async def websocket_endpoint(
                                 }
                             ):
                                 await websocket.send_json({
-                                    "type": "chat.stream",
-                                    "chunk": chunk,
+                                    "type": chunk["type"],
+                                    "response": chunk["response"],
                                     "conversation_id": conversation_id,
                                 })
+                        except WebSocketDisconnect:
+                            raise
                         except Exception:
-                            logger.exception("Error in agent graph user_id=%s", user.id)
-                            await websocket.send_json({
+                            logger.exception(
+                                "Error in agent graph user_id=%s", user.id
+                            )
+                            await _safe_send_json(websocket, {
                                 "type": "chat.error",
                                 "message": "Failed to generate response",
                                 "conversation_id": conversation_id,
@@ -192,25 +195,47 @@ async def websocket_endpoint(
                         "message": "Ping",
                     })
                     continue
-                except Exception:
-                    raise
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected user_id=%s", user.id)
     except ConnectionError:
         logger.exception(
             "Redis connection error user_id=%s", user.id
         )
-        await websocket.close(
+        await _safe_close(
+            websocket,
             code=status.WS_1012_SERVICE_RESTART,
         )
     except Exception:
         logger.exception(
             "Unexpected error in websocket endpoint user_id=%s", user.id
         )
-        raise WebSocketException(
+        await _safe_close(
+            websocket,
             code=status.WS_1011_INTERNAL_ERROR,
             reason="Internal server error",
         )
     finally:
         if connection_counted:
             await redis_service.decr_connection_count(user.id)
+
+
+async def _safe_send_json(websocket: WebSocket, data: dict[str, Any]) -> bool:
+    try:
+        await websocket.send_json(data)
+        return True
+    except WebSocketDisconnect:
+        raise
+    except Exception:
+        return False
+
+
+async def _safe_close(
+    websocket: WebSocket,
+    *,
+    code: int,
+    reason: str = "",
+) -> None:
+    try:
+        await websocket.close(code=code, reason=reason)
+    except (WebSocketDisconnect, RuntimeError):
+        pass

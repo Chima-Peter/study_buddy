@@ -26,7 +26,7 @@ class AgentState(TypedDict):
     memory_queries: list[MemoryRetrievalQuery]
     memories: list[Memory]
 
-    # Persist across turns; fetched from memory store when missing.
+    # Persist across turns; fetched from postgres when missing.
     student_name: str | None
     student_gender: str | None
 

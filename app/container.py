@@ -553,6 +553,7 @@ class Container(containers.DeclarativeContainer):
         memory_service=memory_service,
         conversation_service=conversation_service,
         chat_service=chat_service,
+        user_repository=user_repository,
         logger=logger,
         chat_model=chat_model,
         query_model=query_model,
