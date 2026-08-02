@@ -30,24 +30,76 @@ FastAPI backend for uploading study documents, ingesting them into a searchable 
 ## Requirements
 
 - Python **≥ 3.14** ([uv](https://docs.astral.sh/uv/) recommended)
-- Docker Compose stack (Supabase DB/Storage, Redis, RabbitMQ, Elasticsearch, Unstructured)
+- Docker Engine + Compose v2
+- ~8GB free RAM for the compose stack (Elasticsearch + Unstructured)
 - Google API key (Gemini)
 
 System packages used by document parsing (see `Dockerfile`): `libmagic`, Poppler, Tesseract, LibreOffice, Pandoc.
 
+## Local infrastructure (Docker Compose)
+
+`docker-compose.yml` runs Supabase (Postgres + Storage via Kong), Redis, RabbitMQ, Elasticsearch, and Unstructured. Host ports are offset from the usual defaults so they do not clash with services already on the machine.
+
+| Service | Host port | Notes |
+| --- | --- | --- |
+| Postgres (Supabase) | `54322` | Avoids host Postgres on `5432` |
+| Kong (Supabase API/Storage) | `54323` | App `SUPABASE_URL` |
+| Studio | `54324` | UI at `http://localhost:54324` |
+| Redis | `16379` | |
+| RabbitMQ AMQP | `25672` | Management UI: `25673` |
+| Elasticsearch | `19200` | |
+| Unstructured API | `18001` | |
+
+### Prerequisites
+
+- Free host ports listed above
+- A repo-root `.env` — start from `.env.docker.example` and fill in `JWT_SECRET` / `GOOGLE_API_KEY`
+
+### Start / stop
+
+```bash
+# Configure (first time)
+cp .env.docker.example .env
+# edit .env — set JWT_SECRET and GOOGLE_API_KEY
+
+docker compose up -d          # background
+# docker compose up           # foreground with logs
+
+docker compose ps
+docker compose down           # stop, keep volumes
+docker compose down -v        # stop and wipe volumes (fresh DB/storage)
+```
+
+On first boot, `supabase-init` creates the `documents` storage bucket.
+
+### Verify
+
+```bash
+PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -c 'select 1'
+
+set -a && source .env && set +a
+curl -s http://localhost:54323/storage/v1/bucket \
+  -H "apikey: $SUPABASE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_KEY"
+```
+
+Local Supabase uses the standard demo `service_role` JWT (see `.env.docker.example`). It is for local development only.
+
 ## Quick start
 
 ```bash
-# Install dependencies
+# 1. Start infra (see Local infrastructure above)
+docker compose up -d
+
+# 2. Install app dependencies
 uv sync
 
-# Configure environment (create .env — see Configuration below)
-# edit .env with your credentials
+# 3. Ensure .env matches compose ports (see .env.docker.example)
 
-# Run migrations
+# 4. Run migrations
 uv run alembic upgrade head
 
-# Start the API (consumers start with the app lifespan)
+# 5. Start the API (consumers start with the app lifespan)
 uv run python main.py
 ```
 
@@ -59,7 +111,7 @@ App defaults: `http://0.0.0.0:8000`
 
 ## Configuration
 
-Settings are loaded from environment variables / `.env` via `app.config.Settings`:
+Settings are loaded from environment variables / `.env` via `app.config.Settings`. Defaults match the compose host ports:
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
@@ -68,16 +120,16 @@ Settings are loaded from environment variables / `.env` via `app.config.Settings
 | `HOST` / `PORT` | Bind address | `0.0.0.0` / `8000` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 | `CORS_ORIGINS` | Allowed origins | `["*"]` |
-| `DATABASE_URL` | Async Supabase Postgres (`postgresql+asyncpg://…`) | local Supabase `postgres` |
-| `SYNC_DATABASE_URL` | Sync Supabase Postgres for Alembic (`postgresql+psycopg2://…`) | local Supabase `postgres` |
-| `CHECKPOINT_DATABASE_URL` | LangGraph checkpoints (same Supabase DB) | local Supabase `postgres` |
-| `REDIS_URL` | Redis | `redis://localhost:6379/0` |
-| `RABBITMQ_URL` | AMQP broker | `amqp://guest:guest@localhost:5672/` |
+| `DATABASE_URL` | Async Supabase Postgres (`postgresql+asyncpg://…`) | `…@localhost:54322/postgres` |
+| `SYNC_DATABASE_URL` | Sync Supabase Postgres for Alembic (`postgresql+psycopg2://…`) | `…@localhost:54322/postgres` |
+| `CHECKPOINT_DATABASE_URL` | LangGraph checkpoints (same Supabase DB) | `…@localhost:54322/postgres` |
+| `REDIS_URL` | Redis | `redis://localhost:16379/0` |
+| `RABBITMQ_URL` | AMQP broker | `amqp://guest:guest@localhost:25672/` |
 | `JWT_SECRET` / `JWT_ALGORITHM` / `JWT_EXPIRE_MINUTES` | Auth tokens | change in production |
 | `GOOGLE_API_KEY` | Gemini | — |
-| `SUPABASE_URL` / `SUPABASE_KEY` | Local Supabase Kong + service_role key | `http://localhost:54321` |
-| `UNSTRUCTURED_API_URL` / `UNSTRUCTURED_API_KEY` | Self-hosted Unstructured API | `http://localhost:8001` |
-| `ELASTICSEARCH_URL` | Search cluster | `http://localhost:9200` |
+| `SUPABASE_URL` / `SUPABASE_KEY` | Local Kong + service_role key | `http://localhost:54323` |
+| `UNSTRUCTURED_API_URL` / `UNSTRUCTURED_API_KEY` | Self-hosted Unstructured API | `http://localhost:18001` |
+| `ELASTICSEARCH_URL` | Search cluster | `http://localhost:19200` |
 | `RABBITMQ_MAX_RETRIES` | Ingest retry attempts | `3` |
 | `RABBITMQ_RETRY_BASE_MS` | Base delay for TTL retry | `5000` |
 | `RABBITMQ_RETRY_MAX_MS` | Cap delay for TTL retry | `300000` |
@@ -233,6 +285,6 @@ uv run python scripts/load_test_ingest.py \
 
 Default base URL in the script is `http://127.0.0.1:8080/api` — override if your `PORT` differs.
 
-## Docker notes
+## App Docker image
 
-The included `Dockerfile` installs OS deps and Unstructured for document parsing. It targets a Python slim image; wire it to your compose/runtime as needed for Postgres, Redis, RabbitMQ, and Elasticsearch.
+The included `Dockerfile` builds the API image (OS deps + parsing tools). Local dependencies come from `docker-compose.yml` (see **Local infrastructure** above); the API itself is usually run with `uv` / `main.py` during development.

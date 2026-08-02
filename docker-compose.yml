@@ -1,26 +1,22 @@
 # StudyBuddy local infrastructure
+# Start: docker compose up -d
+# Stop:  docker compose down
+# Reset: docker compose down -v
 #
-# Start:  docker compose up -d
-# Stop:   docker compose down
-# Reset:  docker compose down -v
-#
-# App .env values for this stack are in .env.docker.example
-# Supabase provides Postgres (app + checkpoints) and Storage.
+# Host ports (offset from defaults to avoid conflicts):
+#   Postgres 54322 | Kong 54323 | Studio 54324 | Redis 16379
+#   RabbitMQ 25672 (mgmt 25673) | ES 19200 | Unstructured 18001
 
 name: study_buddy
 
-x-supabase-jwt: &supabase-jwt
-  JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
-  ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
-  SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}
-
 services:
+  # --- Supabase (Postgres + Storage) ---
   supabase-db:
     image: supabase/postgres:15.8.1.060
     container_name: studybuddy-supabase-db
     restart: unless-stopped
     ports:
-      - "${SUPABASE_DB_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-54322}:5432"
     environment:
       POSTGRES_HOST: /var/run/postgresql
       PGPORT: 5432
@@ -29,12 +25,13 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       PGDATABASE: postgres
       POSTGRES_DB: postgres
-      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
-      JWT_EXP: ${JWT_EXPIRY:-3600}
+      JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      JWT_EXP: 3600
     volumes:
+      - ./docker/supabase/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
       - supabase_db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -48,12 +45,10 @@ services:
         condition: service_healthy
     environment:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:-postgres}@supabase-db:5432/postgres
-      PGRST_DB_SCHEMAS: public,storage,graphql_public
+      PGRST_DB_SCHEMAS: public,storage
       PGRST_DB_ANON_ROLE: anon
-      PGRST_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
+      PGRST_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
       PGRST_DB_USE_LEGACY_GUCS: "false"
-      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
-      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY:-3600}
 
   supabase-storage:
     image: supabase/storage-api:v1.14.5
@@ -64,113 +59,130 @@ services:
         condition: service_healthy
       supabase-rest:
         condition: service_started
-      supabase-imgproxy:
-        condition: service_started
     environment:
-      <<: *supabase-jwt
-      ANON_KEY: ${ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0}
-      SERVICE_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}
-      AUTH_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
-      POSTGREST_URL: http://supabase-rest:3000
-      PGRST_JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-token-with-at-least-32-characters-long}
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD:-postgres}@supabase-db:5432/postgres
-      FILE_SIZE_LIMIT: 52428800
+      POSTGREST_URL: http://supabase-rest:3000
+      AUTH_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      FILE_SIZE_LIMIT: 52428800
       TENANT_ID: stub
       REGION: local
       GLOBAL_S3_BUCKET: stub
-      ENABLE_IMAGE_TRANSFORMATION: "true"
-      IMGPROXY_URL: http://supabase-imgproxy:5001
+      ENABLE_IMAGE_TRANSFORMATION: "false"
     volumes:
       - supabase_storage_data:/var/lib/storage
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:5000/status",
-        ]
-      interval: 10s
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:5000/status"]
+      interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 15s
-
-  supabase-imgproxy:
-    image: darthsim/imgproxy:v3.8.0
-    container_name: studybuddy-supabase-imgproxy
-    restart: unless-stopped
-    environment:
-      IMGPROXY_BIND: ":5001"
-      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
-      IMGPROXY_USE_ETAG: "true"
-    volumes:
-      - supabase_storage_data:/var/lib/storage:ro
+      start_period: 10s
 
   supabase-kong:
     image: kong:2.8.1
     container_name: studybuddy-supabase-kong
     restart: unless-stopped
     depends_on:
-      supabase-rest:
-        condition: service_started
       supabase-storage:
-        condition: service_started
+        condition: service_healthy
     ports:
-      - "${SUPABASE_KONG_PORT:-54321}:8000"
+      - "${KONG_PORT:-54323}:8000"
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
-      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
-      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
     volumes:
       - ./docker/supabase/kong.yml:/var/lib/kong/kong.yml:ro
+
+  supabase-meta:
+    image: supabase/postgres-meta:v0.89.3
+    container_name: studybuddy-supabase-meta
+    restart: unless-stopped
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: 5432
+      PG_META_DB_NAME: postgres
+      PG_META_DB_USER: postgres
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      CRYPTO_KEY: local-studybuddy-pg-meta-crypto-key-32b
+
+  supabase-studio:
+    image: supabase/studio:2026.07.07-sha-a6a04f2
+    container_name: studybuddy-supabase-studio
+    restart: unless-stopped
+    depends_on:
+      supabase-meta:
+        condition: service_started
+      supabase-kong:
+        condition: service_started
+    ports:
+      - "${STUDIO_PORT:-54324}:3000"
+    environment:
+      HOSTNAME: "0.0.0.0"
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_HOST: supabase-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      PG_META_CRYPTO_KEY: local-studybuddy-pg-meta-crypto-key-32b
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: http://localhost:${KONG_PORT:-54323}
+      SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+      SUPABASE_SERVICE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      AUTH_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      DEFAULT_ORGANIZATION_NAME: StudyBuddy
+      DEFAULT_PROJECT_NAME: local
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/platform/profile').then((r) => { if (r.status !== 200) throw new Error(r.status) })\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   supabase-init:
     image: curlimages/curl:8.12.1
     container_name: studybuddy-supabase-init
     depends_on:
-      supabase-storage:
-        condition: service_healthy
       supabase-kong:
         condition: service_started
     restart: "no"
-    environment:
-      <<: *supabase-jwt
-      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
-        echo "Waiting for Kong storage route..."
-        for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+        KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+        for i in 1 2 3 4 5 6 7 8 9 10; do
           if curl -fsS "http://supabase-kong:8000/storage/v1/bucket" \
-            -H "Authorization: Bearer $$SERVICE_ROLE_KEY" \
-            -H "apikey: $$SERVICE_ROLE_KEY" >/dev/null 2>&1; then
+            -H "Authorization: Bearer $$KEY" -H "apikey: $$KEY" >/dev/null 2>&1; then
             break
           fi
           sleep 2
         done
-        echo "Ensuring documents bucket exists..."
         curl -fsS -X POST "http://supabase-kong:8000/storage/v1/bucket" \
-          -H "Authorization: Bearer $$SERVICE_ROLE_KEY" \
-          -H "apikey: $$SERVICE_ROLE_KEY" \
+          -H "Authorization: Bearer $$KEY" -H "apikey: $$KEY" \
           -H "Content-Type: application/json" \
-          -d '{"id":"documents","name":"documents","public":false,"file_size_limit":52428800}' \
-          || true
-        echo "Supabase init complete."
+          -d '{"id":"documents","name":"documents","public":false}' || true
+        echo "Supabase init done"
 
+  # --- App Infrastructure ---
   redis:
     image: redis:7-alpine
     container_name: studybuddy-redis
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${REDIS_PORT:-16379}:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -178,15 +190,15 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 5
 
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: studybuddy-rabbitmq
     restart: unless-stopped
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "${RABBITMQ_PORT:-25672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-25673}:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
@@ -195,59 +207,41 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
-      timeout: 10s
-      retries: 10
+      timeout: 5s
+      retries: 5
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
     container_name: studybuddy-elasticsearch
     restart: unless-stopped
     ports:
-      - "${ELASTICSEARCH_PORT:-9200}:9200"
+      - "${ELASTICSEARCH_PORT:-19200}:9200"
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
-      xpack.security.http.ssl.enabled: "false"
-      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
-      cluster.name: studybuddy
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "curl -fsS http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s >/dev/null || exit 1",
-        ]
+      test: ["CMD-SHELL", "curl -fsS localhost:9200/_cluster/health || exit 1"]
       interval: 10s
-      timeout: 10s
-      retries: 20
+      timeout: 5s
+      retries: 10
       start_period: 30s
     ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      nofile:
-        soft: 65536
-        hard: 65536
+      memlock: { soft: -1, hard: -1 }
 
   unstructured:
     image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
     container_name: studybuddy-unstructured
     restart: unless-stopped
     ports:
-      - "${UNSTRUCTURED_PORT:-8001}:8000"
-    environment:
-      PORT: 8000
-      UNSTRUCTURED_MEMORY_FREE_MINIMUM_MB: ${UNSTRUCTURED_MEMORY_FREE_MINIMUM_MB:-1024}
+      - "${UNSTRUCTURED_PORT:-18001}:8000"
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthcheck')\" || exit 1",
-        ]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthcheck')\""]
       interval: 15s
       timeout: 10s
-      retries: 20
+      retries: 10
       start_period: 60s
 
 volumes:
