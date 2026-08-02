@@ -3,7 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-CONFIDENCE_BUMP = 0.01
+CONFIDENCE_BUMP = 0.001
+IMPORTANCE_BUMP = 0.001
 
 MEMORY_CATEGORY = Literal[
     "personal",
