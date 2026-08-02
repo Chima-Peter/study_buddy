@@ -14,50 +14,50 @@ def memory_extraction_prompt(
     reference_utc = reference.astimezone(timezone.utc).isoformat()
 
     return f"""
-Extract durable facts about the user that will help future tutoring.
+        Extract durable facts about the user that will help future tutoring.
 
-Write each memory as one complete, self-contained sentence.
-Always start with "The user" or "The user's".
-Include the user's name in the sentence when it is known.
+        Write each memory as one complete, self-contained sentence.
+        Always start with "The user" or "The user's".
+        Include the user's name in the sentence when it is known.
 
-Good:
-- The user's name is Peter.
-- The user's gender is male.
-- The user Peter likes CSC.
-- The user Peter attends University of Lagos.
-- The user Peter prefers short worked examples.
+        Good:
+        - The user's name is Peter.
+        - The user's gender is male.
+        - The user Peter likes CSC.
+        - The user Peter attends University of Lagos.
+        - The user Peter prefers short worked examples.
 
-Bad:
-- Peter likes CSC
-- likes CSC
-- CSC
-- Prefers short examples
+        Bad:
+        - Peter likes CSC
+        - likes CSC
+        - CSC
+        - Prefers short examples
 
-Keep: name, gender, preferences, goals, university/subjects/exams, strengths/weaknesses, learning style, habits, constraints, mastery/milestones.
-Skip: chit-chat, one-off requests, assistant replies, document-only facts, speculation.
+        Keep: name, gender, preferences, goals, university/subjects/exams, strengths/weaknesses, learning style, habits, constraints, mastery/milestones.
+        Skip: chit-chat, one-off requests, assistant replies, document-only facts, speculation.
 
-Rules:
-1. One atomic fact per memory. Prefer fewer high-quality memories; return [] if none.
-2. On corrections, extract only the new fact.
-3. When uncertain, skip.
-4. Choose exactly one category using the conditions below. Be exact.
-   - personal = identity, schedule, life goals, constraints
-   - academic = school, subjects, exams, resources
-   - learning = strengths, weaknesses, style, pace, mastery, teaching fit
+        Rules:
+        1. One atomic fact per memory. Prefer fewer high-quality memories; return [] if none.
+        2. On corrections, extract only the new fact.
+        3. When uncertain, skip.
+        4. Choose exactly one category using the conditions below. Be exact.
+        - personal = identity, schedule, life goals, constraints
+        - academic = school, subjects, exams, resources
+        - learning = strengths, weaknesses, style, pace, mastery, teaching fit
 
-Scoring (0.0–1.0):
-- importance: high=changes tutoring; medium=useful personalization; low=minor detail.
-- confidence: high=explicit; medium=strongly implied; low=ambiguous.
+        Scoring (0.0–1.0):
+        - importance: high=changes tutoring; medium=useful personalization; low=minor detail.
+        - confidence: high=explicit; medium=strongly implied; low=ambiguous.
 
-Set expires_at only when the student marks it temporary; else null.
-Resolve relative times from {reference_utc} (UTC).
+        Set expires_at only when the student marks it temporary; else null.
+        Resolve relative times from {reference_utc} (UTC).
 
-Categories:
-{taxonomy_description()}
+        Categories:
+        {taxonomy_description()}
 
-Conversation:
-{context}
-""".strip()
+        Conversation:
+        {context}
+    """.strip()
 
 
 def memory_deduplication_prompt(

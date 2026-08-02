@@ -554,15 +554,18 @@ class StoreMemoryNode:
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
-        if not state["query"]:
+        if not state["conversation_history"]:
             self.logger.info(
-                "Store memory node skipped id=%s user_id=%s reason=no_query",
+                "Store memory node skipped id=%s user_id=%s reason=no_conversation_history",
                 state["conversation_id"],
                 state["user_id"],
             )
             return {}
 
-        context = f"User: {state['query']}"
+        context = "\n".join(
+            f"User: {chat.query}\n"
+            for chat in state["conversation_history"][-SUMMARY_EVERY:]
+        )
         self.logger.info(
             "Store memory node started id=%s user_id=%s",
             state["conversation_id"],
