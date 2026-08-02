@@ -39,7 +39,7 @@ class RAGRetriever(Retriever):
         )
 
         results_lists = await self.elasticsearch.search_hybrid(
-            user_id, query, embedding, index="documents"
+            user_id, query, embedding, index="documents", min_score=0.5
         )
         results = await super().reciprocal_rank_fusion(results_lists, k=TOP_K)
 

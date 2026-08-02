@@ -2,8 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from app.memory.schema import MemoryRetrievalQuery
-
 SUMMARY_EVERY = 5
 SUMMARY_MAX_CHARS = 1500
 
@@ -19,12 +17,11 @@ class DeciderResponse(BaseModel):
     )
     retrieve_memory: bool = Field(
         description=(
-            "True when answering needs durable student memories from "
-            "personal, academic, or learning. "
-            "False for pure document lookup, general knowledge, or chat that "
-            "does not depend on stored student facts. "
-            "Name and gender come from the user profile and are loaded "
-            "separately when missing."
+            "True when answering needs stored facts about the user "
+            "(personal: life outside school; study: topics, courses, learning style). "
+            "False for greetings/small talk, pure document lookup, general "
+            "knowledge, or chat that does not depend on stored student facts. "
+            "Name and gender come from the user profile automatically."
         ),
     )
 
@@ -39,13 +36,13 @@ class RewriteQueryResponse(BaseModel):
             "Null when document retrieval is not needed."
         ),
     )
-    memory_queries: list[MemoryRetrievalQuery] = Field(
-        default_factory=list,
+    memory_query: str | None = Field(
+        default=None,
         description=(
-            "One or more simple questions for the memory index, each with "
-            "content and an exact category (personal, academic, or learning). "
-            "Empty when memory retrieval is not needed. "
-            "Do not include name/gender lookups; those come from the "
-            "user profile automatically."
+            "One partial statement for the memory index, phrased like stored "
+            "memories starting with 'The user'. Combine needed aspects into "
+            "a single phrase, e.g. 'The user is interested in and prefers'. "
+            "Null when memory retrieval is not needed. "
+            "Do not include name/gender lookups; those come from profile."
         ),
     )

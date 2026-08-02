@@ -23,7 +23,7 @@ class CleanupNode:
             "retrieve_rag": False,
             "retrieve_conversation_history": False,
             "retrieve_memory": False,
-            "memory_queries": [],
+            "memory_query": None,
             "memories": [],
             "response": "",
             "messages": [],

@@ -4,12 +4,8 @@ from typing import cast
 from app.core.elasticsearch import Elasticsearch
 from app.core.elasticsearch_schema import IndexedRecord, MemoryMetadata
 from app.core.retriever import Retriever
-from app.memory.schema import Memory, MemoryDuplicateSearch, MemorySearch
+from app.memory.schema import DUPLICATE_MIN_SCORE, DUPLICATE_TOP_K, MEMORY_INDEX, SEARCH_TOP_K, Memory, MemoryDuplicateSearch, MemorySearch
 
-MEMORY_INDEX = "user_memories"
-DUPLICATE_TOP_K = 5
-DUPLICATE_MIN_SCORE = 0.8
-SEARCH_TOP_K = 5
 
 
 class MemoryRepository:
@@ -40,10 +36,8 @@ class MemoryRepository:
     async def retrieve(self, search: MemorySearch) -> list[Memory]:
         try:
             self.logger.info(
-                "MemoryRepository search start user_id=%s category=%s "
-                "status=%s",
+                "MemoryRepository search start user_id=%s status=%s",
                 search.user_id,
-                search.category,
                 search.status,
             )
 
@@ -52,22 +46,23 @@ class MemoryRepository:
                 search.content,
                 search.embedding,
                 index=MEMORY_INDEX,
-                category=search.category,
+                min_score=None,
                 status=search.status,
             )
             fused = await self.retriever.reciprocal_rank_fusion(
                 results_lists,
-                k=SEARCH_TOP_K
+                k=SEARCH_TOP_K,
             )
+            results = [
+                self._from_indexed_record(result.document) for result in fused
+            ]
 
             self.logger.info(
                 "MemoryRepository search done user_id=%s hits=%s",
                 search.user_id,
-                len(fused),
+                len(results),
             )
-            return [
-                self._from_indexed_record(result.document) for result in fused
-            ]
+            return results
         except Exception as e:
             self.logger.exception("MemoryRepository search failed: %s", e)
             raise ValueError("Failed to search") from e

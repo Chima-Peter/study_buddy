@@ -34,6 +34,7 @@ async def handle_memory_extract(
             await memory_service.store(
                 user_id=request.user_id,
                 context=request.context,
+                known_memories=request.known_memories,
             )
             logger.info(
                 "Memory extract completed user_id=%s conversation_id=%s",

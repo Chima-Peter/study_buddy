@@ -1,34 +1,34 @@
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 CONFIDENCE_BUMP = 0.001
 IMPORTANCE_BUMP = 0.001
 
-MEMORY_CATEGORY = Literal[
-    "personal",
-    "academic",
-    "learning",
-]
+MEMORY_INDEX = "user_memories"
+DUPLICATE_TOP_K = 10
+DUPLICATE_MIN_SCORE = 0.5
+SEARCH_TOP_K = 5
+
+MEMORY_CATEGORY = Literal["personal", "study"]
+
+# Map legacy categories so existing Elasticsearch docs still load.
+_LEGACY_CATEGORY_MAP = {
+    "academic": "study",
+    "learning": "study",
+}
 
 CATEGORY_DESCRIPTIONS: dict[MEMORY_CATEGORY, str] = {
     "personal": (
-        "Use when the fact is about identity or life logistics: gender, "
-        "availability/schedule, life goals, constraints, other people's names. "
-        "Never the user's own name (that lives on their profile). "
-        "Not school/course details and not strengths, weaknesses, or learning style."
+        "Everything OUTSIDE school/studying: gender, work schedule, "
+        "job, hobbies, family, life goals, constraints, other people's names. "
+        "Never the user's own name (that's on their profile)."
     ),
-    "academic": (
-        "Use when the fact is about their school/course context: university, "
-        "programme, subjects, modules, syllabus, exams, study resources. "
-        "Not personal identity and not how well they learn a topic."
-    ),
-    "learning": (
-        "Use when the fact is about ability or teaching fit: strengths, "
-        "weaknesses, learning style, pace, topic mastery, assessment results, "
-        "milestones, how they want material explained. "
-        "Not identity/schedule and not which school/subject they take."
+    "study": (
+        "Everything ABOUT school/studying: topics, interests, courses, "
+        "exams, resources, strengths, weaknesses, learning style, pace, "
+        "study schedule, how they want material explained."
     ),
 }
 
@@ -62,10 +62,18 @@ class ExtractedMemory(BaseModel):
     )
     category: MEMORY_CATEGORY = Field(
         description=(
-            "Exact category for this fact. Choose one of: personal, academic, "
-            "learning. Follow the category conditions in the taxonomy."
+            "personal = everything OUTSIDE school/studying; "
+            "study = everything ABOUT school/studying."
         ),
     )
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def coerce_legacy_category(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return _LEGACY_CATEGORY_MAP.get(value, value)
+        return value
+
     importance: float = Field(
         ge=0.0,
         le=1.0,
@@ -112,6 +120,10 @@ class MemoryExtractRequest(BaseModel):
     user_id: str
     context: str
     conversation_id: str | None = None
+    known_memories: list[str] = Field(
+        default_factory=list,
+        description="Facts already retrieved/known this turn; do not re-extract.",
+    )
 
 
 class MemoryRetrievalQuery(BaseModel):
@@ -119,37 +131,17 @@ class MemoryRetrievalQuery(BaseModel):
 
     content: str = Field(
         description=(
-            "A short simple question to ask the memory store, e.g. "
-            "'What is the user's name?', "
-            "'Which university does the user attend?', "
-            "'What subjects does the user like?'."
+            "A single partial statement matching how memories are stored. "
+            "Start with 'The user'. Combine aspects into one phrase. "
+            "Example: 'The user is interested in and prefers'."
         ),
     )
-    category: MEMORY_CATEGORY = Field(
-        description=(
-            "Exact category to search. Choose one of: personal, academic, "
-            "learning. Follow the category conditions in the taxonomy."
-        ),
-    )
-
-
-# Always kept in agent state; fetched from the memory index when missing.
-CORE_NAME_QUERY = MemoryRetrievalQuery(
-    content="What is the user's name?",
-    category="personal",
-)
-CORE_GENDER_QUERY = MemoryRetrievalQuery(
-    content="What is the user's gender?",
-    category="personal",
-)
-CORE_PROFILE_QUERIES = (CORE_NAME_QUERY, CORE_GENDER_QUERY)
 
 
 class MemorySearch(BaseModel):
     user_id: str
     content: str
     embedding: list[float]
-    category: MEMORY_CATEGORY
     status: MEMORY_STATUS = "active"
 
 
@@ -242,6 +234,13 @@ class Memory(BaseModel):
     expires_at: datetime | None = None
     valid_from: datetime | None = None
     valid_to: datetime | None = None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def coerce_legacy_category(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return _LEGACY_CATEGORY_MAP.get(value, value)
+        return value
 
     @model_validator(mode="after")
     def check_validity_window(self) -> "Memory":

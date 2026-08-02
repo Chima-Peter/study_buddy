@@ -10,8 +10,9 @@ def retrieval_decider_prompt(query: str) -> str:
         '- "both": needs both documents and prior chat\n'
         '- "none": general knowledge question, no retrieval needed\n\n'
         "Set retrieve_memory:\n"
-        "- true: when answer needs stored student facts (preferences, goals, strengths, schedule)\n"
-        "- false: for document lookup, general knowledge, or chat without needing student facts\n"
+        "- true: answer needs stored student facts (topics, preferences, style, schedule)\n"
+        "- false: greetings/small talk (hi, hello, thanks), document-only lookup, "
+        "general knowledge, or chat that does not need stored student facts\n"
         "Note: Name and gender come from user profile automatically, not from memory.\n\n"
         f"Question: {query}\n"
     )
@@ -38,16 +39,15 @@ def rewrite_query_prompt(
 
     if retrieve_memory:
         parts.append(
-            "Set memory_queries to simple questions for the memory store.\n"
-            "Each entry needs: content (a short question) and category.\n"
-            "Categories:\n"
-            "- personal: identity, schedule, goals, constraints\n"
-            "- academic: university, subjects, exams, resources\n"
-            "- learning: strengths, weaknesses, style, pace\n"
+            "Set memory_query to ONE partial statement for the memory store.\n"
+            "Phrase like stored memories - start with 'The user'.\n"
+            "Combine needed aspects into a single phrase.\n"
+            "Good: 'The user is interested in and prefers'\n"
+            "Bad: 'What does the user like?' (question format won't match)\n"
             "Do NOT include name/gender lookups - those come from profile.\n"
         )
     else:
-        parts.append("Set memory_queries to empty list (memory retrieval disabled).\n")
+        parts.append("Set memory_query to null (memory retrieval disabled).\n")
 
     parts.append(
         f"\nConversation summary: {conversation_summary or '(none)'}\n"

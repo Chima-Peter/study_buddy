@@ -3,7 +3,7 @@ from logging import Logger
 
 from app.agent.state import AgentState
 from app.authentication.repository.user_repository import UserRepository
-from app.memory.schema import Memory
+from app.memory.schema import Memory, MemoryRetrievalQuery
 from app.memory.service import MemoryService
 
 
@@ -22,13 +22,13 @@ class RetrieveMemoryNode:
         student_name = state.get("student_name")
         student_gender = state.get("student_gender")
         need_profile = not student_name or not student_gender
-        turn_queries = (
-            list(state.get("memory_queries") or [])
+        memory_query = (
+            state.get("memory_query")
             if state.get("retrieve_memory")
-            else []
+            else None
         )
 
-        if not turn_queries and not need_profile:
+        if not memory_query and not need_profile:
             self.logger.info(
                 "Retrieve memory node skipped user_id=%s reason=nothing_to_fetch",
                 state["user_id"],
@@ -36,10 +36,10 @@ class RetrieveMemoryNode:
             return {"memories": []}
 
         self.logger.info(
-            "Retrieve memory node started user_id=%s turn_queries=%s "
+            "Retrieve memory node started user_id=%s has_query=%s "
             "need_profile=%s",
             state["user_id"],
-            len(turn_queries),
+            bool(memory_query),
             need_profile,
         )
 
@@ -50,10 +50,11 @@ class RetrieveMemoryNode:
                 profile_task = tg.create_task(
                     self.user_repository.get_by_id(state["user_id"])
                 )
-            if turn_queries:
+            if memory_query:
                 turn_task = tg.create_task(
                     self.memory_service.retrieve_for_queries(
-                        state["user_id"], turn_queries
+                        state["user_id"],
+                        [MemoryRetrievalQuery(content=memory_query)],
                     )
                 )
 

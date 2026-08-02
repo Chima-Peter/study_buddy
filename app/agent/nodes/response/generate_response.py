@@ -58,6 +58,15 @@ class GenerateResponseNode:
         else:
             history_text = ""
 
+        self.logger.info(
+            "History text: %s",
+            history_text,
+        )
+        self.logger.info(
+            "Memories text: %s",
+            memories_text,
+        )
+
         prompt = chat_response_prompt(
             context=context,
             conversation_history_prompt=history_text,

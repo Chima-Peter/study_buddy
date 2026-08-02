@@ -255,7 +255,7 @@ class Elasticsearch:
         *,
         k: int = 10,
         num_candidates: int = 100,
-        min_score: float | None = None,
+        min_score: float | None = 0.7,
         **metadata_terms: str,
     ) -> list[IndexedRecord]:
         """kNN vector search using dense embeddings, filtered by user/metadata."""
@@ -301,29 +301,34 @@ class Elasticsearch:
         index: str,
         *,
         size: int = 10,
+        min_score: float | None = None,
         **metadata_terms: str,
     ) -> list[IndexedRecord]:
         """BM25 text search on content field, filtered by user/metadata."""
         index = self._resolve_index(index)
         self.logger.debug(
             "ES search_bm25 start user_id=%s index=%s size=%s "
-            "metadata_terms=%s query=%r",
+            "min_score=%s metadata_terms=%s query=%r",
             user_id,
             index,
             size,
+            min_score,
             metadata_terms,
             query[:120],
         )
-        response = await self.elasticsearch.search(
-            index=index,
-            query={
+        request: dict[str, Any] = {
+            "index": index,
+            "query": {
                 "bool": {
                     "must": {"match": {"content": query}},
                     "filter": self._search_filter(user_id, **metadata_terms),
                 }
             },
-            size=size,
-        )
+            "size": size,
+        }
+        if min_score is not None:
+            request["min_score"] = min_score
+        response = await self.elasticsearch.search(**request)
         hits = self._parse_hits(response)
         self.logger.debug(
             "ES search_bm25 done user_id=%s index=%s hits=%s",
@@ -342,6 +347,7 @@ class Elasticsearch:
         *,
         fetch_size: int = 50,
         num_candidates: int = 100,
+        min_score: float | None = 0.7,
         **metadata_terms: str,
     ) -> list[list[tuple[str, IndexedRecord]]]:
         """Run concurrent BM25 and kNN searches for later fusion.
@@ -349,15 +355,17 @@ class Elasticsearch:
         Args:
             fetch_size: Records fetched per branch before fusion (default 50).
             num_candidates: kNN ANN search pool size (default 100).
+            min_score: Minimum score threshold (default 0.7). Set None to disable.
             **metadata_terms: Optional metadata term filters (e.g. category, status).
         """
         self.logger.info(
             "ES search_hybrid start user_id=%s index=%s fetch_size=%s "
-            "num_candidates=%s dims=%s metadata_terms=%s query=%r",
+            "num_candidates=%s min_score=%s dims=%s metadata_terms=%s query=%r",
             user_id,
             index,
             fetch_size,
             num_candidates,
+            min_score,
             len(embedding),
             metadata_terms,
             query[:120],
@@ -369,6 +377,7 @@ class Elasticsearch:
                 query,
                 index,
                 size=fetch_size,
+                min_score=min_score,
                 **metadata_terms,
             ),
             self.search_vector(
@@ -377,6 +386,7 @@ class Elasticsearch:
                 index,
                 k=fetch_size,
                 num_candidates=num_candidates,
+                min_score=None,
                 **metadata_terms,
             ),
             return_exceptions=True,

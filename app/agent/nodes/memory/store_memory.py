@@ -26,10 +26,14 @@ class StoreMemoryNode:
             f"User: {chat.query}\nAssistant: {chat.response}"
             for chat in state["conversation_history"][-SUMMARY_EVERY:]
         )
+        known_memories = [
+            memory.content for memory in (state.get("memories") or [])
+        ]
         payload = MemoryExtractRequest(
             user_id=state["user_id"],
             context=context,
             conversation_id=state["conversation_id"],
+            known_memories=known_memories,
         )
         self.logger.info(
             "Store memory node enqueue id=%s user_id=%s",

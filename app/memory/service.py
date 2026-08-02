@@ -39,10 +39,8 @@ class MemoryService:
     async def retrieve(self, search: MemorySearch) -> list[Memory]:
         try:
             self.logger.info(
-                "MemoryService retrieve start user_id=%s category=%s "
-                "status=%s",
+                "MemoryService retrieve start user_id=%s status=%s",
                 search.user_id,
-                search.category,
                 search.status,
             )
             results = await self.repository.retrieve(search)
@@ -55,45 +53,6 @@ class MemoryService:
             self.logger.exception(f"MemoryService retrieve failed: {e}")
             raise ValueError("Failed to retrieve") from e
 
-    async def retrieve_for_query(
-        self,
-        user_id: str,
-        query: MemoryRetrievalQuery,
-        *,
-        status: MEMORY_STATUS = "active",
-    ) -> list[Memory]:
-        """Embed a rewritten memory query and search the memory store."""
-        try:
-            self.logger.info(
-                "MemoryService retrieve_for_query start user_id=%s "
-                "category=%s",
-                user_id,
-                query.category,
-            )
-            embedding = await asyncio.to_thread(
-                self.embedding_manager.embed_query,
-                query.content,
-            )
-            embedding_list = (
-                embedding.tolist()
-                if hasattr(embedding, "tolist")
-                else list(embedding)
-            )
-            return await self.retrieve(
-                MemorySearch(
-                    user_id=user_id,
-                    content=query.content,
-                    embedding=embedding_list,
-                    category=query.category,
-                    status=status,
-                )
-            )
-        except Exception as e:
-            self.logger.exception(
-                f"MemoryService retrieve_for_query failed: {e}"
-            )
-            raise ValueError("Failed to retrieve") from e
-
     async def retrieve_for_queries(
         self,
         user_id: str,
@@ -101,39 +60,74 @@ class MemoryService:
         *,
         status: MEMORY_STATUS = "active",
     ) -> list[Memory]:
-        """Run multiple memory searches in parallel and dedupe by id."""
+        """Batch-embed queries, search in parallel, and dedupe by id."""
         if not queries:
             return []
 
-        async with asyncio.TaskGroup() as tg:
-            tasks = [
-                tg.create_task(
-                    self.retrieve_for_query(
-                        user_id, query, status=status
-                    )
-                )
-                for query in queries
-            ]
-
-        by_id: dict[str, Memory] = {}
-        for task in tasks:
-            for memory in task.result():
-                by_id[memory.id] = memory
-        return list(by_id.values())
-
-    async def store(self, user_id: str, context: str):
         try:
-            extracted = await self.extract_candidate_memories(context)
+            self.logger.info(
+                "MemoryService retrieve_for_queries start user_id=%s "
+                "queries=%s",
+                user_id,
+                len(queries),
+            )
+            embeddings = await self._embed_contents(
+                [query.content for query in queries]
+            )
+
+            async with asyncio.TaskGroup() as tg:
+                tasks = [
+                    tg.create_task(
+                        self.retrieve(
+                            MemorySearch(
+                                user_id=user_id,
+                                content=query.content,
+                                embedding=embedding,
+                                status=status,
+                            )
+                        )
+                    )
+                    for query, embedding in zip(queries, embeddings)
+                ]
+
+            by_id: dict[str, Memory] = {}
+            for task in tasks:
+                for memory in task.result():
+                    by_id[memory.id] = memory
+
+            self.logger.info(
+                "MemoryService retrieve_for_queries done results=%s",
+                len(by_id),
+            )
+            return list(by_id.values())
+        except Exception as e:
+            self.logger.exception(
+                f"MemoryService retrieve_for_queries failed: {e}"
+            )
+            raise ValueError("Failed to retrieve") from e
+
+    async def store(
+        self,
+        user_id: str,
+        context: str,
+        *,
+        known_memories: list[str] | None = None,
+    ):
+        try:
+            extracted = await self.extract_candidate_memories(
+                context,
+                known_memories=known_memories,
+            )
             if not extracted:
                 return None
 
             candidates = await self._to_memories(user_id, extracted)
-            existing = await self.search_duplicates_for_candidates(
+            related_by_candidate = await self.search_duplicates_for_candidates(
                 user_id, candidates
             )
             deduped = await self.deduplicate(
                 candidates=candidates,
-                existing=existing,
+                related_by_candidate=related_by_candidate,
             )
 
             async with asyncio.TaskGroup() as tg:
@@ -167,9 +161,12 @@ class MemoryService:
     async def extract_candidate_memories(
         self,
         context: str,
+        *,
+        known_memories: list[str] | None = None,
     ) -> list[ExtractedMemory]:
         prompt = memory_extraction_prompt(
             context=context,
+            known_memories=known_memories,
             now=datetime.now(timezone.utc),
         )
         try:
@@ -189,7 +186,11 @@ class MemoryService:
         self,
         user_id: str,
         candidates: list[Memory],
-    ) -> list[Memory]:
+    ) -> dict[str, list[Memory]]:
+        """Map each candidate id to its related active memories from vector search."""
+        if not candidates:
+            return {}
+
         async with asyncio.TaskGroup() as tg:
             tasks = [
                 tg.create_task(
@@ -205,33 +206,40 @@ class MemoryService:
                 for candidate in candidates
             ]
 
-        result: dict[str, Memory] = {}
-        for task in tasks:
-            for memory in task.result():
-                result[memory.id] = memory
-        return list(result.values())
+        return {
+            candidate.id: task.result()
+            for candidate, task in zip(candidates, tasks)
+        }
 
     async def deduplicate(
         self,
         candidates: list[Memory],
-        existing: list[Memory],
+        related_by_candidate: dict[str, list[Memory]],
     ) -> MemoryDeduplicationResult:
         try:
+            related_count = sum(
+                len(related) for related in related_by_candidate.values()
+            )
             self.logger.info(
-                "MemoryService deduplicate start candidates=%s existing=%s",
+                "MemoryService deduplicate start candidates=%s related=%s",
                 len(candidates),
-                len(existing),
+                related_count,
             )
             decision: MemoryDeduplicationDecision = (
                 await self.model.with_structured_output(
                     MemoryDeduplicationDecision
                 ).ainvoke(
-                    memory_deduplication_prompt(candidates, existing)
+                    memory_deduplication_prompt(
+                        candidates, related_by_candidate
+                    )
                 )
             )
 
             candidates_by_id = {memory.id: memory for memory in candidates}
-            existing_by_id = {memory.id: memory for memory in existing}
+            existing_by_id: dict[str, Memory] = {}
+            for related in related_by_candidate.values():
+                for memory in related:
+                    existing_by_id[memory.id] = memory
 
             now = datetime.now(timezone.utc)
             identical: list[Memory] = []
