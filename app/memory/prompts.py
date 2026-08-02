@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.memory.schema import Memory, taxonomy_description
+from app.memory.schema import Memory
 
 
 def memory_extraction_prompt(
@@ -13,51 +13,39 @@ def memory_extraction_prompt(
         reference = reference.replace(tzinfo=timezone.utc)
     reference_utc = reference.astimezone(timezone.utc).isoformat()
 
-    return f"""
-        Extract durable facts about the user that will help future tutoring.
+    return f"""Extract NEW durable facts about the user for future tutoring.
 
-        Write each memory as one complete, self-contained sentence.
-        Always start with "The user" or "The user's".
-        Include the user's name in the sentence when it is known.
+Format: Complete sentence starting with "The user" or "The user's".
+Good: "The user attends University of Lagos.", "The user prefers visual explanations."
+Bad: "Peter likes math" (missing "The user"), "The user's name is Peter" (never store user's name).
 
-        Good:
-        - The user's name is Peter.
-        - The user's gender is male.
-        - The user Peter likes CSC.
-        - The user Peter attends University of Lagos.
-        - The user Peter prefers short worked examples.
+NEVER extract:
+- The user's own name (already on their profile). Only extract other people's names when relevant.
+- Facts the assistant already recalled/mentioned in the conversation (already stored)
+- Facts from assistant responses that came from memory retrieval
 
-        Bad:
-        - Peter likes CSC
-        - likes CSC
-        - CSC
-        - Prefers short examples
+Only extract NEW information from the user's messages that is not already known.
 
-        Keep: name, gender, preferences, goals, university/subjects/exams, strengths/weaknesses, learning style, habits, constraints, mastery/milestones.
-        Skip: chit-chat, one-off requests, assistant replies, document-only facts, speculation.
+Categories (pick exactly one):
+- personal: gender, schedule, life goals, constraints, other people's names
+- academic: university, subjects, exams, study resources
+- learning: strengths, weaknesses, learning style, pace, topic mastery
 
-        Rules:
-        1. One atomic fact per memory. Prefer fewer high-quality memories; return [] if none.
-        2. On corrections, extract only the new fact.
-        3. When uncertain, skip.
-        4. Choose exactly one category using the conditions below. Be exact.
-        - personal = identity, schedule, life goals, constraints
-        - academic = school, subjects, exams, resources
-        - learning = strengths, weaknesses, style, pace, mastery, teaching fit
+Scoring (0.0-1.0):
+- importance: 0.8+ core facts, 0.5-0.7 useful preferences, <0.5 minor details
+- confidence: 0.8+ explicit statement, 0.5-0.7 implied, <0.5 uncertain
 
-        Scoring (0.0–1.0):
-        - importance: high=changes tutoring; medium=useful personalization; low=minor detail.
-        - confidence: high=explicit; medium=strongly implied; low=ambiguous.
+Rules:
+1. One atomic fact per memory; return [] if nothing new worth storing
+2. Skip facts the assistant already knows/recalls in the conversation
+3. On corrections, extract only the corrected fact
+4. When uncertain, skip rather than guess
+5. Set expires_at only if student gives a time bound; otherwise null
 
-        Set expires_at only when the student marks it temporary; else null.
-        Resolve relative times from {reference_utc} (UTC).
+Reference time: {reference_utc}
 
-        Categories:
-        {taxonomy_description()}
-
-        Conversation:
-        {context}
-    """.strip()
+Conversation:
+{context}""".strip()
 
 
 def memory_deduplication_prompt(
@@ -75,27 +63,22 @@ def memory_deduplication_prompt(
         for m in existing
     ) or "- (none)"
 
-    return f"""
-Classify each candidate against existing memories. Put every candidate in exactly one list.
+    return f"""Classify each candidate memory against existing memories. Put every candidate in exactly one list.
 
 Relations:
-- identical: same fact; set verified=true only after confirming. Existing kept (confidence rises).
-- updated: same topic revised; existing superseded; candidate stored.
-- different: distinct fact that can coexist; candidate stored.
-- contradict: conflicts with existing; existing archived; candidate stored.
+- identical: Same fact as existing. Set verified=true after confirming. Existing is kept.
+- updated: Revises an existing fact. Existing is superseded; candidate is stored.
+- different: New fact that can coexist with existing. Candidate is stored.
+- contradict: Conflicts with existing (can't both be true). Existing is archived; candidate is stored.
 
 Rules:
-1. Use only IDs from the lists below; invent nothing.
-2. If no existing memories, put all candidates in different.
-3. Prefer identical over updated when nothing material changed.
-4. Prefer contradict over different when both cannot be true.
-
-Categories:
-{taxonomy_description()}
+1. Use only IDs from the lists below - do not invent IDs
+2. If no existing memories, put all candidates in "different"
+3. Prefer "identical" over "updated" when nothing material changed
+4. Prefer "contradict" over "different" when both facts cannot be true simultaneously
 
 Candidates:
 {candidate_lines}
 
 Existing:
-{existing_lines}
-""".strip()
+{existing_lines}""".strip()
