@@ -29,6 +29,7 @@ from app.core.supabase import Supabase
 from app.rag.document_parsers import parse_csv
 from app.rag.ocr_cleanup import clean_ocr_documents
 from app.rag.schema import ALLOWED_FILE_TYPES
+from app.rag.unstructured_api import normalize_unstructured_base_url
 from app.system.schemas.document import IngestDocumentRequest
 from app.utils.errors.rabbitmq import NonRetryableIngestError
 
@@ -40,11 +41,15 @@ class IngestPipeline:
         embedding_manager: EmbeddingManager = None,
         supabase: Supabase = None,
         elasticsearch: Elasticsearch = None,
+        unstructured_api_url: str = "http://localhost:8001",
+        unstructured_api_key: str = "",
     ):
         self.embedding_manager = embedding_manager
         self.logger = logger
         self.supabase = supabase
         self.elasticsearch = elasticsearch
+        self.unstructured_api_url = normalize_unstructured_base_url(unstructured_api_url)
+        self.unstructured_api_key = unstructured_api_key or ""
 
     async def initiate_ingest_pipeline(
         self,
@@ -290,9 +295,13 @@ class IngestPipeline:
         file_path: str,
         hi_res_strategy: str = "fast",
     ) -> list[Document]:
+        """Partition via the self-hosted Unstructured API (docker compose)."""
         file_name, user_id, document_id = self._ids(payload)
         loader = UnstructuredLoader(
             file_path=file_path,
+            partition_via_api=True,
+            url=self.unstructured_api_url,
+            api_key=self.unstructured_api_key,
             mode="elements",
             strategy=hi_res_strategy,
             metadata_filename=file_name,
@@ -303,11 +312,12 @@ class IngestPipeline:
         )
         documents = loader.load()
         self.logger.info(
-            "Loaded file=%s user_id=%s document_id=%s loader=%s chunks=%s",
+            "Loaded file=%s user_id=%s document_id=%s loader=%s api=%s chunks=%s",
             file_name,
             user_id,
             document_id,
             "UnstructuredLoader",
+            self.unstructured_api_url,
             len(documents),
         )
         return documents
@@ -326,54 +336,28 @@ class IngestPipeline:
                 document_id,
             )
             suffix = Path(file_path).suffix.lower()
-            used_unstructured = False
+            supported = {f".{ext}" for ext in ALLOWED_FILE_TYPES} | {".markdown"}
+            if suffix not in supported:
+                raise NonRetryableIngestError(
+                    f"Unsupported file type: {suffix}. "
+                    f"Should be one of: {', '.join(ALLOWED_FILE_TYPES)}"
+                )
 
-            match suffix:
-                case ".pdf":
-                    if self._pdf_needs_hi_res(file_path):
-                        self.logger.info(
-                            "PDF needs hi_res file=%s user_id=%s document_id=%s",
-                            file_name,
-                            user_id,
-                            document_id,
-                        )
-                        used_unstructured = True
-                        documents = self.load_file(
-                            payload, file_path, "hi_res")
-                    else:
-                        self.logger.info(
-                            "PDF text-only path file=%s user_id=%s document_id=%s",
-                            file_name,
-                            user_id,
-                            document_id,
-                        )
-                        documents = self.load_pdf_file(payload, file_path)
-                case ".docx" | ".doc":
-                    documents = self.load_word_file(payload, file_path)
-                case ".txt":
-                    documents = self.load_text_file(payload, file_path)
-                case ".md" | ".markdown":
-                    documents = self.load_markdown_file(payload, file_path)
-                case ".epub":
-                    documents = self.load_epub_file(payload, file_path)
-                case ".html" | ".htm":
-                    documents = self.load_html_file(payload, file_path)
-                case ".rtf":
-                    documents = self.load_rtf_file(payload, file_path)
-                case ".odt":
-                    documents = self.load_odt_file(payload, file_path)
-                case _:
-                    raise NonRetryableIngestError(
-                        f"Unsupported file type: {suffix}. "
-                        f"Should be one of: {', '.join(ALLOWED_FILE_TYPES)}"
-                    )
-
-            if not documents and used_unstructured:
-                self.logger.warning(
-                    "No document found file=%s user_id=%s document_id=%s; trying hi_res",
+            strategy = "fast"
+            if suffix == ".pdf" and self._pdf_needs_hi_res(file_path):
+                strategy = "hi_res"
+                self.logger.info(
+                    "PDF needs hi_res file=%s user_id=%s document_id=%s",
                     file_name,
                     user_id,
                     document_id,
+                )
+
+            documents = self.load_file(payload, file_path, strategy)
+            if not documents and strategy != "hi_res" and suffix == ".pdf":
+                self.logger.warning(
+                    "No document found file=%s; retrying with hi_res via Unstructured API",
+                    file_name,
                 )
                 documents = self.load_file(payload, file_path, "hi_res")
             elif not documents:
@@ -385,7 +369,7 @@ class IngestPipeline:
                 )
                 return []
 
-            if used_unstructured and documents:
+            if strategy == "hi_res" and documents:
                 pre_clean = len(documents)
                 documents = clean_ocr_documents(documents)
                 self.logger.info(

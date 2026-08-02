@@ -34,6 +34,7 @@ from app.core.redis import RedisClient
 from app.core.supabase import Supabase
 from app.handlers.index import Handlers
 from app.logging_config import init_logging
+from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
 from app.rag.rag_retriever import RAGRetriever
 from app.memory.repository import MemoryRepository
@@ -443,6 +444,15 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
         embedding_manager=embedding_manager,
         supabase=async_supabase,
+        unstructured_api_url=settings.provided.unstructured_api_url,
+        unstructured_api_key=settings.provided.unstructured_api_key,
+    )
+
+    chapter_splitter = providers.Factory(
+        ChapterSplitter,
+        logger=logger,
+        unstructured_api_url=settings.provided.unstructured_api_url,
+        unstructured_api_key=settings.provided.unstructured_api_key,
     )
 
     document_repository = providers.Factory(
@@ -549,6 +559,7 @@ class Container(containers.DeclarativeContainer):
         Handlers,
         logger=logger,
         ingest_pipeline=ingest_pipeline_service,
+        chapter_splitter=chapter_splitter,
         supabase=async_supabase,
         document_service=document_service,
         embedding_manager=embedding_manager,

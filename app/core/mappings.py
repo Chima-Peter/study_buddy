@@ -14,6 +14,8 @@ DOCUMENTS_INDEX_MAPPINGS = {
                 "source": {"type": "keyword"},
                 "category": {"type": "keyword"},
                 "name": {"type": "keyword"},
+                "chapter": {"type": "keyword"},
+                "chapter_key": {"type": "keyword"},
                 "user_id": {"type": "keyword"},
                 "document_id": {"type": "keyword"},
                 "chunk_index": {"type": "integer"},

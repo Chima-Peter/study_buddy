@@ -20,6 +20,7 @@ from app.handlers.memory_extract import (
     handle_memory_extract_dead_letter_queue,
 )
 from app.memory.service import MemoryService
+from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
 from app.system.service.document import DocumentService
 from app.system.service.notification import NotificationService
@@ -30,6 +31,7 @@ class Handlers:
         self,
         logger: Logger,
         ingest_pipeline: IngestPipeline,
+        chapter_splitter: ChapterSplitter,
         supabase: Supabase,
         document_service: DocumentService,
         embedding_manager: EmbeddingManager,
@@ -41,6 +43,7 @@ class Handlers:
     ):
         self._logger = logger
         self._ingest_pipeline = ingest_pipeline
+        self._chapter_splitter = chapter_splitter
         self._supabase = supabase
         self._document_service = document_service
         self._embedding_manager = embedding_manager
@@ -86,6 +89,7 @@ class Handlers:
             handle_document(
                 message,
                 self._ingest_pipeline,
+                self._chapter_splitter,
                 self._logger,
                 self._supabase,
                 self._document_service,

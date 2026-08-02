@@ -14,6 +14,8 @@ class DocumentMetadata(TypedDict, total=False):
     source: str
     category: str
     name: str
+    chapter: str
+    chapter_key: str
 
 
 class MemoryMetadata(TypedDict, total=False):

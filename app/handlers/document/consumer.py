@@ -16,10 +16,12 @@ from app.handlers.document.util import (
     continue_ingestion,
     is_file_not_found_error,
     notify_document_status,
+    process_with_chapters,
 )
 from app.core.rabbitmq import RabbitMQ, read_retry_count
 from app.core.redis import RedisClient
 from app.core.supabase import Supabase
+from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
 from app.system.schemas.document import (
     IngestDocumentRequest,
@@ -29,9 +31,11 @@ from app.system.service.document import DocumentService
 from app.system.service.notification import NotificationService
 from app.utils.errors.rabbitmq import NonRetryableIngestError
 
+
 async def handle_document(
     message: AbstractIncomingMessage,
     ingest_pipeline: IngestPipeline,
+    chapter_splitter: ChapterSplitter,
     logger: Logger,
     supabase: Supabase,
     document_service: DocumentService,
@@ -147,18 +151,22 @@ async def handle_document(
                     return
 
                 start_time = perf_counter()
-                chunks = await asyncio.to_thread(
-                    ingest_pipeline.process_file,
+                chunks = await process_with_chapters(
+                    chapter_splitter,
+                    ingest_pipeline,
                     ingest_payload,
                     tmp.name,
+                    logger,
                 )
                 end_time = perf_counter()
                 logger.info(
-                    "Time taken to process file=%s user_id=%s document_id=%s seconds=%s",
+                    "Time taken to process file=%s user_id=%s document_id=%s "
+                    "seconds=%s chunks=%s",
                     file_name,
                     user_id,
                     document_id,
                     end_time - start_time,
+                    len(chunks) if chunks else 0,
                 )
                 if not chunks:
                     raise NonRetryableIngestError(

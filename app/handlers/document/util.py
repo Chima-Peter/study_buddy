@@ -1,7 +1,15 @@
+import asyncio
+import shutil
 from logging import Logger
+from pathlib import Path
+
+from langchain_core.documents import Document
 
 from app.core.redis import RedisClient
-from app.system.schemas.document import ALL_ALLOWED_EXTENSIONS, DocumentResponse
+from app.rag.chapter_splitter import ChapterSplitter
+from app.rag.ingest_pipeline import IngestPipeline
+from app.rag.schema import ParsedSections
+from app.system.schemas.document import ALL_ALLOWED_EXTENSIONS, DocumentResponse, IngestDocumentRequest
 from app.system.schemas.notification import CreateNotificationRequest, EventPayload
 from app.system.service.document import DocumentService
 from app.system.service.notification import NotificationService
@@ -199,3 +207,75 @@ def _classify_ingest_failure(reason: str) -> tuple[str, str]:
         "processing could not be completed",
         "Please try again, or contact support if the problem continues.",
     )
+
+
+async def process_with_chapters(
+    chapter_splitter: ChapterSplitter,
+    ingest_pipeline: IngestPipeline,
+    payload: IngestDocumentRequest,
+    file_path: str,
+    logger: Logger,
+) -> list[Document]:
+    """
+    Split into chapters when possible, then chunk each section.
+    Falls back to whole-file processing if no chapters are found.
+    """
+    sections = await asyncio.to_thread(
+        chapter_splitter.initiate_chapter_split, file_path
+    )
+    if not sections:
+        logger.info(
+            "No chapters detected; processing whole file=%s document_id=%s",
+            payload.file_name,
+            payload.document_id,
+        )
+        return await asyncio.to_thread(
+            ingest_pipeline.process_file, payload, file_path
+        )
+
+    logger.info(
+        "Processing %s chapters for file=%s document_id=%s",
+        len(sections),
+        payload.file_name,
+        payload.document_id,
+    )
+
+    chunks: list[Document] = []
+    section_dirs = {Path(section.file_path).parent for section in sections}
+
+    async def _process_section(section: ParsedSections) -> list[Document]:
+        section_chunks = await asyncio.to_thread(
+            ingest_pipeline.process_file,
+            payload,
+            section.file_path,
+        )
+        for chunk in section_chunks:
+            chunk.metadata["chapter"] = section.title
+            chunk.metadata["chapter_key"] = section.chapter_key
+        logger.info(
+            "Processed chapter=%s chapter_key=%s chunks=%s file=%s document_id=%s",
+            section.title,
+            section.chapter_key,
+            len(section_chunks),
+            payload.file_name,
+            payload.document_id,
+        )
+        return section_chunks
+
+    try:
+        async with asyncio.TaskGroup() as tg:
+            tasks = [
+                tg.create_task(_process_section(section))
+                for section in sections
+            ]
+        for task in tasks:
+            chunks.extend(task.result())
+    finally:
+        for directory in section_dirs:
+            shutil.rmtree(directory, ignore_errors=True)
+
+    for index, chunk in enumerate(chunks):
+        chunk.metadata["page"] = f"{chunk.metadata['chapter_key']}_{index}"
+        chunk.metadata["id"] = f"{payload.document_id}_{index}"
+
+    return chunks
