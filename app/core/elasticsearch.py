@@ -40,12 +40,22 @@ class Elasticsearch:
     def _user_filter(self, user_id: str) -> dict:
         return {"term": {"metadata.user_id": user_id}}
 
-    def _metadata_filter(self, user_id: str, **metadata_terms: str | None) -> dict:
+    def _metadata_filter(
+        self, user_id: str, **metadata_terms: str | list[str] | None
+    ) -> dict:
         filters: list[dict] = [{"term": {"metadata.user_id": user_id}}]
         for field, value in metadata_terms.items():
             if value is None:
                 continue
-            filters.append({"term": {f"metadata.{field}": value}})
+            if isinstance(value, list):
+                if not value:
+                    continue
+                if len(value) == 1:
+                    filters.append({"term": {f"metadata.{field}": value[0]}})
+                else:
+                    filters.append({"terms": {f"metadata.{field}": value}})
+            else:
+                filters.append({"term": {f"metadata.{field}": value}})
         return {"bool": {"filter": filters}}
 
     def _parse_hits(self, response: dict) -> list[IndexedRecord]:
@@ -236,9 +246,13 @@ class Elasticsearch:
     # --- search ---
 
     def _search_filter(
-        self, user_id: str, **metadata_terms: str | None
+        self, user_id: str, **metadata_terms: str | list[str] | None
     ) -> dict:
-        terms = {k: v for k, v in metadata_terms.items() if v is not None}
+        terms = {
+            k: v
+            for k, v in metadata_terms.items()
+            if v is not None and not (isinstance(v, list) and not v)
+        }
         if terms:
             return self._metadata_filter(user_id, **terms)
         return self._user_filter(user_id)
@@ -259,7 +273,7 @@ class Elasticsearch:
         k: int = 10,
         num_candidates: int = 100,
         min_score: float | None = 0.7,
-        **metadata_terms: str | None,
+        **metadata_terms: str | list[str] | None,
     ) -> list[IndexedRecord]:
         """kNN vector search using dense embeddings, filtered by user/metadata."""
         index = self._resolve_index(index)
@@ -305,7 +319,7 @@ class Elasticsearch:
         *,
         size: int = 10,
         min_score: float | None = None,
-        **metadata_terms: str | None,
+        **metadata_terms: str | list[str] | None,
     ) -> list[IndexedRecord]:
         """BM25 text search on content field, filtered by user/metadata."""
         index = self._resolve_index(index)
@@ -351,7 +365,7 @@ class Elasticsearch:
         fetch_size: int = 50,
         num_candidates: int = 100,
         min_score: float | None = 0.7,
-        **metadata_terms: str | None,
+        **metadata_terms: str | list[str] | None,
     ) -> list[list[tuple[str, IndexedRecord]]]:
         """Run concurrent BM25 and kNN searches for later fusion.
 
@@ -359,7 +373,7 @@ class Elasticsearch:
             fetch_size: Records fetched per branch before fusion (default 50).
             num_candidates: kNN ANN search pool size (default 100).
             min_score: Minimum score threshold (default 0.7). Set None to disable.
-            **metadata_terms: Optional metadata term filters (None values skipped).
+            **metadata_terms: Optional filters; str uses term, list uses terms.
         """
         self.logger.info(
             "ES search_hybrid start user_id=%s index=%s fetch_size=%s "

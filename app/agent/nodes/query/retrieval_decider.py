@@ -55,7 +55,7 @@ class RetrievalDeciderNode:
             retrieve_memory,
         )
 
-        if not state.get("document_id"):
+        if not state.get("document_ids"):
             retrieve_rag = False
 
         return {

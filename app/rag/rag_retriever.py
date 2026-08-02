@@ -24,12 +24,14 @@ class RAGRetriever(Retriever):
         self,
         user_id: str,
         query: str,
-        document_id: str | None = None,
+        document_ids: list[str] | None = None,
     ) -> list[FusedResult]:
         self.logger.info(
-            "Retriever retrieve start user_id=%s top_k=%s query=%r",
+            "Retriever retrieve start user_id=%s top_k=%s document_ids=%s "
+            "query=%r",
             user_id,
             TOP_K,
+            document_ids,
             query[:120],
         )
         embedding = self.embedding_manager.embed_query(query).tolist()
@@ -45,7 +47,7 @@ class RAGRetriever(Retriever):
             embedding,
             index="documents",
             min_score=0.5,
-            document_id=document_id,
+            document_id=document_ids,
         )
         results = await super().reciprocal_rank_fusion(results_lists, k=TOP_K)
 

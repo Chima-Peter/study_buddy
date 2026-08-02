@@ -114,7 +114,13 @@ async def websocket_endpoint(
                         continue
 
                     conversation_id = message.get("conversation_id")
-                    document_id = message.get("document_id")
+                    document_ids = message.get("document_ids")
+                    if document_ids is None and message.get("document_id"):
+                        document_ids = [message["document_id"]]
+                    if isinstance(document_ids, str):
+                        document_ids = [document_ids]
+                    if not document_ids:
+                        document_ids = None
 
                     if query == "ping":
                         await websocket.send_json({
@@ -134,12 +140,12 @@ async def websocket_endpoint(
                                 conversation_id,
                                 user.id,
                             )
-                        if not document_id:
-                            document_id = None
                         logger.info(
-                            "Received message user_id=%s conversation_id=%s",
+                            "Received message user_id=%s conversation_id=%s "
+                            "document_ids=%s",
                             user.id,
                             conversation_id,
+                            document_ids,
                         )
                         graph = agent_graph.start()
                         try:
@@ -151,7 +157,7 @@ async def websocket_endpoint(
                                     "query": query,
                                     "conversation_summary": "",
                                     "title": "",
-                                    "document_id": document_id,
+                                    "document_ids": document_ids,
                                 },
                                 stream_mode="custom",
                                 config={
