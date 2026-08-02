@@ -54,6 +54,10 @@ class RetrievalDeciderNode:
             retrieve_history,
             retrieve_memory,
         )
+
+        if not state.get("document_id"):
+            retrieve_rag = False
+
         return {
             "retrieve_rag": retrieve_rag,
             "retrieve_conversation_history": retrieve_history,

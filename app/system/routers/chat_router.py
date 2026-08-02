@@ -114,6 +114,7 @@ async def websocket_endpoint(
                         continue
 
                     conversation_id = message.get("conversation_id")
+                    document_id = message.get("document_id")
 
                     if query == "ping":
                         await websocket.send_json({
@@ -133,6 +134,8 @@ async def websocket_endpoint(
                                 conversation_id,
                                 user.id,
                             )
+                        if not document_id:
+                            document_id = None
                         logger.info(
                             "Received message user_id=%s conversation_id=%s",
                             user.id,
@@ -148,6 +151,7 @@ async def websocket_endpoint(
                                     "query": query,
                                     "conversation_summary": "",
                                     "title": "",
+                                    "document_id": document_id,
                                 },
                                 stream_mode="custom",
                                 config={

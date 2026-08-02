@@ -24,6 +24,7 @@ class RAGRetriever(Retriever):
         self,
         user_id: str,
         query: str,
+        document_id: str | None = None,
     ) -> list[FusedResult]:
         self.logger.info(
             "Retriever retrieve start user_id=%s top_k=%s query=%r",
@@ -39,7 +40,12 @@ class RAGRetriever(Retriever):
         )
 
         results_lists = await self.elasticsearch.search_hybrid(
-            user_id, query, embedding, index="documents", min_score=0.5
+            user_id,
+            query,
+            embedding,
+            index="documents",
+            min_score=0.5,
+            document_id=document_id,
         )
         results = await super().reciprocal_rank_fusion(results_lists, k=TOP_K)
 

@@ -24,6 +24,7 @@ class RetrieveDocumentsNode:
         results = await self.retriever.retrieve(
             user_id=state["user_id"],
             query=state["rewritten_query"],
+            document_id=state.get("document_id"),
         )
 
         self.logger.info(

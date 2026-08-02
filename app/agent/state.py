@@ -12,6 +12,7 @@ class AgentState(TypedDict):
     rewritten_query: str
     conversation_id: str
     user_id: str
+    document_id: str | None
     first_message: bool
     title: str | None
     conversation_history: Annotated[list[ChatResponse], operator.add]
