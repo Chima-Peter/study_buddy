@@ -1,6 +1,6 @@
 from logging import Logger
 
-from app.agent.state import AgentState
+from app.agent.chat_agent.state import AgentState
 from app.system.service.conversation import ConversationService
 
 

@@ -2,9 +2,9 @@ from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from app.agent.prompts import summary_prompt
-from app.agent.schema import SUMMARY_EVERY, SUMMARY_MAX_CHARS
-from app.agent.state import AgentState
+from app.agent.chat_agent.prompts import summary_prompt
+from app.agent.chat_agent.schema import SUMMARY_EVERY, SUMMARY_MAX_CHARS
+from app.agent.chat_agent.state import AgentState
 from app.system.service.conversation import ConversationService
 
 

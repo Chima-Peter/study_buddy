@@ -3,8 +3,8 @@ from logging import Logger
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.config import get_stream_writer
 
-from app.agent.prompts import title_prompt
-from app.agent.state import AgentState
+from app.agent.chat_agent.prompts import title_prompt
+from app.agent.chat_agent.state import AgentState
 from app.system.schemas.conversation import UpdateConversationTitleRequest
 from app.system.service.conversation import ConversationService
 

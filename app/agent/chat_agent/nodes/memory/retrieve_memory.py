@@ -1,7 +1,7 @@
 import asyncio
 from logging import Logger
 
-from app.agent.state import AgentState
+from app.agent.chat_agent.state import AgentState
 from app.authentication.repository.user_repository import UserRepository
 from app.memory.schema import Memory, MemoryRetrievalQuery
 from app.memory.service import MemoryService

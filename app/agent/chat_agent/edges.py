@@ -1,5 +1,5 @@
-from app.agent.schema import SUMMARY_EVERY
-from app.agent.state import AgentState
+from app.agent.chat_agent.schema import SUMMARY_EVERY
+from app.agent.chat_agent.state import AgentState
 
 
 def update_title_router(state: AgentState) -> list[str]:

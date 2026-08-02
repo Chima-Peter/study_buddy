@@ -3,9 +3,9 @@ from logging import Logger
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.config import get_stream_writer
 
-from app.agent.prompts import chat_response_prompt
-from app.agent.schema import SUMMARY_EVERY
-from app.agent.state import AgentState
+from app.agent.chat_agent.prompts import chat_response_prompt
+from app.agent.chat_agent.schema import SUMMARY_EVERY
+from app.agent.chat_agent.state import AgentState
 
 
 class GenerateResponseNode:

@@ -22,7 +22,7 @@ from sqlalchemy.orm import sessionmaker
 from supabase import AsyncClient, create_async_client, create_client, Client
 from elasticsearch import AsyncElasticsearch
 
-from app.agent.graph import AgentGraph
+from app.agent.chat_agent.graph import AgentGraph
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings

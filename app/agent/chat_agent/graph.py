@@ -1,11 +1,11 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
-from app.agent.edges import (
+from app.agent.chat_agent.edges import (
     update_summary_router,
     update_title_router,
 )
-from app.agent.nodes import (
+from app.agent.chat_agent.nodes import (
     CleanupNode,
     GenerateResponseNode,
     RetrievalDeciderNode,
@@ -18,7 +18,7 @@ from app.agent.nodes import (
     UpdateConversationSummaryNode,
     UpdateConversationTitleNode,
 )
-from app.agent.state import AgentState
+from app.agent.chat_agent.state import AgentState
 from langgraph.graph import START, StateGraph, END
 from logging import Logger
 from app.authentication.repository.user_repository import UserRepository

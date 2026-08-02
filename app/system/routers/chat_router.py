@@ -3,7 +3,7 @@ import json
 from logging import Logger
 from typing import Annotated, Any
 
-from app.agent.graph import AgentGraph
+from app.agent.chat_agent.graph import AgentGraph
 from redis.exceptions import ConnectionError
 from dependency_injector.wiring import Provide, inject
 from fastapi import (

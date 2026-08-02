@@ -1,7 +1,7 @@
 from logging import Logger
 
-from app.agent.schema import SUMMARY_EVERY
-from app.agent.state import AgentState
+from app.agent.chat_agent.schema import SUMMARY_EVERY
+from app.agent.chat_agent.state import AgentState
 from app.core.rabbitmq import RabbitMQ
 from app.memory.schema import MemoryExtractRequest
 
