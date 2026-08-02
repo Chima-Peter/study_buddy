@@ -64,7 +64,7 @@ class RedisClient:
         await self._redis.xadd(
             stream_name,
             {
-                "type": "init",
+                "type": "ping",
                 "data": "{}",
             },
         )
@@ -75,7 +75,7 @@ class RedisClient:
         stream_name: str,
         last_event_id: str = "0",
         *,
-        count: int = 100,
+        count: int = 10,
         block_ms: int = SSE_PING_INTERVAL_MS,
     ) -> list[tuple[str, dict[str, str]]]:
         self._logger.debug(

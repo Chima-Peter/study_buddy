@@ -127,3 +127,47 @@ class NotificationRepository:
                 )
 
             return NotificationModel(**db_notification.model_dump())
+
+    async def mark_many_as_read(
+        self,
+        notification_ids: list[str],
+        user_id: str,
+    ) -> list[NotificationModel]:
+        if not notification_ids:
+            return []
+
+        unique_ids = list(dict.fromkeys(notification_ids))
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(NotificationDBModel).where(
+                    NotificationDBModel.id.in_(unique_ids),
+                    NotificationDBModel.user_id == user_id,
+                )
+            )
+            db_notifications = list(result.scalars().all())
+            if len(db_notifications) != len(unique_ids):
+                return [
+                    NotificationModel(**n.model_dump()) for n in db_notifications
+                ]
+
+            now = datetime.now(timezone.utc)
+            updated = 0
+            for db_notification in db_notifications:
+                if db_notification.read_at is None:
+                    db_notification.read_at = now
+                    updated += 1
+
+            if updated:
+                await session.commit()
+                for db_notification in db_notifications:
+                    await session.refresh(db_notification)
+
+            self.logger.info(
+                "Notifications marked read user_id=%s matched=%s updated=%s",
+                user_id,
+                len(db_notifications),
+                updated,
+            )
+            return [
+                NotificationModel(**n.model_dump()) for n in db_notifications
+            ]

@@ -40,6 +40,28 @@ class NotificationListApiResponse(BaseModel):
     message: Optional[str] = None
     error: Optional[str] = None
 
+
+class MarkNotificationsReadRequest(BaseModel):
+    ids: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Notification IDs to mark as read (1–100)",
+    )
+
+
+class MarkNotificationsReadResponseData(BaseModel):
+    items: list[NotificationResponse]
+    marked_count: int
+
+
+class MarkNotificationsReadApiResponse(BaseModel):
+    data: Optional[MarkNotificationsReadResponseData] = None
+    success: bool = True
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
 class EventPayload(BaseModel):
     type: str
     data: dict

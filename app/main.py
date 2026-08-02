@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.authentication.router import router as auth_router
+from app.authentication.router import authentication_router
 from app.config import Settings
 from app.container import Container
 from app.core.middleware import SecurityHeadersMiddleware
@@ -66,7 +66,7 @@ def create_app() -> FastAPI:
     async def health() -> BasicResponse:
         return BasicResponse(data={"status": "ok"})
 
-    api_router.include_router(auth_router)
+    api_router.include_router(authentication_router)
     api_router.include_router(system_router)
     app.include_router(api_router)
 

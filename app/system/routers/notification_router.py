@@ -16,10 +16,13 @@ from app.core.security import get_current_user
 from app.system.schemas.notification import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    MarkNotificationsReadApiResponse,
+    MarkNotificationsReadRequest,
     NotificationApiResponse,
     NotificationListApiResponse,
 )
 from app.system.service.notification import NotificationService
+from app.utils.errors import NotificationNotFoundError
 
 notification_router = APIRouter(
     prefix="/notifications", tags=["notifications"])
@@ -105,6 +108,45 @@ async def list_notifications(
 
 
 @notification_router.patch(
+    "/read",
+    response_model=MarkNotificationsReadApiResponse,
+    summary="Mark notifications as read",
+    description="Marks one or more notifications as read for the current user.",
+)
+@inject
+async def mark_notifications_read(
+    request: MarkNotificationsReadRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: NotificationService = Depends(
+        Provide[Container.notification_service]
+    ),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        result = await service.mark_many_as_read(request.ids, user.id)
+    except NotificationNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except Exception:
+        logger.exception(
+            "Unexpected error marking notifications read user_id=%s count=%s",
+            user.id,
+            len(request.ids),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=result.model_dump(mode="json"),
+        message="Notifications marked as read",
+    )
+
+
+@notification_router.patch(
     "/{notification_id}/read",
     response_model=NotificationApiResponse,
     summary="Mark notification as read",
@@ -121,7 +163,7 @@ async def mark_notification_read(
 ) -> BasicResponse:
     try:
         result = await service.mark_as_read(notification_id, user.id)
-    except ValueError as e:
+    except NotificationNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),

@@ -7,9 +7,11 @@ from app.system.schemas.notification import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
     CreateNotificationRequest,
+    MarkNotificationsReadResponseData,
     NotificationListResponseData,
     NotificationResponse,
 )
+from app.utils.errors import NotificationNotFoundError
 
 
 class NotificationService:
@@ -62,5 +64,25 @@ class NotificationService:
     ) -> NotificationResponse:
         notification = await self.repository.mark_as_read(notification_id, user_id)
         if notification is None:
-            raise ValueError(f"Notification not found: {notification_id}")
+            raise NotificationNotFoundError(notification_id)
         return notification.to_response()
+
+    async def mark_many_as_read(
+        self,
+        notification_ids: list[str],
+        user_id: str,
+    ) -> MarkNotificationsReadResponseData:
+        unique_ids = list(dict.fromkeys(notification_ids))
+        notifications = await self.repository.mark_many_as_read(
+            unique_ids, user_id
+        )
+        found_ids = {notification.id for notification in notifications}
+        missing_ids = [nid for nid in unique_ids if nid not in found_ids]
+        if missing_ids:
+            raise NotificationNotFoundError(missing_ids)
+
+        items = [n.to_response() for n in notifications]
+        return MarkNotificationsReadResponseData(
+            items=items,
+            marked_count=len(items),
+        )
