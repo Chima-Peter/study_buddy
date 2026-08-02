@@ -41,11 +41,10 @@ class MemoryRepository:
         try:
             self.logger.info(
                 "MemoryRepository search start user_id=%s category=%s "
-                "status=%s content=%r",
+                "status=%s",
                 search.user_id,
                 search.category,
                 search.status,
-                search.content[:120],
             )
 
             results_lists = await self.elasticsearch.search_hybrid(
@@ -79,10 +78,9 @@ class MemoryRepository:
         try:
             self.logger.info(
                 "MemoryRepository search_for_duplicates start user_id=%s "
-                "category=%s content=%r",
+                "category=%s",
                 search.user_id,
                 search.category,
-                search.content[:120],
             )
 
             results = await self.elasticsearch.search_vector(

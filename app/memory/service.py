@@ -66,10 +66,9 @@ class MemoryService:
         try:
             self.logger.info(
                 "MemoryService retrieve_for_query start user_id=%s "
-                "category=%s content=%r",
+                "category=%s",
                 user_id,
                 query.category,
-                query.content[:120],
             )
             embedding = await asyncio.to_thread(
                 self.embedding_manager.embed_query,

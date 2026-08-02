@@ -13,8 +13,9 @@ MEMORY_CATEGORY = Literal[
 
 CATEGORY_DESCRIPTIONS: dict[MEMORY_CATEGORY, str] = {
     "personal": (
-        "Use when the fact is about identity or life logistics: name, gender, "
-        "availability/schedule, life goals, constraints. "
+        "Use when the fact is about identity or life logistics: gender, "
+        "availability/schedule, life goals, constraints, other people's names. "
+        "Never the user's own name (that lives on their profile). "
         "Not school/course details and not strengths, weaknesses, or learning style."
     ),
     "academic": (
@@ -51,9 +52,11 @@ class ExtractedMemory(BaseModel):
         description=(
             "One complete fact about the user, written as a full sentence "
             "starting with 'The user' or 'The user's'. "
-            "Examples: 'The user's name is Peter.', "
-            "'The user Peter likes CSC.', "
-            "'The user prefers short worked examples.'"
+            "Never store the user's own name. "
+            "Other people's names are allowed when relevant. "
+            "Examples: 'The user likes CSC.', "
+            "'The user prefers short worked examples.', "
+            "'The user's tutor is named Ada.'"
         ),
     )
     category: MEMORY_CATEGORY = Field(
