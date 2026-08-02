@@ -406,6 +406,8 @@ class Container(containers.DeclarativeContainer):
         redis=redis_client,
         settings=settings,
         logger=logger,
+        elasticsearch=elasticsearch,
+        supabase=async_supabase,
     )
 
     embedding_manager = providers.Singleton(

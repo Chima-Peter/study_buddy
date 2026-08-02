@@ -1,7 +1,8 @@
 from app.authentication.schemas.auth import (
     LoginRequest,
-    RegisterRequest,
     LoginResponse,
+    RegisterRequest,
+    UpdateProfileRequest,
     UserResponse,
 )
 
@@ -9,5 +10,6 @@ __all__ = [
     "LoginRequest",
     "RegisterRequest",
     "LoginResponse",
+    "UpdateProfileRequest",
     "UserResponse",
 ]

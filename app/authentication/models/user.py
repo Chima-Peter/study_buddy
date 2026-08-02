@@ -1,6 +1,6 @@
 import uuid_utils
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, EmailStr, Field, field_serializer
 from sqlalchemy import String, func, UUID
@@ -17,6 +17,10 @@ class UserModel(BaseModel):
     name: str = Field(min_length=3, max_length=255)
     email: EmailStr
     hashed_password: str = Field(min_length=8, max_length=255)
+    gender: Optional[str] = Field(default=None, max_length=50)
+    university: Optional[str] = Field(default=None, max_length=255)
+    bio: Optional[str] = Field(default=None, max_length=1500)
+    timezone: Optional[str] = Field(default=None, max_length=100)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(
@@ -35,6 +39,10 @@ class UserModel(BaseModel):
             "name": self.name,
             "email": self.email,
             "hashed_password": self.hashed_password,
+            "gender": self.gender,
+            "university": self.university,
+            "bio": self.bio,
+            "timezone": self.timezone,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -53,6 +61,10 @@ class UserDBModel(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
+    gender: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    university: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    bio: Mapped[Optional[str]] = mapped_column(String(1500), nullable=True)
+    timezone: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False
@@ -81,6 +93,10 @@ class UserDBModel(Base):
             "name": self.name,
             "email": self.email,
             "hashed_password": self.hashed_password,
+            "gender": self.gender,
+            "university": self.university,
+            "bio": self.bio,
+            "timezone": self.timezone,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
