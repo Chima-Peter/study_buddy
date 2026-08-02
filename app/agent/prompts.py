@@ -102,6 +102,15 @@ def chat_response_prompt(
     student_name: str | None = None,
     student_gender: str | None = None,
 ) -> str:
+    has_history = bool(conversation_history_prompt or conversation_summary)
+
+    greeting_rule = (
+        "7. Do NOT repeat introductory greetings (e.g., 'Hello [name], nice to meet you') "
+        "if conversation history exists - the student already knows you\n"
+        if has_history
+        else ""
+    )
+
     return (
         "You are a helpful study assistant.\n\n"
         "Rules:\n"
@@ -111,7 +120,8 @@ def chat_response_prompt(
         "3. For general knowledge unrelated to documents, answer normally\n"
         "4. Cite relevant sections when answering from context\n"
         "5. Use student memories to personalize (preferences, goals, strengths)\n"
-        "6. Address the student by name when known\n\n"
+        "6. Address the student by name when known\n"
+        f"{greeting_rule}\n"
         f"Student name: {student_name or '(unknown)'}\n"
         f"Student gender: {student_gender or '(unknown)'}\n\n"
         f"Document Context:\n{context or '(none)'}\n\n"

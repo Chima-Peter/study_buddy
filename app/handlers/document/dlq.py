@@ -3,8 +3,8 @@ from logging import Logger
 
 from aio_pika.abc import AbstractIncomingMessage
 
-from app.handlers.utils import notify_document_status
 from app.core.redis import RedisClient
+from app.handlers.document.util import notify_document_status
 from app.system.schemas.document import (
     DOCUMENT_STATUS_COMMENTS,
     ingest_failure_comment,
@@ -13,7 +13,7 @@ from app.system.service.document import DocumentService
 from app.system.service.notification import NotificationService
 
 
-async def handle_dead_letter_queue(
+async def handle_document_dead_letter_queue(
     message: AbstractIncomingMessage,
     logger: Logger,
     document_service: DocumentService,
@@ -22,7 +22,7 @@ async def handle_dead_letter_queue(
 ) -> None:
     async with message.process():
         logger.error(
-            "Dead letter message id=%s routing_key=%s body=%s headers=%s",
+            "Document DLQ message id=%s routing_key=%s body=%s headers=%s",
             message.message_id,
             message.routing_key,
             message.body.decode(),
@@ -33,7 +33,8 @@ async def handle_dead_letter_queue(
             payload = json.loads(message.body)
         except json.JSONDecodeError:
             logger.exception(
-                "Invalid dead letter payload; cannot mark document failed")
+                "Invalid document DLQ payload; cannot mark document failed"
+            )
             return
 
         document_id = payload.get("document_id")
@@ -59,7 +60,7 @@ async def handle_dead_letter_queue(
             "processing could not be completed",
             exhausted_retries=True,
         )
-        
+
         if existing.status == "failed" and existing.comment not in (
             None,
             DOCUMENT_STATUS_COMMENTS["failed"],

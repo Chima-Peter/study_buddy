@@ -106,6 +106,14 @@ class MemoryExtractionResult(BaseModel):
     )
 
 
+class MemoryExtractRequest(BaseModel):
+    """RabbitMQ payload for async LLM memory extraction."""
+
+    user_id: str
+    context: str
+    conversation_id: str | None = None
+
+
 class MemoryRetrievalQuery(BaseModel):
     """LLM-facing memory search intent before embedding."""
 

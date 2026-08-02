@@ -122,10 +122,13 @@ async def init_async_redis() -> AsyncIterator[Redis]:
 @dataclass
 class RabbitMQResources:
     channel: aio_pika.Channel
+    llm_channel: aio_pika.Channel
     email_queue: aio_pika.Queue
     email_dlq_queue: aio_pika.Queue
     document_queue: aio_pika.Queue
     document_dlq_queue: aio_pika.Queue
+    memory_extract_queue: aio_pika.Queue
+    memory_extract_dlq_queue: aio_pika.Queue
     retry_queues: dict[str, dict[int, aio_pika.Queue]]
 
 
@@ -165,7 +168,7 @@ async def init_retry_queues(
     target_queue: str,
     delay_tiers_ms: list[int],
 ) -> dict[int, aio_pika.Queue]:
-    """Classic TTL queues that dead-letter back onto the main document queue."""
+    """Classic TTL queues that dead-letter back onto the target main queue."""
     queues: dict[int, aio_pika.Queue] = {}
     for delay_ms in delay_tiers_ms:
         queues[delay_ms] = await channel.declare_queue(
@@ -196,18 +199,27 @@ async def init_async_rabbitmq(
             publisher_confirms=True,
             on_return_raises=True,
         )
+        llm_channel = await connection.channel(
+            publisher_confirms=True,
+            on_return_raises=True,
+        )
     except Exception as e:
         logger.exception("Error connecting to RabbitMQ")
         raise e
-    await channel.set_qos(prefetch_count=10)
+    await channel.set_qos(prefetch_count=5)
+    await llm_channel.set_qos(prefetch_count=20)
 
     email_queue, email_dlq_queue = await init_async_rabbitmq_queue(channel, "mail_queue")
     document_queue, document_dlq_queue = await init_async_rabbitmq_queue(
         channel, "document_queue"
     )
+    # Declare on llm_channel so consume uses that channel's prefetch=20.
+    memory_extract_queue, memory_extract_dlq_queue = await init_async_rabbitmq_queue(
+        llm_channel, "memory_extract_queue"
+    )
 
     tiers = retry_delay_tiers_ms(retry_base_ms, retry_max_ms, max_retries)
-    retry_targets = ("document_queue",)
+    retry_targets = ("document_queue", "memory_extract_queue")
     retry_queues: dict[str, dict[int, aio_pika.Queue]] = {}
     for target in retry_targets:
         retry_queues[target] = await init_retry_queues(
@@ -224,17 +236,21 @@ async def init_async_rabbitmq(
     try:
         yield RabbitMQResources(
             channel=channel,
+            llm_channel=llm_channel,
             email_queue=email_queue,
             email_dlq_queue=email_dlq_queue,
             document_queue=document_queue,
             document_dlq_queue=document_dlq_queue,
+            memory_extract_queue=memory_extract_queue,
+            memory_extract_dlq_queue=memory_extract_dlq_queue,
             retry_queues=retry_queues,
         )
     finally:
-        try:
-            await asyncio.wait_for(channel.close(), timeout=2.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
-            pass
+        for ch in (llm_channel, channel):
+            try:
+                await asyncio.wait_for(ch.close(), timeout=2.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                pass
         try:
             await asyncio.wait_for(connection.close(), timeout=2.0)
         except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
@@ -248,7 +264,10 @@ async def init_rabbitmq_consumers(
     active_consumers = await rabbitmq.start_consumers(
         email_callback=handlers.handle_mail,
         document_callback=handlers.handle_document,
-        dlq_callback=handlers.handle_dead_letter_queue,
+        memory_extract_callback=handlers.handle_memory_extract,
+        mail_dlq_callback=handlers.handle_mail_dead_letter_queue,
+        document_dlq_callback=handlers.handle_document_dead_letter_queue,
+        memory_extract_dlq_callback=handlers.handle_memory_extract_dead_letter_queue,
     )
     try:
         yield active_consumers
@@ -389,10 +408,13 @@ class Container(containers.DeclarativeContainer):
     rabbitmq = providers.Factory(
         RabbitMQ,
         channel=rabbitmq_resources.provided.channel,
+        llm_channel=rabbitmq_resources.provided.llm_channel,
         email_queue=rabbitmq_resources.provided.email_queue,
         email_dlq_queue=rabbitmq_resources.provided.email_dlq_queue,
         document_queue=rabbitmq_resources.provided.document_queue,
         document_dlq_queue=rabbitmq_resources.provided.document_dlq_queue,
+        memory_extract_queue=rabbitmq_resources.provided.memory_extract_queue,
+        memory_extract_dlq_queue=rabbitmq_resources.provided.memory_extract_dlq_queue,
         retry_queues=rabbitmq_resources.provided.retry_queues,
         max_retries=settings.provided.rabbitmq_max_retries,
         retry_base_ms=settings.provided.rabbitmq_retry_base_ms,
@@ -534,6 +556,7 @@ class Container(containers.DeclarativeContainer):
         rabbitmq=rabbitmq,
         redis=redis_client,
         notification_service=notification_service,
+        memory_service=memory_service,
     )
 
     rabbitmq_consumers = providers.Resource(
@@ -559,4 +582,5 @@ class Container(containers.DeclarativeContainer):
         query_model=query_model,
         summarizer_model=summarizer_model,
         checkpointer=checkpoint_saver,
+        rabbitmq=rabbitmq,
     )

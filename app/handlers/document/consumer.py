@@ -12,7 +12,11 @@ from aio_pika.abc import AbstractIncomingMessage
 from app.core.elasticsearch import Elasticsearch
 from app.core.elasticsearch_schema import DocumentMetadata, IndexedRecord
 from app.core.embedding import EmbeddingManager
-from app.handlers.utils import continue_ingestion, is_file_not_found_error, notify_document_status
+from app.handlers.document.util import (
+    continue_ingestion,
+    is_file_not_found_error,
+    notify_document_status,
+)
 from app.core.rabbitmq import RabbitMQ, read_retry_count
 from app.core.redis import RedisClient
 from app.core.supabase import Supabase

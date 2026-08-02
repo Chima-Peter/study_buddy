@@ -22,6 +22,7 @@ from app.agent.state import AgentState
 from langgraph.graph import START, StateGraph, END
 from logging import Logger
 from app.authentication.repository.user_repository import UserRepository
+from app.core.rabbitmq import RabbitMQ
 from app.memory.service import MemoryService
 from app.rag.rag_retriever import RAGRetriever
 from app.system.service.chat import ChatService
@@ -40,6 +41,7 @@ class AgentGraph:
         user_repository: UserRepository,
         logger: Logger,
         checkpointer: AsyncPostgresSaver,
+        rabbitmq: RabbitMQ,
     ):
         self.retriever = retriever
         self.memory_service = memory_service
@@ -51,6 +53,7 @@ class AgentGraph:
         self.query_model = query_model
         self.summarizer_model = summarizer_model
         self.checkpointer = checkpointer
+        self.rabbitmq = rabbitmq
         graph = StateGraph(AgentState)
 
         graph.add_node("retrieval_decider", RetrievalDeciderNode(
@@ -93,7 +96,7 @@ class AgentGraph:
             logger=self.logger,
         ))
         graph.add_node("store_memory", StoreMemoryNode(
-            memory_service=self.memory_service,
+            rabbitmq=self.rabbitmq,
             logger=self.logger,
         ))
         graph.add_node("cleanup", CleanupNode(logger=self.logger))

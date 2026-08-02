@@ -2,14 +2,15 @@ from logging import Logger
 
 from app.agent.schema import SUMMARY_EVERY
 from app.agent.state import AgentState
-from app.memory.service import MemoryService
+from app.core.rabbitmq import RabbitMQ
+from app.memory.schema import MemoryExtractRequest
 
 
 class StoreMemoryNode:
-    """Extract and store memories from recent user messages every SUMMARY_EVERY chats."""
+    """Enqueue LLM memory extraction every SUMMARY_EVERY chats (async via RabbitMQ)."""
 
-    def __init__(self, memory_service: MemoryService, logger: Logger):
-        self.memory_service = memory_service
+    def __init__(self, rabbitmq: RabbitMQ, logger: Logger):
+        self.rabbitmq = rabbitmq
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
@@ -25,26 +26,31 @@ class StoreMemoryNode:
             f"User: {chat.query}\nAssistant: {chat.response}"
             for chat in state["conversation_history"][-SUMMARY_EVERY:]
         )
+        payload = MemoryExtractRequest(
+            user_id=state["user_id"],
+            context=context,
+            conversation_id=state["conversation_id"],
+        )
         self.logger.info(
-            "Store memory node started id=%s user_id=%s",
+            "Store memory node enqueue id=%s user_id=%s",
             state["conversation_id"],
             state["user_id"],
         )
         try:
-            await self.memory_service.store(
-                user_id=state["user_id"],
-                context=context,
+            await self.rabbitmq.publish_message(
+                "memory_extract_queue",
+                payload.model_dump(),
             )
         except Exception:
             self.logger.exception(
-                "Store memory node failed id=%s user_id=%s",
+                "Store memory node enqueue failed id=%s user_id=%s",
                 state["conversation_id"],
                 state["user_id"],
             )
             return {}
 
         self.logger.info(
-            "Store memory node completed id=%s user_id=%s",
+            "Store memory node enqueued id=%s user_id=%s",
             state["conversation_id"],
             state["user_id"],
         )

@@ -63,10 +63,13 @@ def retry_queue_name(target_queue: str, delay_ms: int) -> str:
 @dataclass
 class RabbitMQ:
     channel: Channel
+    llm_channel: Channel
     email_queue: Queue
     email_dlq_queue: Queue
     document_queue: Queue
     document_dlq_queue: Queue
+    memory_extract_queue: Queue
+    memory_extract_dlq_queue: Queue
     logger: Logger
     # target_queue -> { delay_ms -> Queue }
     retry_queues: dict[str, dict[int, Queue]] = field(default_factory=dict)
@@ -82,6 +85,11 @@ class RabbitMQ:
                 self.retry_max_ms,
                 self.max_retries,
             )
+
+    def _channel_for_queue(self, queue_name: str) -> Channel:
+        if queue_name.startswith("memory_extract_queue"):
+            return self.llm_channel
+        return self.channel
 
     async def publish_message(self, queue_name: str, payload: dict, retry_count: int = 0):
         if retry_count > 3:
@@ -99,7 +107,8 @@ class RabbitMQ:
                 delivery_mode=DeliveryMode.PERSISTENT,
                 message_id=str(uuid_utils.uuid7()),
             )
-            await self.channel.default_exchange.publish(
+            channel = self._channel_for_queue(queue_name)
+            await channel.default_exchange.publish(
                 message=message,
                 routing_key=queue_name,
                 timeout=5.0,
@@ -154,7 +163,8 @@ class RabbitMQ:
             message_id=str(uuid_utils.uuid7()),
             headers=next_headers,
         )
-        await self.channel.default_exchange.publish(
+        channel = self._channel_for_queue(target_queue)
+        await channel.default_exchange.publish(
             message=message,
             routing_key=routing_key,
             timeout=5.0,
@@ -165,7 +175,9 @@ class RabbitMQ:
             retry_count + 1,
             delay_ms,
             routing_key,
-            payload.get("document_id") or payload.get("id"),
+            payload.get("document_id")
+            or payload.get("conversation_id")
+            or payload.get("id"),
         )
         return delay_ms
 
@@ -173,14 +185,42 @@ class RabbitMQ:
         self,
         email_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
         document_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
-        dlq_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
+        memory_extract_callback: Callable[
+            [AbstractIncomingMessage], Awaitable[Any]
+        ],
+        mail_dlq_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
+        document_dlq_callback: Callable[
+            [AbstractIncomingMessage], Awaitable[Any]
+        ],
+        memory_extract_dlq_callback: Callable[
+            [AbstractIncomingMessage], Awaitable[Any]
+        ],
     ) -> list[RabbitMQConsumer]:
         mail_consumer = await self._start_consumer("mail_queue", email_callback)
-        document_consumer = await self._start_consumer("document_queue", document_callback)
-        mail_dlq_consumer = await self._start_consumer("mail_queue_dlq", dlq_callback)
-        document_dlq_consumer = await self._start_consumer("document_queue_dlq", dlq_callback)
+        document_consumer = await self._start_consumer(
+            "document_queue", document_callback
+        )
+        memory_extract_consumer = await self._start_consumer(
+            "memory_extract_queue", memory_extract_callback
+        )
+        mail_dlq_consumer = await self._start_consumer(
+            "mail_queue_dlq", mail_dlq_callback
+        )
+        document_dlq_consumer = await self._start_consumer(
+            "document_queue_dlq", document_dlq_callback
+        )
+        memory_extract_dlq_consumer = await self._start_consumer(
+            "memory_extract_queue_dlq", memory_extract_dlq_callback
+        )
         self.logger.info("Started RabbitMQ consumers")
-        return [mail_consumer, document_consumer, mail_dlq_consumer, document_dlq_consumer]
+        return [
+            mail_consumer,
+            document_consumer,
+            memory_extract_consumer,
+            mail_dlq_consumer,
+            document_dlq_consumer,
+            memory_extract_dlq_consumer,
+        ]
 
     async def stop_consumers(self, consumers: list[RabbitMQConsumer]) -> None:
         for consumer in consumers:
@@ -208,6 +248,10 @@ class RabbitMQ:
                 queue = self.document_queue
             case "document_queue_dlq":
                 queue = self.document_dlq_queue
+            case "memory_extract_queue":
+                queue = self.memory_extract_queue
+            case "memory_extract_queue_dlq":
+                queue = self.memory_extract_dlq_queue
             case _:
                 raise HTTPException(
                     status_code=400,
