@@ -39,7 +39,7 @@ class ConversationDBModel(Base):
 
     id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
     title: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
-    summary: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    summary: Mapped[Optional[str]] = mapped_column(sa.String(1500), nullable=True)
     user_id: Mapped[str] = mapped_column(
         sa.UUID,
         ForeignKey("users.id"),

@@ -9,7 +9,12 @@ from app.agent.prompts import (
     summary_prompt,
     title_prompt,
 )
-from app.agent.schema import SUMMARY_EVERY, DeciderResponse, RewriteQueryResponse
+from app.agent.schema import (
+    SUMMARY_EVERY,
+    SUMMARY_MAX_CHARS,
+    DeciderResponse,
+    RewriteQueryResponse,
+)
 from app.agent.state import AgentState
 from app.memory.schema import (
     CORE_GENDER_QUERY,
@@ -133,6 +138,7 @@ class RewriteQueryNode():
                 fallback_queries = [
                     MemoryRetrievalQuery(
                         content=state["query"],
+                        category="personal",
                     )
                 ]
             return {
@@ -363,7 +369,7 @@ class GenerateResponseNode():
 
         if memories:
             memories_text = "\n".join(
-                f"- [{m.category}/{m.type}] {m.content}" for m in memories
+                f"- [{m.category}] {m.content}" for m in memories
             )
         else:
             memories_text = ""
@@ -530,7 +536,7 @@ class UpdateConversationSummaryNode():
         prompt = summary_prompt(state["conversation_summary"], recent_exchanges)
         summary_response = await self.model.ainvoke(prompt)
         summary = (
-            (summary_response.text or "").strip().strip("\"'")[:255]
+            (summary_response.text or "").strip().strip("\"'")[:SUMMARY_MAX_CHARS]
             or state["conversation_summary"]
         )
 

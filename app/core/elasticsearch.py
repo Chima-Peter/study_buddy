@@ -181,14 +181,15 @@ class Elasticsearch:
                 max_retries=3,
                 chunk_size=100,
                 max_chunk_bytes=1024 * 1024 * 10,
+                raise_on_error=False,
             ):
                 if ok:
                     success += 1
                 else:
                     failed += 1
                     self.logger.warning("Failed to update record: %s", result)
-        except Exception as e:
-            self.logger.exception("Error bulk updating records: %s", e)
+        except Exception:
+            self.logger.exception("Error bulk updating records: %s")
             raise
 
         self.logger.info(
@@ -348,7 +349,7 @@ class Elasticsearch:
         Args:
             fetch_size: Records fetched per branch before fusion (default 50).
             num_candidates: kNN ANN search pool size (default 100).
-            **metadata_terms: Optional metadata term filters (e.g. category, type).
+            **metadata_terms: Optional metadata term filters (e.g. category, status).
         """
         self.logger.info(
             "ES search_hybrid start user_id=%s index=%s fetch_size=%s "

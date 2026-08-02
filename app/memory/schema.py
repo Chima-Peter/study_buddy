@@ -9,54 +9,25 @@ MEMORY_CATEGORY = Literal[
     "personal",
     "academic",
     "learning",
-    "progress",
-    "resources",
-    "habits",
-    "achievements",
 ]
 
-PERSONAL_TYPE = Literal["profile", "preferences", "goals", "schedule"]
-ACADEMIC_TYPE = Literal[
-    "education",
-    "subjects",
-    "modules",
-    "syllabus",
-    "examinations",
-]
-LEARNING_TYPE = Literal["strengths", "weaknesses", "learning_style", "pace"]
-PROGRESS_TYPE = Literal["assessments", "topic_progress", "milestones"]
-RESOURCES_TYPE = Literal["books", "notes", "videos", "websites"]
-HABITS_TYPE = Literal[
-    "study_habits",
-    "revision_habits",
-    "interaction_habits",
-]
-ACHIEVEMENTS_TYPE = Literal["completed_courses", "badges", "streaks"]
-
-MEMORY_TYPE = (
-    PERSONAL_TYPE
-    | ACADEMIC_TYPE
-    | LEARNING_TYPE
-    | PROGRESS_TYPE
-    | RESOURCES_TYPE
-    | HABITS_TYPE
-    | ACHIEVEMENTS_TYPE
-)
-
-CATEGORY_TYPES: dict[MEMORY_CATEGORY, frozenset[str]] = {
-    "personal": frozenset({"profile", "preferences", "goals", "schedule"}),
-    "academic": frozenset(
-        {"education", "subjects", "modules", "syllabus", "examinations"}
+CATEGORY_DESCRIPTIONS: dict[MEMORY_CATEGORY, str] = {
+    "personal": (
+        "Use when the fact is about identity or life logistics: name, gender, "
+        "availability/schedule, life goals, constraints. "
+        "Not school/course details and not strengths, weaknesses, or learning style."
     ),
-    "learning": frozenset(
-        {"strengths", "weaknesses", "learning_style", "pace"}
+    "academic": (
+        "Use when the fact is about their school/course context: university, "
+        "programme, subjects, modules, syllabus, exams, study resources. "
+        "Not personal identity and not how well they learn a topic."
     ),
-    "progress": frozenset({"assessments", "topic_progress", "milestones"}),
-    "resources": frozenset({"books", "notes", "videos", "websites"}),
-    "habits": frozenset(
-        {"study_habits", "revision_habits", "interaction_habits"}
+    "learning": (
+        "Use when the fact is about ability or teaching fit: strengths, "
+        "weaknesses, learning style, pace, topic mastery, assessment results, "
+        "milestones, how they want material explained. "
+        "Not identity/schedule and not which school/subject they take."
     ),
-    "achievements": frozenset({"completed_courses", "badges", "streaks"}),
 }
 
 MEMORY_STATUS = Literal[
@@ -66,21 +37,11 @@ MEMORY_STATUS = Literal[
 MEMORY_SOURCE = Literal["conversation", "inference"]
 
 
-def validate_category_type(category: MEMORY_CATEGORY, type_: MEMORY_TYPE) -> None:
-    allowed = CATEGORY_TYPES[category]
-    if type_ not in allowed:
-        raise ValueError(
-            f"type {type_!r} is not valid for category {category!r}; "
-            f"expected one of {sorted(allowed)}"
-        )
-
-
 def taxonomy_description() -> str:
-    lines = [
-        f"- {category}: {', '.join(sorted(types))}"
-        for category, types in CATEGORY_TYPES.items()
-    ]
-    return "\n".join(lines)
+    return "\n".join(
+        f"- {category}: {description}"
+        for category, description in CATEGORY_DESCRIPTIONS.items()
+    )
 
 
 class ExtractedMemory(BaseModel):
@@ -88,33 +49,35 @@ class ExtractedMemory(BaseModel):
 
     content: str = Field(
         description=(
-            "Single atomic fact about the student, written as a concise "
-            "statement (e.g. 'Prefers short worked examples')."
+            "One complete fact about the user, written as a full sentence "
+            "starting with 'The user' or 'The user's'. "
+            "Examples: 'The user's name is Peter.', "
+            "'The user Peter likes CSC.', "
+            "'The user prefers short worked examples.'"
         ),
     )
     category: MEMORY_CATEGORY = Field(
-        description="High-level memory category.",
-    )
-    type: MEMORY_TYPE = Field(
-        description="Low-level type that must belong to the chosen category.",
+        description=(
+            "Exact category for this fact. Choose one of: personal, academic, "
+            "learning. Follow the category conditions in the taxonomy."
+        ),
     )
     importance: float = Field(
         ge=0.0,
         le=1.0,
         description=(
-            "Importance of this memory for future tutoring (0-1), scored from "
-            "the memory itself: high for core profile/goals/constraints that "
-            "should shape tutoring; medium for useful preferences or habits; "
-            "low for minor or narrow details."
+            "Importance of this memory for future tutoring (0-1): high for "
+            "core profile/goals/constraints; medium for useful preferences "
+            "or habits; low for minor details."
         ),
     )
     confidence: float = Field(
         ge=0.0,
         le=1.0,
         description=(
-            "Confidence that this fact is true (0-1), scored from how clearly "
-            "the student stated it: high for explicit clear statements; medium "
-            "for strong implications; low for tentative or ambiguous wording."
+            "Confidence that this fact is true (0-1): high for explicit clear "
+            "statements; medium for strong implications; low for tentative "
+            "or ambiguous wording."
         ),
     )
     expires_at: datetime | None = Field(
@@ -125,11 +88,6 @@ class ExtractedMemory(BaseModel):
             "Null for durable memories with no expiry."
         ),
     )
-
-    @model_validator(mode="after")
-    def check_category_type(self) -> "ExtractedMemory":
-        validate_category_type(self.category, self.type)
-        return self
 
 
 class MemoryExtractionResult(BaseModel):
@@ -143,38 +101,34 @@ class MemoryExtractionResult(BaseModel):
         ),
     )
 
+
 class MemoryRetrievalQuery(BaseModel):
     """LLM-facing memory search intent before embedding."""
 
     content: str = Field(
         description=(
-            "Concise search query for the student memory index. "
-            "Resolve references; do not answer the question."
+            "A short simple question to ask the memory store, e.g. "
+            "'What is the user's name?', "
+            "'Which university does the user attend?', "
+            "'What subjects does the user like?'."
         ),
     )
     category: MEMORY_CATEGORY = Field(
-        description="Likely memory category to scope the search.",
+        description=(
+            "Exact category to search. Choose one of: personal, academic, "
+            "learning. Follow the category conditions in the taxonomy."
+        ),
     )
-    type: MEMORY_TYPE = Field(
-        description="Likely memory type that must belong to the chosen category.",
-    )
-
-    @model_validator(mode="after")
-    def check_category_type(self) -> "MemoryRetrievalQuery":
-        validate_category_type(self.category, self.type)
-        return self
 
 
 # Always kept in agent state; fetched from the memory index when missing.
 CORE_NAME_QUERY = MemoryRetrievalQuery(
-    content="student's name",
+    content="What is the user's name?",
     category="personal",
-    type="profile",
 )
 CORE_GENDER_QUERY = MemoryRetrievalQuery(
-    content="student's gender",
+    content="What is the user's gender?",
     category="personal",
-    type="profile",
 )
 CORE_PROFILE_QUERIES = (CORE_NAME_QUERY, CORE_GENDER_QUERY)
 
@@ -184,13 +138,7 @@ class MemorySearch(BaseModel):
     content: str
     embedding: list[float]
     category: MEMORY_CATEGORY
-    type: MEMORY_TYPE
     status: MEMORY_STATUS = "active"
-
-    @model_validator(mode="after")
-    def check_category_type(self) -> "MemorySearch":
-        validate_category_type(self.category, self.type)
-        return self
 
 
 class MemoryDuplicateSearch(BaseModel):
@@ -198,12 +146,6 @@ class MemoryDuplicateSearch(BaseModel):
     content: str
     embedding: list[float]
     category: MEMORY_CATEGORY
-    type: MEMORY_TYPE
-
-    @model_validator(mode="after")
-    def check_category_type(self) -> "MemoryDuplicateSearch":
-        validate_category_type(self.category, self.type)
-        return self
 
 
 class IdenticalDecision(BaseModel):
@@ -277,8 +219,7 @@ class Memory(BaseModel):
     content: str
     embedding: list[float]
     category: MEMORY_CATEGORY
-    type: MEMORY_TYPE
-    status: MEMORY_STATUS = "candidate"
+    status: MEMORY_STATUS = "active"
     importance: float
     confidence: float
     usage_count: int = 0
@@ -289,11 +230,6 @@ class Memory(BaseModel):
     expires_at: datetime | None = None
     valid_from: datetime | None = None
     valid_to: datetime | None = None
-
-    @model_validator(mode="after")
-    def check_category_type(self) -> "Memory":
-        validate_category_type(self.category, self.type)
-        return self
 
     @model_validator(mode="after")
     def check_validity_window(self) -> "Memory":

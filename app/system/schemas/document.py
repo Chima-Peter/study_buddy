@@ -223,7 +223,7 @@ class CreateDocumentRequest(BaseModel):
 
 class UpdateDocumentRequest(BaseModel):
     name: str = Field(..., min_length=3, max_length=255, examples=["Updated title"])
-    description: str = Field(..., max_length=2000, examples=["Updated description"])
+    description: str = Field(..., max_length=1500, examples=["Updated description"])
     category: str = Field(..., min_length=1, max_length=255, examples=["pdf"])
 
 
@@ -232,7 +232,7 @@ class PatchDocumentRequest(BaseModel):
         default=None, min_length=3, max_length=255, examples=["Updated title"]
     )
     description: Optional[str] = Field(
-        default=None, max_length=2000, examples=["Updated description"]
+        default=None, max_length=1500, examples=["Updated description"]
     )
     category: Optional[str] = Field(
         default=None, min_length=1, max_length=255, examples=["csv"]

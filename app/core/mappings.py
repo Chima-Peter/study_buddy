@@ -35,7 +35,6 @@ USER_MEMORIES_INDEX_MAPPINGS = {
             "properties": {
                 "id": {"type": "keyword"},
                 "category": {"type": "keyword"},
-                "type": {"type": "keyword"},
                 "status": {"type": "keyword"},
                 "importance": {"type": "float"},
                 "confidence": {"type": "float"},

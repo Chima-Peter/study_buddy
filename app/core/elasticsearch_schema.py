@@ -20,7 +20,6 @@ class MemoryMetadata(TypedDict, total=False):
     id: str
     user_id: str
     category: str
-    type: str
     status: str
     importance: float
     confidence: float

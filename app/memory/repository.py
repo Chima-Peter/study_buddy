@@ -41,10 +41,9 @@ class MemoryRepository:
         try:
             self.logger.info(
                 "MemoryRepository search start user_id=%s category=%s "
-                "type=%s status=%s content=%r",
+                "status=%s content=%r",
                 search.user_id,
                 search.category,
-                search.type,
                 search.status,
                 search.content[:120],
             )
@@ -55,7 +54,6 @@ class MemoryRepository:
                 search.embedding,
                 index=MEMORY_INDEX,
                 category=search.category,
-                type=search.type,
                 status=search.status,
             )
             fused = await self.retriever.reciprocal_rank_fusion(
@@ -81,10 +79,9 @@ class MemoryRepository:
         try:
             self.logger.info(
                 "MemoryRepository search_for_duplicates start user_id=%s "
-                "category=%s type=%s content=%r",
+                "category=%s content=%r",
                 search.user_id,
                 search.category,
-                search.type,
                 search.content[:120],
             )
 
@@ -95,7 +92,6 @@ class MemoryRepository:
                 k=DUPLICATE_TOP_K,
                 min_score=DUPLICATE_MIN_SCORE,
                 category=search.category,
-                type=search.type,
                 status="active",
             )
 

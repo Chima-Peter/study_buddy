@@ -63,10 +63,9 @@ class MemoryService:
         try:
             self.logger.info(
                 "MemoryService retrieve_for_query start user_id=%s "
-                "category=%s type=%s content=%r",
+                "category=%s content=%r",
                 user_id,
                 query.category,
-                query.type,
                 query.content[:120],
             )
             embedding = await asyncio.to_thread(
@@ -84,7 +83,6 @@ class MemoryService:
                     content=query.content,
                     embedding=embedding_list,
                     category=query.category,
-                    type=query.type,
                     status=status,
                 )
             )
@@ -199,7 +197,6 @@ class MemoryService:
                             content=candidate.content,
                             embedding=candidate.embedding,
                             category=candidate.category,
-                            type=candidate.type,
                         )
                     )
                 )
@@ -431,7 +428,6 @@ class MemoryService:
                 content=candidate.content,
                 embedding=embedding,
                 category=candidate.category,
-                type=candidate.type,
                 importance=candidate.importance,
                 confidence=candidate.confidence,
                 source="conversation",

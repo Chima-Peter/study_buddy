@@ -14,30 +14,50 @@ def memory_extraction_prompt(
     reference_utc = reference.astimezone(timezone.utc).isoformat()
 
     return f"""
-        Extract durable student memories that will improve future tutoring.
+Extract durable facts about the user that will help future tutoring.
 
-        Keep: profile (especially name and gender — always extract when stated), preferences, strengths/weaknesses, learning style, goals, exams, schedule, habits, constraints.
-        Skip: chit-chat, one-off requests, assistant replies, document-only facts, speculation.
+Write each memory as one complete, self-contained sentence.
+Always start with "The user" or "The user's".
+Include the user's name in the sentence when it is known.
 
-        Rules:
-        1. Student facts only; one atomic fact per memory; concise third-person statements.
-        2. Prefer fewer high-quality memories; return [] if none.
-        3. On corrections, extract only the new fact.
-        4. When uncertain, skip. Use only valid category/type pairs from the taxonomy.
+Good:
+- The user's name is Peter.
+- The user's gender is male.
+- The user Peter likes CSC.
+- The user Peter attends University of Lagos.
+- The user Peter prefers short worked examples.
 
-        Scoring (0.0–1.0):
-        - importance: high=changes tutoring; medium=useful personalization; low=minor detail.
-        - confidence: high=explicit; medium=strongly implied; low=ambiguous.
+Bad:
+- Peter likes CSC
+- likes CSC
+- CSC
+- Prefers short examples
 
-        Set expires_at only when the student marks it temporary; else null.
-        Resolve relative times from {reference_utc} (UTC).
+Keep: name, gender, preferences, goals, university/subjects/exams, strengths/weaknesses, learning style, habits, constraints, mastery/milestones.
+Skip: chit-chat, one-off requests, assistant replies, document-only facts, speculation.
 
-        Taxonomy:
-        {taxonomy_description()}
+Rules:
+1. One atomic fact per memory. Prefer fewer high-quality memories; return [] if none.
+2. On corrections, extract only the new fact.
+3. When uncertain, skip.
+4. Choose exactly one category using the conditions below. Be exact.
+   - personal = identity, schedule, life goals, constraints
+   - academic = school, subjects, exams, resources
+   - learning = strengths, weaknesses, style, pace, mastery, teaching fit
 
-        Conversation:
-        {context}
-    """.strip()
+Scoring (0.0–1.0):
+- importance: high=changes tutoring; medium=useful personalization; low=minor detail.
+- confidence: high=explicit; medium=strongly implied; low=ambiguous.
+
+Set expires_at only when the student marks it temporary; else null.
+Resolve relative times from {reference_utc} (UTC).
+
+Categories:
+{taxonomy_description()}
+
+Conversation:
+{context}
+""".strip()
 
 
 def memory_deduplication_prompt(
@@ -45,12 +65,12 @@ def memory_deduplication_prompt(
     existing: list[Memory],
 ) -> str:
     candidate_lines = "\n".join(
-        f"- id={c.id}: {c.content} (category={c.category}, type={c.type}, "
+        f"- id={c.id}: {c.content} (category={c.category}, "
         f"importance={c.importance}, confidence={c.confidence})"
         for c in candidates
     ) or "- (none)"
     existing_lines = "\n".join(
-        f"- id={m.id}: {m.content} (category={m.category}, type={m.type}, "
+        f"- id={m.id}: {m.content} (category={m.category}, "
         f"status={m.status}, confidence={m.confidence})"
         for m in existing
     ) or "- (none)"
@@ -70,7 +90,7 @@ Rules:
 3. Prefer identical over updated when nothing material changed.
 4. Prefer contradict over different when both cannot be true.
 
-Taxonomy:
+Categories:
 {taxonomy_description()}
 
 Candidates:

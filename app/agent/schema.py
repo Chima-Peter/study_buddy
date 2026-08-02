@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.memory.schema import MemoryRetrievalQuery
 
 SUMMARY_EVERY = 5
+SUMMARY_MAX_CHARS = 1500
 
 
 class DeciderResponse(BaseModel):
@@ -18,9 +19,8 @@ class DeciderResponse(BaseModel):
     )
     retrieve_memory: bool = Field(
         description=(
-            "True when answering needs durable student memories from the "
-            "memory taxonomy (profile, preferences, goals, academic context, "
-            "learning style, progress, resources, habits, or achievements). "
+            "True when answering needs durable student memories from "
+            "personal, academic, or learning. "
             "False for pure document lookup, general knowledge, or chat that "
             "does not depend on stored student facts. "
             "Name and gender are always loaded separately when missing."
@@ -41,11 +41,10 @@ class RewriteQueryResponse(BaseModel):
     memory_queries: list[MemoryRetrievalQuery] = Field(
         default_factory=list,
         description=(
-            "One or more memory-index searches, each with its own query, "
-            "category, and type. Use multiple entries when the question "
-            "touches distinct memory slices (e.g. preferences and weaknesses). "
+            "One or more simple questions for the memory index, each with "
+            "content and an exact category (personal, academic, or learning). "
             "Empty when memory retrieval is not needed. "
-            "Do not include name/gender profile lookups; those are fetched "
+            "Do not include name/gender lookups; those are fetched "
             "automatically."
         ),
     )

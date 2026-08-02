@@ -13,13 +13,12 @@ def retrieval_decider_prompt(query: str) -> str:
         '- "none": no document or chat-history retrieval needed\n\n'
         "Separately set retrieve_memory:\n"
         "- true when the answer depends on durable facts about this student "
-        "(preferences, goals, subjects, strengths/weaknesses, "
-        "progress, resources, habits, achievements)\n"
+        "(personal, academic, or learning memories)\n"
         "- false when the question is only about uploaded documents, "
         "general knowledge, or this chat without needing stored student facts\n"
         "- name and gender are always loaded when missing; do not set "
         "retrieve_memory=true only for those\n\n"
-        "Memory taxonomy (category: types):\n"
+        "Memory categories:\n"
         f"{taxonomy_description()}\n\n"
         'Choose "none" for document/history when general knowledge is enough.\n'
         'Choose "rag" only when the question is clearly about study materials.\n'
@@ -51,15 +50,22 @@ def rewrite_query_prompt(
 
     if retrieve_memory:
         parts.append(
-            "Set memory_queries to one or more memory-index searches. "
-            "Each entry needs content, category, and type from the taxonomy. "
-            "Use multiple entries when the question needs distinct memory "
-            "slices (e.g. learning weaknesses and study habits). "
-            "Each content value should be a concise fact-seeking query "
-            "scoped to that slice. "
+            "Set memory_queries to one or more simple questions for the "
+            "memory store. Each entry needs:\n"
+            "- content: a short plain question, like "
+            "'What is the user\\'s name?', "
+            "'Which university does the user attend?', "
+            "'What subjects does the user take?', "
+            "'What are the user\\'s weak topics?'\n"
+            "- category: exactly one of personal, academic, learning\n"
+            "Pick category using these conditions:\n"
+            "- personal: identity, schedule, life goals, constraints\n"
+            "- academic: university, subjects, exams, resources\n"
+            "- learning: strengths, weaknesses, style, pace, mastery\n"
+            "Use multiple entries when distinct categories are needed. "
             "Do not include name or gender lookups; those are fetched "
             "automatically.\n"
-            f"Memory taxonomy (category: types):\n{taxonomy_description()}\n"
+            f"Categories:\n{taxonomy_description()}\n"
         )
     else:
         parts.append(
@@ -98,16 +104,29 @@ def summary_prompt(
 ) -> str:
     return (
         "Update the running summary of this study conversation.\n\n"
-        f"Current summary: {current_summary or '(none)'}\n\n"
-        f"Recent exchanges:\n{chr(10).join(recent_exchanges)}\n\n"
+        "Write one complete, self-contained summary.\n"
+        "State what was covered as facts, not as a narration of the chat.\n"
+        "Include the user's name when it is known.\n\n"
+        "Good:\n"
+        "- Peter covered photosynthesis in Biology 101 Ch3: light reactions, "
+        "Calvin cycle, chloroplast structure\n"
+        "- Peter worked through CSC linked-list insertion and deletion examples\n\n"
+        "Bad:\n"
+        "- The user asked questions about photosynthesis\n"
+        "- Helped with some CSC topics\n"
+        "- Discussed the chapter\n\n"
+        "Keep: document/chapter names, subjects, key terms, concepts solved, "
+        "specific problems worked on.\n"
+        "Skip: chit-chat, greetings, meta lines like 'user asked about...', "
+        "vague phrases with no topic detail.\n\n"
         "Rules:\n"
         "1. Return only the summary text\n"
-        "2. Keep it under 255 characters\n"
-        "3. Include specific details: document names, chapter numbers, key terms, concepts covered\n"
-        "4. Focus on WHAT was learned/discussed, not meta-descriptions like 'user asked about...'\n"
+        "2. Keep it under 1500 characters\n"
+        "3. Merge with the current summary; do not drop still-relevant facts\n"
+        "4. Be exact and concrete; prefer nouns and topic names over verbs about asking\n"
         "5. Do not wrap in quotes or end with punctuation\n\n"
-        'Good: "Photosynthesis in Ch3 of Biology 101: light reactions, Calvin cycle, chloroplast structure"\n'
-        'Bad: "The user asked questions about photosynthesis from their biology textbook"'
+        f"Current summary: {current_summary or '(none)'}\n\n"
+        f"Recent exchanges:\n\n{'\n'.join(recent_exchanges)}\n"
     )
 
 
