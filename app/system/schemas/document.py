@@ -7,19 +7,15 @@ from pydantic import BaseModel, Field
 
 FileType = Literal[
     "pdf",
+    "docx",
     "txt",
-    "csv",
-    "json",
-    "png",
-    "jpg",
-    "jpeg",
-    "gif",
-    "webp",
-    "markdown",
-    "aws",
-    "reddit",
-    "chatgpt",
-    "word",
+    "md",
+    "html",
+    "doc",
+    "rtf",
+    "odt",
+    "htm",
+    "epub",
 ]
 
 DocumentStatus = Literal[
@@ -41,110 +37,17 @@ DOCUMENT_STATUS_COMMENTS: dict[DocumentStatus, str] = {
     "cancelled": "Processing was cancelled for this document.",
 }
 
-
-def ingest_failure_comment(
-    reason: str,
-    *,
-    exhausted_retries: bool = False,
-) -> str:
-    """Build a user-facing ingest failure comment from an error reason."""
-    because, hint = _classify_ingest_failure(reason)
-    if exhausted_retries:
-        return (
-            f"Ingestion failed after multiple retries because {because}. {hint}"
-        )
-    return f"Ingestion failed because {because}. {hint}"
-
-
-def _classify_ingest_failure(reason: str) -> tuple[str, str]:
-    text = (reason or "").strip()
-    lowered = text.lower()
-
-    if any(
-        token in lowered
-        for token in (
-            "not found",
-            "404",
-            "no such file",
-            "nosuchkey",
-            "object not found",
-            "file could not be found",
-            "couldn't be found",
-            "could not be found",
-        )
-    ):
-        return (
-            "the file could not be found",
-            "Check that the file was uploaded correctly, then retry ingestion.",
-        )
-
-    if any(
-        token in lowered
-        for token in (
-            "could not be parsed",
-            "couldn't be parsed",
-            "error loading",
-            "failed to parse",
-            "parse",
-            "unsupported",
-        )
-    ):
-        return (
-            "the file could not be parsed",
-            "Re-upload a supported file and try again. The supported formats are: " + _ALLOWED_EXT_HELP,
-        )
-
-    if any(
-        token in lowered
-        for token in (
-            "no documents",
-            "no readable content",
-            "empty",
-        )
-    ):
-        return (
-            "no readable content was found in the file",
-            "Upload a document with extractable text and try again.",
-        )
-
-    if "embedding" in lowered:
-        return (
-            "embeddings could not be generated",
-            "Please retry ingestion. Contact support if the problem continues.",
-        )
-
-    if "index" in lowered:
-        return (
-            "the document could not be indexed",
-            "Please retry ingestion. Contact support if the problem continues.",
-        )
-
-    if text:
-        return (
-            text.rstrip("."),
-            "Please try again, or contact support if the problem continues.",
-        )
-
-    return (
-        "processing could not be completed",
-        "Please try again, or contact support if the problem continues.",
-    )
-
 ALLOWED_EXTENSIONS: dict[FileType, set[str]] = {
     "pdf": {".pdf"},
+    "docx": {".docx"},
     "txt": {".txt"},
-    "csv": {".csv"},
-    "json": {".json"},
-    "png": {".png"},
-    "jpg": {".jpg", ".jpeg"},
-    "jpeg": {".jpg", ".jpeg"},
-    "gif": {".gif"},
-    "webp": {".webp"},
-    "markdown": {".md", ".markdown"},
-    "aws": {".json", ".txt", ".csv"},
-    "reddit": {".json", ".txt"},
-    "chatgpt": {".json", ".txt"},
-    "word": {".doc", ".docx"},
+    "md": {".md", ".markdown"},
+    "html": {".html"},
+    "doc": {".doc"},
+    "rtf": {".rtf"},
+    "odt": {".odt"},
+    "htm": {".htm"},
+    "epub": {".epub"},
 }
 
 DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -235,7 +138,7 @@ class PatchDocumentRequest(BaseModel):
         default=None, max_length=1500, examples=["Updated description"]
     )
     category: Optional[str] = Field(
-        default=None, min_length=1, max_length=255, examples=["csv"]
+        default=None, min_length=1, max_length=255, examples=["pdf"]
     )
 
 
