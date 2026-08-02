@@ -219,5 +219,8 @@ __marimo__/
 
 vector_store/
 
+# Local docker volume bind mounts (if added later)
+docker/volumes/
+
 # Generated load-test fixtures
 scripts/fixtures/

@@ -17,7 +17,7 @@ FastAPI backend for uploading study documents, ingesting them into a searchable 
 | Layer | Technology |
 | --- | --- |
 | API | FastAPI, Uvicorn, dependency-injector |
-| DB | PostgreSQL (SQLAlchemy async + Alembic) |
+| DB | Local Supabase Postgres (SQLAlchemy async + Alembic) |
 | Cache / tokens | Redis |
 | Jobs | RabbitMQ (aio-pika, quorum queues) |
 | Storage | Supabase Storage (signed URLs) |
@@ -30,11 +30,7 @@ FastAPI backend for uploading study documents, ingesting them into a searchable 
 ## Requirements
 
 - Python **≥ 3.14** ([uv](https://docs.astral.sh/uv/) recommended)
-- PostgreSQL
-- Redis
-- RabbitMQ
-- Elasticsearch 8.x
-- Supabase project (Storage + API keys)
+- Docker Compose stack (Supabase DB/Storage, Redis, RabbitMQ, Elasticsearch, Unstructured)
 - Google API key (Gemini)
 
 System packages used by document parsing (see `Dockerfile`): `libmagic`, Poppler, Tesseract, LibreOffice, Pandoc.
@@ -72,13 +68,15 @@ Settings are loaded from environment variables / `.env` via `app.config.Settings
 | `HOST` / `PORT` | Bind address | `0.0.0.0` / `8000` |
 | `LOG_LEVEL` | Logging level | `INFO` |
 | `CORS_ORIGINS` | Allowed origins | `["*"]` |
-| `DATABASE_URL` | Async Postgres (`postgresql+asyncpg://…`) | local `ask_me` |
-| `SYNC_DATABASE_URL` | Sync Postgres for Alembic (`postgresql+psycopg2://…`) | local `ask_me` |
+| `DATABASE_URL` | Async Supabase Postgres (`postgresql+asyncpg://…`) | local Supabase `postgres` |
+| `SYNC_DATABASE_URL` | Sync Supabase Postgres for Alembic (`postgresql+psycopg2://…`) | local Supabase `postgres` |
+| `CHECKPOINT_DATABASE_URL` | LangGraph checkpoints (same Supabase DB) | local Supabase `postgres` |
 | `REDIS_URL` | Redis | `redis://localhost:6379/0` |
 | `RABBITMQ_URL` | AMQP broker | `amqp://guest:guest@localhost:5672/` |
 | `JWT_SECRET` / `JWT_ALGORITHM` / `JWT_EXPIRE_MINUTES` | Auth tokens | change in production |
 | `GOOGLE_API_KEY` | Gemini | — |
-| `SUPABASE_URL` / `SUPABASE_KEY` | Storage + client | — |
+| `SUPABASE_URL` / `SUPABASE_KEY` | Local Supabase Kong + service_role key | `http://localhost:54321` |
+| `UNSTRUCTURED_API_URL` / `UNSTRUCTURED_API_KEY` | Self-hosted Unstructured API | `http://localhost:8001` |
 | `ELASTICSEARCH_URL` | Search cluster | `http://localhost:9200` |
 | `RABBITMQ_MAX_RETRIES` | Ingest retry attempts | `3` |
 | `RABBITMQ_RETRY_BASE_MS` | Base delay for TTL retry | `5000` |

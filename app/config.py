@@ -17,9 +17,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: list[str] = ["*"]
 
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ask_me"
-    sync_database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/ask_me"
-    checkpoint_database_url: str = "postgresql://postgres:postgres@localhost:5432/checkpoint"
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"
+    sync_database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/postgres"
+    checkpoint_database_url: str = "postgresql://postgres:postgres@localhost:5432/postgres"
     redis_url: str = "redis://localhost:6379/0"
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
 
@@ -31,10 +31,15 @@ class Settings(BaseSettings):
     summarizer_model_name: str = "gemini-3.1-flash-lite"
     query_model_name: str = "gemini-3.1-flash-lite"
 
-    supabase_url: str = "https://ljdj.........co"
-    supabase_key: str = "sb_publ........"
+    # Local Supabase Kong (docker compose); use service_role key for storage
+    supabase_url: str = "http://localhost:54321"
+    supabase_key: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
 
     elasticsearch_url: str = "http://localhost:9200"
+
+    # Self-hosted Unstructured API (docker compose service `unstructured`)
+    unstructured_api_url: str = "http://localhost:8001"
+    unstructured_api_key: str = ""
 
     # Document ingest: delayed retries via TTL queues (not broker requeue)
     rabbitmq_max_retries: int = 3
