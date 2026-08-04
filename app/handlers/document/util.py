@@ -186,7 +186,8 @@ async def process_with_chapters(
             shutil.rmtree(directory, ignore_errors=True)
 
     for index, chunk in enumerate(chunks):
-        chunk.metadata["page"] = f"{chunk.metadata['chapter_key']}_{index}"
+        # ES maps metadata.page as integer; keep chapter identity in chapter_key.
+        chunk.metadata["page"] = index
         chunk.metadata["id"] = f"{payload.document_id}_{index}"
 
     chapters = [section.chapter_key for section in sections]
