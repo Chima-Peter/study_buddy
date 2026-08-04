@@ -166,6 +166,7 @@ class DocumentRepository:
             db_document.hash = (document.hash or "").strip() or None
             db_document.path = document.path
             db_document.updated_at = document.updated_at
+            db_document.sections = document.sections
 
             try:
                 await session.commit()

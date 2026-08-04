@@ -116,6 +116,7 @@ async def continue_ingestion(
 
 async def process_with_chapters(
     chapter_splitter: ChapterSplitter,
+    document_service: "DocumentService",
     ingest_pipeline: IngestPipeline,
     payload: IngestDocumentRequest,
     file_path: str,
@@ -182,5 +183,8 @@ async def process_with_chapters(
     for index, chunk in enumerate(chunks):
         chunk.metadata["page"] = f"{chunk.metadata['chapter_key']}_{index}"
         chunk.metadata["id"] = f"{payload.document_id}_{index}"
+
+    chapters = [file.chapter_key for file in sections]
+    await document_service.update_document_chapters(payload.document_id, chapters)
 
     return chunks

@@ -222,6 +222,7 @@ class UpdateDocumentRequest(BaseModel):
     name: str = Field(..., min_length=3, max_length=255, examples=["Updated title"])
     description: str = Field(..., max_length=1500, examples=["Updated description"])
     category: str = Field(..., min_length=1, max_length=255, examples=["pdf"])
+    sections: Optional[str] = Field(default=None, examples=["1,2,3"])
 
 
 class PatchDocumentRequest(BaseModel):
@@ -234,6 +235,7 @@ class PatchDocumentRequest(BaseModel):
     category: Optional[str] = Field(
         default=None, min_length=1, max_length=255, examples=["pdf"]
     )
+    sections: Optional[str] = Field(default=None, examples=["1,2,3"])
 
 
 class DocumentResponse(BaseModel):
@@ -247,6 +249,7 @@ class DocumentResponse(BaseModel):
     path: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    sections: Optional[str] = None
 
 
 class UploadUrlResponseData(BaseModel):
@@ -290,3 +293,4 @@ class IngestDocumentRequest(BaseModel):
     path: str
     user_id: str
     document_id: str
+    sections: Optional[str] = None

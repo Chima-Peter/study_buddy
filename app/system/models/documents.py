@@ -26,6 +26,7 @@ class DocumentModel(BaseModel):
     category: str = Field(min_length=3, max_length=255)
     user_id: str = Field(min_length=36, max_length=36)
     hash: Optional[str] = Field(max_length=255, default="")
+    sections: Optional[str] = Field(default="")
     path: str = Field(max_length=255, default="")
     status: DocumentStatus = Field(default="pending")
     comment: Optional[str] = Field(
@@ -61,6 +62,7 @@ class DocumentModel(BaseModel):
             "path": self.path,
             "status": self.status,
             "comment": self.comment,
+            "sections": self.sections,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -69,6 +71,7 @@ class DocumentModel(BaseModel):
         self.name = request.name
         self.description = request.description
         self.category = request.category
+        self.sections = request.sections
         self.updated_at = datetime.now(timezone.utc)
 
     def patch_from_request(self, request: PatchDocumentRequest) -> None:
@@ -78,6 +81,8 @@ class DocumentModel(BaseModel):
             self.description = request.description
         if request.category is not None:
             self.category = request.category
+        if request.sections is not None:
+            self.sections = request.sections
         self.updated_at = datetime.now(timezone.utc)
 
     @classmethod
@@ -92,6 +97,7 @@ class DocumentModel(BaseModel):
             description=request.description,
             category=request.category,
             user_id=user_id,
+            sections=request.sections,
             file_name=request.file_name,
             path=path,
             created_at=datetime.now(timezone.utc),
@@ -107,6 +113,7 @@ class DocumentModel(BaseModel):
             status=self.status,
             comment=self.comment,
             hash=self.hash,
+            sections=self.sections,
             path=self.path,
             created_at=self.created_at,
             updated_at=self.updated_at,
@@ -130,6 +137,7 @@ class DocumentDBModel(Base):
         nullable=False,
     )
     hash: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    sections: Mapped[Optional[str]] = mapped_column(sa.String(), nullable=True)
     path: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
     status: Mapped[Optional[str]] = mapped_column(
         sa.String(255), nullable=True, default="pending", index=True
@@ -158,6 +166,7 @@ class DocumentDBModel(Base):
             "description": self.description,
             "category": self.category,
             "hash": self.hash,
+            "sections": self.sections,
             "path": str(self.path),
             "status": self.status or "pending",
             "comment": self.comment or DOCUMENT_STATUS_COMMENTS["pending"],
