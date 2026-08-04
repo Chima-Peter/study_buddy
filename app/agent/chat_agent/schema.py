@@ -36,6 +36,17 @@ class RewriteQueryResponse(BaseModel):
             "Null when document retrieval is not needed."
         ),
     )
+    chapters: list[str] | None = Field(
+        default=None,
+        description=(
+            "Section keys from the provided available section keys that the "
+            "user explicitly scoped the question to "
+            "(e.g. 'chapter_1', 'chapter_2'). "
+            "Copy keys exactly from the available list. "
+            "Empty or null when no specific sections are mentioned or when "
+            "document retrieval is not needed."
+        ),
+    )
     memory_query: str | None = Field(
         default=None,
         description=(

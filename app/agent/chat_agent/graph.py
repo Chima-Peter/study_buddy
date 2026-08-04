@@ -27,6 +27,7 @@ from app.memory.service import MemoryService
 from app.rag.rag_retriever import RAGRetriever
 from app.system.service.chat import ChatService
 from app.system.service.conversation import ConversationService
+from app.system.service.document import DocumentService
 
 class AgentGraph:
     def __init__(
@@ -34,6 +35,7 @@ class AgentGraph:
         retriever: RAGRetriever,
         memory_service: MemoryService,
         conversation_service: ConversationService,
+        document_service: DocumentService,
         chat_model: ChatGoogleGenerativeAI,
         query_model: ChatGoogleGenerativeAI,
         summarizer_model: ChatGoogleGenerativeAI,
@@ -46,6 +48,7 @@ class AgentGraph:
         self.retriever = retriever
         self.memory_service = memory_service
         self.conversation_service = conversation_service
+        self.document_service = document_service
         self.chat_service = chat_service
         self.user_repository = user_repository
         self.logger = logger
@@ -66,6 +69,7 @@ class AgentGraph:
             "rewrite_query": RewriteQueryNode(
                 model=self.query_model,
                 logger=self.logger,
+                document_service=self.document_service,
             ),
             "retrieve_documents": RetrieveDocumentsNode(
                 retriever=self.retriever,
@@ -102,7 +106,10 @@ class AgentGraph:
                 rabbitmq=self.rabbitmq,
                 logger=self.logger,
             ),
-            "cleanup": CleanupNode(logger=self.logger),
+            "cleanup": CleanupNode(
+                logger=self.logger,
+                document_service=self.document_service,
+            ),
         }
 
         for node_name, node in nodes.items():

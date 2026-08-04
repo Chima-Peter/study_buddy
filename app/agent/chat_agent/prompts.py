@@ -5,9 +5,9 @@ def retrieval_decider_prompt(query: str) -> str:
     return (
         "Decide what context is needed to answer the user's question.\n\n"
         "Choose exactly one for decision:\n"
-        '- "rag": question is about uploaded study documents\n'
+        '- "rag": question requires retrieval from uploaded study documents to generate a very detailed answer\n'
         '- "history": question refers to prior chat turns only\n'
-        '- "both": needs both documents and prior chat\n'
+        '- "both": question requires retrieval from both documents and prior chat\n'
         '- "none": general knowledge question, no retrieval needed\n\n'
         "Set retrieve_memory:\n"
         "- true: answer needs stored student facts (topics, preferences, style, schedule)\n"
@@ -25,17 +25,54 @@ def rewrite_query_prompt(
     *,
     retrieve_rag: bool,
     retrieve_memory: bool,
+    section_keys: list[str] | None = None,
 ) -> str:
+    if retrieve_rag and retrieve_memory:
+        retrieval_type = "both"
+    elif retrieve_rag:
+        retrieval_type = "rag"
+    elif retrieve_memory:
+        retrieval_type = "memory"
+    else:
+        retrieval_type = "none"
+
     parts = [
         "Rewrite the user's question for retrieval.\n"
         "Resolve pronouns and references using conversation context. "
         "Preserve original meaning and key terms. Do not answer the question.\n\n"
+        f"Retrieval type: {retrieval_type}\n\n"
     ]
 
     if retrieve_rag:
-        parts.append("Set rag_query to a rewritten search query for documents.\n")
+        parts.append(
+            "Set rag_query to a rewritten search query for documents.\n"
+        )
+        if section_keys:
+            keys_list = ", ".join(section_keys)
+            parts.append(
+                "Available section keys (from document chapter split):\n"
+                f"{keys_list}\n"
+                "If the user scopes the question to specific chapters/parts/"
+                "units (e.g. 'from chapter 1', 'chapter 2 and 3'), set "
+                "chapters to the matching keys from that list only. "
+                "Copy keys exactly. "
+                "Map mentions like 'chapter 1' / 'Ch. 1' -> chapter_1 when "
+                "that key exists.\n"
+                "Examples: 'from chapter 1 and chapter 2' with keys "
+                "chapter_1,chapter_2 -> [\"chapter_1\", \"chapter_2\"]; "
+                "'explain photosynthesis' (no chapter) -> [] or null.\n"
+                "Do not invent keys that are not in the available list.\n"
+            )
+        else:
+            parts.append(
+                "No section keys are available for these documents. "
+                "Set chapters to null.\n"
+            )
     else:
-        parts.append("Set rag_query to null (document retrieval disabled).\n")
+        parts.append(
+            "Set rag_query to null and chapters to null "
+            "(document retrieval disabled).\n"
+        )
 
     if retrieve_memory:
         parts.append(

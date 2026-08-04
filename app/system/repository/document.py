@@ -86,6 +86,25 @@ class DocumentRepository:
                 return None
             return DocumentModel(**db_document.model_dump())
 
+    async def get_by_ids(
+        self,
+        document_ids: list[str],
+        user_id: str,
+    ) -> list[DocumentModel]:
+        if not document_ids:
+            return []
+        async with self.session_factory() as session:
+            result = await session.execute(
+                select(DocumentDBModel).where(
+                    DocumentDBModel.id.in_(document_ids),
+                    DocumentDBModel.user_id == user_id,
+                )
+            )
+            return [
+                DocumentModel(**db_document.model_dump())
+                for db_document in result.scalars().all()
+            ]
+
     async def get_by_user_id(self, user_id: str) -> list[DocumentModel]:
         async with self.session_factory() as session:
             result = await session.execute(

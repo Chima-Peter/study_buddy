@@ -13,6 +13,8 @@ class AgentState(TypedDict):
     conversation_id: str
     user_id: str
     document_ids: list[str] | None
+    document_sections: dict[str, list[str]]
+    chapter_keys: list[str] | None
     first_message: bool
     title: str | None
     conversation_history: Annotated[list[ChatResponse], operator.add]
@@ -27,7 +29,6 @@ class AgentState(TypedDict):
     memory_query: str | None
     memories: list[Memory]
 
-    # Persist across turns; fetched from postgres when missing.
     student_name: str | None
     student_gender: str | None
 

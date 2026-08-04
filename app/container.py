@@ -586,6 +586,7 @@ class Container(containers.DeclarativeContainer):
         retriever=rag_retriever,
         memory_service=memory_service,
         conversation_service=conversation_service,
+        document_service=document_service,
         chat_service=chat_service,
         user_repository=user_repository,
         logger=logger,

@@ -18,13 +18,15 @@ class RetrieveDocumentsNode:
             return {"rag_documents": []}
 
         self.logger.info(
-            "Retrieve documents node started user_id=%s",
+            "Retrieve documents node started user_id=%s chapter_keys=%s",
             state["user_id"],
+            state.get("chapter_keys"),
         )
         results = await self.retriever.retrieve(
             user_id=state["user_id"],
             query=state["rewritten_query"],
             document_ids=state.get("document_ids"),
+            chapter_keys=state.get("chapter_keys"),
         )
 
         self.logger.info(

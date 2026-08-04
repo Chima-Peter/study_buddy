@@ -114,6 +114,29 @@ class DocumentService:
         document = await self._get_owned_document(document_id, user_id)
         return document.to_response()
 
+    async def get_sections_by_document(
+        self,
+        document_ids: list[str],
+        user_id: str,
+    ) -> dict[str, list[str]]:
+        """Map each document id to its chapter_splitter section keys."""
+        if not document_ids:
+            return {}
+        documents = await self.repository.get_by_ids(document_ids, user_id)
+        by_id: dict[str, list[str]] = {document_id: [] for document_id in document_ids}
+        for document in documents:
+            keys: list[str] = []
+            seen: set[str] = set()
+            raw = (document.sections or "").strip()
+            if raw:
+                for key in raw.split(","):
+                    section_key = key.strip()
+                    if section_key and section_key not in seen:
+                        seen.add(section_key)
+                        keys.append(section_key)
+            by_id[document.id] = keys
+        return by_id
+
     async def get_documents_by_user_id(
         self,
         user_id: str,
