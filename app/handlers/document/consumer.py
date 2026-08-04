@@ -79,6 +79,41 @@ async def handle_document(
                     user_id,
                     document_id,
                 )
+                try:
+                    existing = await document_service.get_document_by_id(
+                        document_id, user_id
+                    )
+                except ValueError:
+                    await notify_document_status(
+                        redis,
+                        logger,
+                        user_id,
+                        notification_service,
+                        document_id=document_id,
+                        name=file_name,
+                        status="failed",
+                        comment=(
+                            f"Document '{file_name}' was not found. "
+                            "It may have been deleted."
+                            if file_name
+                            else "Document not found. It may have been deleted."
+                        ),
+                    )
+                    return
+
+                await notify_document_status(
+                    redis,
+                    logger,
+                    user_id,
+                    notification_service,
+                    document_id=existing.id,
+                    name=existing.name,
+                    status=existing.status,
+                    comment=(
+                        "This file has already been processed. "
+                        "Check the document status."
+                    ),
+                )
                 return
 
             suffix = (
@@ -91,17 +126,11 @@ async def handle_document(
                     await supabase.download_file_to(ingest_payload.path, tmp)
                 except Exception as download_error:
                     if is_file_not_found_error(download_error):
-                        raise NonRetryableIngestError(
-                            f"File could not be found at path {ingest_payload.path}"
+                        raise Exception(
+                            f"File could not be found at path {ingest_payload.path}. "
+                            "Check that file has been uploaded then use the retry button."
                         ) from download_error
                     raise
-                    await document_service.update_status(
-                        document_id,
-                        "failed",
-                        user_id,
-                        from_statuses=("pending", "processing", "failed"),
-                        comment=ingest_failure_comment(str(download_error)),
-                    )
                 tmp.flush()
                 tmp.seek(0)
 
@@ -124,7 +153,14 @@ async def handle_document(
                             )
                         else:
                             await notify_document_status(
-                                redis, logger, user_id, completed, notification_service
+                                redis,
+                                logger,
+                                user_id,
+                                notification_service,
+                                document_id=completed.id,
+                                name=completed.name,
+                                status=completed.status,
+                                comment=completed.comment,
                             )
                     else:
                         logger.info(
@@ -139,7 +175,14 @@ async def handle_document(
                             document_id, user_id, existing.path or ""
                         )
                         await notify_document_status(
-                            redis, logger, user_id, cancelled, notification_service
+                            redis,
+                            logger,
+                            user_id,
+                            notification_service,
+                            document_id=cancelled.id,
+                            name=cancelled.name,
+                            status=cancelled.status,
+                            comment=cancelled.comment,
                         )
                         if (
                             ingest_payload.path
@@ -267,8 +310,11 @@ async def handle_document(
                     redis,
                     logger,
                     user_id,
-                    completed, 
                     notification_service,
+                    document_id=completed.id,
+                    name=completed.name,
+                    status=completed.status,
+                    comment=completed.comment,
                 )
                 logger.info(
                     "Ingested file=%s user_id=%s document_id=%s",
@@ -299,7 +345,16 @@ async def handle_document(
                     comment=comment,
                 )
                 if failed is not None:
-                    await notify_document_status(redis, logger, user_id, failed, notification_service)
+                    await notify_document_status(
+                        redis,
+                        logger,
+                        user_id,
+                        notification_service,
+                        document_id=failed.id,
+                        name=failed.name,
+                        status=failed.status,
+                        comment=failed.comment,
+                    )
             await message.reject(requeue=False)
             return
         except Exception as e:
@@ -332,6 +387,17 @@ async def handle_document(
                         from_statuses=("pending", "processing", "failed"),
                         comment=comment,
                     )
+                    if failed is not None:
+                        await notify_document_status(
+                            redis,
+                            logger,
+                            user_id,
+                            notification_service,
+                            document_id=failed.id,
+                            name=failed.name,
+                            status=failed.status,
+                            comment=failed.comment,
+                        )
                 logger.error(
                     "Exhausted retries file=%s user_id=%s document_id=%s "
                     "attempts=%s comment=%s → DLQ",

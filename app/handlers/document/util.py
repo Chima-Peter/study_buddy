@@ -11,7 +11,7 @@ from app.core.redis import RedisClient
 from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
 from app.rag.schema import ParsedSections
-from app.system.document.schema import DocumentResponse, IngestDocumentRequest, UpdateDocumentRequest
+from app.system.document.schema import IngestDocumentRequest
 from app.system.notification.schema import CreateNotificationRequest, EventPayload
 from app.system.notification.service import NotificationService
 
@@ -48,15 +48,19 @@ async def notify_document_status(
     redis: RedisClient,
     logger: Logger,
     user_id: str,
-    document: DocumentResponse,
     notification_service: NotificationService,
+    *,
+    document_id: str,
+    name: str | None,
+    status: str,
+    comment: str | None = None,
 ) -> None:
     try:
         await notification_service.create_notification(
             CreateNotificationRequest(
                 title="Document Status",
-                content=document.comment
-                or f"{document.name} status changed to {document.status}",
+                content=comment
+                or f"{name or 'Document'} status changed to {status}",
             ),
             user_id,
         )
@@ -65,10 +69,10 @@ async def notify_document_status(
             EventPayload(
                 type="document.status",
                 data={
-                    "document_id": document.id,
-                    "name": document.name,
-                    "status": document.status,
-                    "comment": document.comment,
+                    "document_id": document_id,
+                    "name": name,
+                    "status": status,
+                    "comment": comment,
                 },
             ),
         )
@@ -77,8 +81,8 @@ async def notify_document_status(
             "Failed to publish document status notification "
             "user_id=%s document_id=%s status=%s",
             user_id,
-            document.id,
-            document.status,
+            document_id,
+            status,
         )
 
 

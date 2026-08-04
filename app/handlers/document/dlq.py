@@ -76,8 +76,11 @@ async def handle_document_dead_letter_queue(
                 redis,
                 logger,
                 user_id,
-                existing,
                 notification_service,
+                document_id=existing.id,
+                name=existing.name,
+                status=existing.status,
+                comment=existing.comment,
             )
             return
 
@@ -100,8 +103,11 @@ async def handle_document_dead_letter_queue(
             redis,
             logger,
             user_id,
-            updated,
             notification_service,
+            document_id=updated.id,
+            name=updated.name,
+            status=updated.status,
+            comment=updated.comment,
         )
         logger.info(
             "Marked document failed from DLQ document_id=%s user_id=%s comment=%s",
