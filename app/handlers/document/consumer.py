@@ -95,6 +95,13 @@ async def handle_document(
                             f"File could not be found at path {ingest_payload.path}"
                         ) from download_error
                     raise
+                    await document_service.update_status(
+                        document_id,
+                        "failed",
+                        user_id,
+                        from_statuses=("pending", "processing", "failed"),
+                        comment=ingest_failure_comment(str(download_error)),
+                    )
                 tmp.flush()
                 tmp.seek(0)
 
@@ -151,9 +158,8 @@ async def handle_document(
                     return
 
                 start_time = perf_counter()
-                chunks = await process_with_chapters(
+                chunks, sections = await process_with_chapters(
                     chapter_splitter,
-                    document_service,
                     ingest_pipeline,
                     ingest_payload,
                     tmp.name,
@@ -241,7 +247,7 @@ async def handle_document(
                 )
 
                 completed = await document_service.complete_document(
-                    document_id, user_id, file_hash
+                    document_id, user_id, file_hash, sections
                 )
                 if completed is None:
                     await elasticsearch.delete_by_metadata(
@@ -257,7 +263,13 @@ async def handle_document(
                     )
                     return
 
-                await notify_document_status(redis, logger, user_id, completed, notification_service)
+                await notify_document_status(
+                    redis,
+                    logger,
+                    user_id,
+                    completed, 
+                    notification_service,
+                )
                 logger.info(
                     "Ingested file=%s user_id=%s document_id=%s",
                     file_name,

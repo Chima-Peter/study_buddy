@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 import shutil
 from logging import Logger
 from pathlib import Path
@@ -16,6 +17,11 @@ from app.system.service.notification import NotificationService
 
 if TYPE_CHECKING:
     from app.system.service.document import DocumentService
+
+@dataclass
+class ProcessWithChaptersResult:
+    chunks: list[Document]
+    sections: list[str] | None
 
 
 def is_file_not_found_error(exc: BaseException) -> bool:
@@ -116,7 +122,6 @@ async def continue_ingestion(
 
 async def process_with_chapters(
     chapter_splitter: ChapterSplitter,
-    document_service: "DocumentService",
     ingest_pipeline: IngestPipeline,
     payload: IngestDocumentRequest,
     file_path: str,
@@ -185,16 +190,5 @@ async def process_with_chapters(
         chunk.metadata["id"] = f"{payload.document_id}_{index}"
 
     chapters = [section.chapter_key for section in sections]
-    request = UpdateDocumentRequest(sections=",".join(chapters))
-    try:
-        await document_service.update_document(
-            payload.document_id, request, payload.user_id
-        )
-    except Exception:
-        logger.exception(
-            "Failed to update document sections file=%s document_id=%s",
-            payload.file_name,
-            payload.document_id,
-        )
 
-    return chunks
+    return chunks, chapters

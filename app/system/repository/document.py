@@ -224,6 +224,7 @@ class DocumentRepository:
         user_id: str,
         to_status: DocumentStatus,
         from_statuses: Sequence[DocumentStatus],
+        sections: str | None = None,
         *,
         file_hash: str | None = None,
         comment: str | None = None,
@@ -233,6 +234,7 @@ class DocumentRepository:
             "status": to_status,
             "comment": comment or DOCUMENT_STATUS_COMMENTS[to_status],
             "updated_at": datetime.now(timezone.utc),
+            "sections": sections or None,
         }
         if file_hash is not None:
             values["hash"] = file_hash.strip() or None

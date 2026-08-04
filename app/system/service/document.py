@@ -223,6 +223,7 @@ class DocumentService:
         document_id: str,
         user_id: str,
         file_hash: str,
+        sections: list[str] | None = None,
     ) -> DocumentResponse | None:
         result = await self.repository.transition_status(
             document_id,
@@ -230,6 +231,7 @@ class DocumentService:
             "completed",
             ("processing",),
             file_hash=file_hash,
+            sections=",".join(sections) if sections else None,
         )
         return result.to_response() if result else None
 
