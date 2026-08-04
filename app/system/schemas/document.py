@@ -217,14 +217,6 @@ class CreateDocumentRequest(BaseModel):
         ),
     )
 
-
-class UpdateDocumentRequest(BaseModel):
-    name: str = Field(..., min_length=3, max_length=255, examples=["Updated title"])
-    description: str = Field(..., max_length=1500, examples=["Updated description"])
-    category: str = Field(..., min_length=1, max_length=255, examples=["pdf"])
-    sections: Optional[str] = Field(default=None, examples=["1,2,3"])
-
-
 class PatchDocumentRequest(BaseModel):
     name: Optional[str] = Field(
         default=None, min_length=3, max_length=255, examples=["Updated title"]

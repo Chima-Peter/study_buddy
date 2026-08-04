@@ -158,15 +158,24 @@ class DocumentRepository:
             if db_document is None:
                 raise ValueError(f"Document not found: {document.id}")
 
-            db_document.name = document.name
-            db_document.description = document.description
-            db_document.category = document.category
-            db_document.status = document.status
-            db_document.comment = document.comment
-            db_document.hash = (document.hash or "").strip() or None
-            db_document.path = document.path
+            
+            if document.name is not None:
+                db_document.name = document.name
+            if document.description is not None:
+                db_document.description = document.description
+            if document.category is not None:
+                db_document.category = document.category
+            if document.status is not None:
+                db_document.status = document.status
+            if document.comment is not None:
+                db_document.comment = document.comment
+            if document.hash is not None:
+                db_document.hash = (document.hash or "").strip() or None
+            if document.sections is not None:
+                db_document.sections = document.sections
+            if document.path is not None:
+                db_document.path = document.path
             db_document.updated_at = document.updated_at
-            db_document.sections = document.sections
 
             try:
                 await session.commit()

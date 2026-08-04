@@ -56,50 +56,57 @@ class AgentGraph:
         self.rabbitmq = rabbitmq
         graph = StateGraph(AgentState)
 
-        graph.add_node("retrieval_decider", RetrievalDeciderNode(
-            model=self.query_model,
-            logger=self.logger,
-        ))
-        graph.add_node("rewrite_query", RewriteQueryNode(
-            model=self.query_model,
-            logger=self.logger,
-        ))
-        graph.add_node("retrieve_documents", RetrieveDocumentsNode(
-            retriever=self.retriever,
-            logger=self.logger,
-        ))
-        graph.add_node("retrieve_memory", RetrieveMemoryNode(
-            memory_service=self.memory_service,
-            user_repository=self.user_repository,
-            logger=self.logger,
-        ))
-        graph.add_node("retrieve_conversation_history", RetrieveConversationHistoryNode(
-            conversation_service=self.conversation_service,
-            logger=self.logger,
-        ))
-        graph.add_node("generate_response", GenerateResponseNode(
-            model=self.chat_model,
-            logger=self.logger,
-        ))
-        graph.add_node("save_chat", SaveChatNode(
-            chat_service=self.chat_service,
-            logger=self.logger,
-        ))
-        graph.add_node("update_conversation_title", UpdateConversationTitleNode(
-            conversation_service=self.conversation_service,
-            model=self.summarizer_model,
-            logger=self.logger,
-        ))
-        graph.add_node("update_conversation_summary", UpdateConversationSummaryNode(
-            conversation_service=self.conversation_service,
-            model=self.summarizer_model,
-            logger=self.logger,
-        ))
-        graph.add_node("store_memory", StoreMemoryNode(
-            rabbitmq=self.rabbitmq,
-            logger=self.logger,
-        ))
-        graph.add_node("cleanup", CleanupNode(logger=self.logger))
+        self._raw_graph = graph
+
+        nodes = {
+            "retrieval_decider": RetrievalDeciderNode(
+                model=self.query_model,
+                logger=self.logger,
+            ),
+            "rewrite_query": RewriteQueryNode(
+                model=self.query_model,
+                logger=self.logger,
+            ),
+            "retrieve_documents": RetrieveDocumentsNode(
+                retriever=self.retriever,
+                logger=self.logger,
+            ),
+            "retrieve_memory": RetrieveMemoryNode(
+                memory_service=self.memory_service,
+                user_repository=self.user_repository,
+                logger=self.logger,
+            ),
+            "retrieve_conversation_history": RetrieveConversationHistoryNode(
+                conversation_service=self.conversation_service,
+                logger=self.logger,
+            ),
+            "generate_response": GenerateResponseNode(
+                model=self.chat_model,
+                logger=self.logger,
+            ),
+            "save_chat": SaveChatNode(
+                chat_service=self.chat_service,
+                logger=self.logger,
+            ),
+            "update_conversation_title": UpdateConversationTitleNode(
+                conversation_service=self.conversation_service,
+                model=self.summarizer_model,
+                logger=self.logger,
+            ),
+            "update_conversation_summary": UpdateConversationSummaryNode(
+                conversation_service=self.conversation_service,
+                model=self.summarizer_model,
+                logger=self.logger,
+            ),
+            "store_memory": StoreMemoryNode(
+                rabbitmq=self.rabbitmq,
+                logger=self.logger,
+            ),
+            "cleanup": CleanupNode(logger=self.logger),
+        }
+
+        for node_name, node in nodes.items():
+            self._add_node(node_name, node)
 
         graph.add_edge(START, "retrieval_decider")
         graph.add_edge("retrieval_decider", "rewrite_query")
@@ -143,3 +150,7 @@ class AgentGraph:
 
     def start(self) -> CompiledStateGraph:
         return self.graph
+
+    def _add_node(self, node_name: str, node):
+        self._raw_graph.add_node(node_name, node)
+

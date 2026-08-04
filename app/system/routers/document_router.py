@@ -20,7 +20,6 @@ from app.system.schemas.document import (
     DocumentStatus,
     MAX_LIST_LIMIT,
     PatchDocumentRequest,
-    UpdateDocumentRequest,
     UploadUrlApiResponse,
     UploadUrlResponseData,
 )
@@ -391,12 +390,12 @@ async def get_document(
     "/{document_id}",
     response_model=DocumentApiResponse,
     summary="Replace document metadata",
-    description="Full update of document name, description, and category.",
+    description="Full update of document name, description, category, and sections.",
 )
 @inject
 async def update_document(
     document_id: str,
-    request: UpdateDocumentRequest,
+    request: PatchDocumentRequest,
     user: Annotated[UserResponse, Depends(get_current_user)],
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
@@ -423,45 +422,6 @@ async def update_document(
         data=document.model_dump(mode="json"),
         message="Document updated successfully",
     )
-
-
-@document_router.patch(
-    "/{document_id}",
-    response_model=DocumentApiResponse,
-    summary="Patch document metadata",
-    description="Partial update of document fields.",
-)
-@inject
-async def patch_document(
-    document_id: str,
-    request: PatchDocumentRequest,
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    service: DocumentService = Depends(Provide[Container.document_service]),
-    logger: Logger = Depends(Provide[Container.logger]),
-) -> BasicResponse:
-    try:
-        document = await service.patch_document(document_id, request, user.id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Document not found",
-        )
-    except Exception:
-        logger.exception(
-            "Unexpected error patching document id=%s user_id=%s",
-            document_id,
-            user.id,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        )
-
-    return BasicResponse(
-        data=document.model_dump(mode="json"),
-        message="Document patched successfully",
-    )
-
 
 @document_router.delete(
     "/{document_id}",

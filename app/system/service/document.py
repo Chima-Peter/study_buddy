@@ -18,7 +18,6 @@ from app.system.schemas.document import (
     IngestDocumentRequest,
     MAX_LIST_LIMIT,
     PatchDocumentRequest,
-    UpdateDocumentRequest,
     ingest_failure_comment,
 )
 from app.utils.errors.document import DocumentCreateError, DocumentNotRetryableError
@@ -147,22 +146,11 @@ class DocumentService:
     async def update_document(
         self,
         document_id: str,
-        request: UpdateDocumentRequest,
-        user_id: str,
-    ) -> DocumentResponse:
-        document = await self._get_owned_document(document_id, user_id)
-        document.update_from_request(request)
-        result = await self.repository.update(document)
-        return result.to_response()
-
-    async def patch_document(
-        self,
-        document_id: str,
         request: PatchDocumentRequest,
         user_id: str,
     ) -> DocumentResponse:
         document = await self._get_owned_document(document_id, user_id)
-        document.patch_from_request(request)
+        document.update_from_request(request)
         result = await self.repository.update(document)
         return result.to_response()
 

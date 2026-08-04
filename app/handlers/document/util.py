@@ -10,7 +10,7 @@ from app.core.redis import RedisClient
 from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
 from app.rag.schema import ParsedSections
-from app.system.schemas.document import DocumentResponse, IngestDocumentRequest
+from app.system.schemas.document import DocumentResponse, IngestDocumentRequest, PatchDocumentRequest
 from app.system.schemas.notification import CreateNotificationRequest, EventPayload
 from app.system.service.notification import NotificationService
 
@@ -185,6 +185,7 @@ async def process_with_chapters(
         chunk.metadata["id"] = f"{payload.document_id}_{index}"
 
     chapters = [file.chapter_key for file in sections]
-    await document_service.update_document_chapters(payload.document_id, chapters)
+    request = PatchDocumentRequest(sections=f"{chapters.split(',')}")
+    await document_service.update_document(payload.document_id, request, payload.user_id)
 
     return chunks
