@@ -153,6 +153,7 @@ async def handle_document(
                 start_time = perf_counter()
                 chunks = await process_with_chapters(
                     chapter_splitter,
+                    document_service,
                     ingest_pipeline,
                     ingest_payload,
                     tmp.name,

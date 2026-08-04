@@ -14,7 +14,7 @@ from app.system.schemas.document import (
     CreateDocumentRequest,
     DocumentResponse,
     DocumentStatus,
-    PatchDocumentRequest,
+    UpdateDocumentRequest,
 )
 
 
@@ -66,7 +66,7 @@ class DocumentModel(BaseModel):
             "updated_at": self.updated_at,
         }
 
-    def patch_from_request(self, request: PatchDocumentRequest) -> None:
+    def update_from_request(self, request: UpdateDocumentRequest) -> None:
         if request.name is not None:
             self.name = request.name
         if request.description is not None:
@@ -89,7 +89,6 @@ class DocumentModel(BaseModel):
             description=request.description,
             category=request.category,
             user_id=user_id,
-            sections=request.sections,
             file_name=request.file_name,
             path=path,
             created_at=datetime.now(timezone.utc),

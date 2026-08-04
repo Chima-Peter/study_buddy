@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import HTTPException, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 FileType = Literal[
     "pdf",
@@ -217,7 +217,7 @@ class CreateDocumentRequest(BaseModel):
         ),
     )
 
-class PatchDocumentRequest(BaseModel):
+class UpdateDocumentRequest(BaseModel):
     name: Optional[str] = Field(
         default=None, min_length=3, max_length=255, examples=["Updated title"]
     )
@@ -228,6 +228,12 @@ class PatchDocumentRequest(BaseModel):
         default=None, min_length=1, max_length=255, examples=["pdf"]
     )
     sections: Optional[str] = Field(default=None, examples=["1,2,3"])
+
+    @model_validator(mode="after")
+    def at_least_one_field(self) -> "UpdateDocumentRequest":
+        if not self.model_fields_set:
+            raise ValueError("At least one field must be provided")
+        return self
 
 
 class DocumentResponse(BaseModel):

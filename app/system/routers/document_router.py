@@ -19,7 +19,7 @@ from app.system.schemas.document import (
     DocumentListApiResponse,
     DocumentStatus,
     MAX_LIST_LIMIT,
-    PatchDocumentRequest,
+    UpdateDocumentRequest,
     UploadUrlApiResponse,
     UploadUrlResponseData,
 )
@@ -386,21 +386,26 @@ async def get_document(
     )
 
 
-@document_router.put(
+@document_router.patch(
     "/{document_id}",
     response_model=DocumentApiResponse,
-    summary="Replace document metadata",
-    description="Full update of document name, description, category, and sections.",
+    summary="Update document metadata",
+    description=(
+        "Partial update of document name, description, category, and/or sections. "
+        "Only provided fields are changed."
+    ),
 )
 @inject
 async def update_document(
     document_id: str,
-    request: PatchDocumentRequest,
+    request: UpdateDocumentRequest,
     user: Annotated[UserResponse, Depends(get_current_user)],
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
+        # prevent sections from being updated by the user
+        request.sections = None
         document = await service.update_document(document_id, request, user.id)
     except ValueError:
         raise HTTPException(
