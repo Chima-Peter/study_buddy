@@ -5,6 +5,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.agent.chat_agent.prompts import rewrite_query_prompt
 from app.agent.chat_agent.schema import RewriteQueryResponse
 from app.agent.chat_agent.state import AgentState
+from app.utils.llm import is_rate_limit_error
 
 
 class RewriteQueryNode:
@@ -50,12 +51,19 @@ class RewriteQueryNode:
                     RewriteQueryResponse
                 ).ainvoke(prompt)
             )
-        except Exception:
-            self.logger.exception(
-                "Rewrite query node failed id=%s user_id=%s",
-                state["conversation_id"],
-                state["user_id"],
-            )
+        except Exception as e:
+            if is_rate_limit_error(e):
+                self.logger.warning(
+                    "Rewrite query node rate limited id=%s user_id=%s",
+                    state["conversation_id"],
+                    state["user_id"],
+                )
+            else:
+                self.logger.exception(
+                    "Rewrite query node failed id=%s user_id=%s",
+                    state["conversation_id"],
+                    state["user_id"],
+                )
             return {
                 "rewritten_query": state["query"],
                 "memory_query": state["query"] if retrieve_memory else None,

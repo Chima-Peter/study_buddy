@@ -7,6 +7,7 @@ from langchain_core.documents import Document
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.core.embedding import EmbeddingManager
+from app.utils.llm import is_rate_limit_error
 from app.memory.prompts import memory_deduplication_prompt, memory_extraction_prompt
 from app.memory.repository import MemoryRepository
 from app.memory.schema import (
@@ -175,8 +176,11 @@ class MemoryService:
                     MemoryExtractionResult
                 ).ainvoke(prompt)
             )
-        except Exception:
-            self.logger.exception("Memory extraction failed")
+        except Exception as e:
+            if is_rate_limit_error(e):
+                self.logger.warning("Memory extraction rate limited")
+            else:
+                self.logger.exception("Memory extraction failed")
             return []
 
         self.logger.info("Extracted %s memory candidates", len(result.memories))
@@ -306,7 +310,10 @@ class MemoryService:
                 contradict=contradict,
             )
         except Exception as e:
-            self.logger.exception(f"MemoryService deduplicate failed: {e}")
+            if is_rate_limit_error(e):
+                self.logger.warning("MemoryService deduplicate rate limited")
+            else:
+                self.logger.exception(f"MemoryService deduplicate failed: {e}")
             raise ValueError("Failed to deduplicate") from e
 
     async def search_for_duplicates(

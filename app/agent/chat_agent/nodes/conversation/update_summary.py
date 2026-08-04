@@ -5,6 +5,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.agent.chat_agent.prompts import summary_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY, SUMMARY_MAX_CHARS
 from app.agent.chat_agent.state import AgentState
+from app.utils.llm import is_rate_limit_error
 from app.system.service.conversation import ConversationService
 
 
@@ -33,7 +34,23 @@ class UpdateConversationSummaryNode:
         )
 
         prompt = summary_prompt(state["conversation_summary"], recent_exchanges)
-        summary_response = await self.model.ainvoke(prompt)
+        try:
+            summary_response = await self.model.ainvoke(prompt)
+        except Exception as e:
+            if is_rate_limit_error(e):
+                self.logger.warning(
+                    "Update summary node rate limited id=%s user_id=%s",
+                    state["conversation_id"],
+                    state["user_id"],
+                )
+            else:
+                self.logger.exception(
+                    "Update summary node failed id=%s user_id=%s",
+                    state["conversation_id"],
+                    state["user_id"],
+                )
+            return {}
+
         summary = (
             (summary_response.text or "").strip().strip("\"'")[:SUMMARY_MAX_CHARS]
             or state["conversation_summary"]

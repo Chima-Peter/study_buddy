@@ -3,7 +3,6 @@ from typing import List
 
 import numpy as np
 from langchain_core.documents import Document
-from langchain_core.embeddings import Embeddings
 from sentence_transformers import SentenceTransformer
 
 class EmbeddingManager:

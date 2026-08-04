@@ -5,6 +5,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.agent.chat_agent.prompts import retrieval_decider_prompt
 from app.agent.chat_agent.schema import DeciderResponse
 from app.agent.chat_agent.state import AgentState
+from app.utils.llm import is_rate_limit_error
 
 
 class RetrievalDeciderNode:
@@ -24,12 +25,19 @@ class RetrievalDeciderNode:
             decision = await self.model.ainvoke(prompt)
             result = decision.decision
             retrieve_memory = decision.retrieve_memory
-        except Exception:
-            self.logger.exception(
-                "Retrieval decider failed id=%s user_id=%s",
-                state["conversation_id"],
-                state["user_id"],
-            )
+        except Exception as e:
+            if is_rate_limit_error(e):
+                self.logger.warning(
+                    "Retrieval decider rate limited id=%s user_id=%s",
+                    state["conversation_id"],
+                    state["user_id"],
+                )
+            else:
+                self.logger.exception(
+                    "Retrieval decider failed id=%s user_id=%s",
+                    state["conversation_id"],
+                    state["user_id"],
+                )
             result = "both" if not state["first_message"] else "rag"
             retrieve_memory = False
 

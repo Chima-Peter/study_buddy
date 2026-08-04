@@ -16,6 +16,7 @@ from fastapi import (
 
 from app.authentication.schemas import UserResponse
 from app.container import Container
+from app.utils.llm import is_rate_limit_error
 from app.core.redis import RedisClient
 from app.core.security import get_current_user_websocket
 from app.system.schemas.conversation import CreateConversationRequest
@@ -173,13 +174,23 @@ async def websocket_endpoint(
                                 })
                         except WebSocketDisconnect:
                             raise
-                        except Exception:
-                            logger.exception(
-                                "Error in agent graph user_id=%s", user.id
-                            )
+                        except Exception as e:
+                            if is_rate_limit_error(e):
+                                logger.warning(
+                                    "Agent graph rate limited user_id=%s",
+                                    user.id,
+                                )
+                                error_message = (
+                                    "Rate limit exceeded. Please try again shortly."
+                                )
+                            else:
+                                logger.exception(
+                                    "Error in agent graph user_id=%s", user.id
+                                )
+                                error_message = "Failed to generate response"
                             await _safe_send_json(websocket, {
                                 "type": "chat.error",
-                                "message": "Failed to generate response",
+                                "message": error_message,
                                 "conversation_id": conversation_id,
                             })
                             continue

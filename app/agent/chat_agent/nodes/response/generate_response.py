@@ -6,6 +6,7 @@ from langgraph.config import get_stream_writer
 from app.agent.chat_agent.prompts import chat_response_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY
 from app.agent.chat_agent.state import AgentState
+from app.utils.llm import is_rate_limit_error
 
 
 class GenerateResponseNode:
@@ -70,15 +71,34 @@ class GenerateResponseNode:
 
         writer = get_stream_writer()
         answer = ""
-        async for chunk in self.model.astream(prompt):
-            text = chunk.text
-            if not text:
-                continue
-            writer({
-                "type": "chat.response",
-                "response": text,
-            })
-            answer += text
+        try:
+            async for chunk in self.model.astream(prompt):
+                text = chunk.text
+                if not text:
+                    continue
+                writer({
+                    "type": "chat.response",
+                    "response": text,
+                })
+                answer += text
+        except Exception as e:
+            if is_rate_limit_error(e):
+                self.logger.warning(
+                    "Generate response node rate limited id=%s user_id=%s",
+                    state["conversation_id"],
+                    state["user_id"],
+                )
+                writer({
+                    "type": "chat.response",
+                    "response": "I'm sorry, I'm experiencing a technical issue. Please try again later.",
+                })
+            else:
+                self.logger.exception(
+                    "Generate response node failed id=%s user_id=%s",
+                    state["conversation_id"],
+                    state["user_id"],
+                )
+            raise
 
         self.logger.info(
             "Generate response node completed id=%s user_id=%s response_chars=%s",
