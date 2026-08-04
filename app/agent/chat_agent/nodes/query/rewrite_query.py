@@ -11,7 +11,7 @@ from app.rag.schema import normalize_chapter_key
 from app.utils.llm import is_rate_limit_error
 
 if TYPE_CHECKING:
-    from app.system.service.document import DocumentService
+    from app.system.document.service import DocumentService
 
 _CH_ABBREV_RE = re.compile(
     r"^ch(?:apter)?\.?\s*([0-9]+|[ivxlcdm]+)\b(.*)$",

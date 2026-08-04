@@ -5,8 +5,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
-from app.system.models.notifications import NotificationDBModel, NotificationModel
-from app.system.schemas.notification import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
+from app.system.notification.model import NotificationDBModel, NotificationModel
+from app.system.notification.schema import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT
 
 
 class NotificationRepository:

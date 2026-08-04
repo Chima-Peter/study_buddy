@@ -11,12 +11,12 @@ from app.core.redis import RedisClient
 from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
 from app.rag.schema import ParsedSections
-from app.system.schemas.document import DocumentResponse, IngestDocumentRequest, UpdateDocumentRequest
-from app.system.schemas.notification import CreateNotificationRequest, EventPayload
-from app.system.service.notification import NotificationService
+from app.system.document.schema import DocumentResponse, IngestDocumentRequest, UpdateDocumentRequest
+from app.system.notification.schema import CreateNotificationRequest, EventPayload
+from app.system.notification.service import NotificationService
 
 if TYPE_CHECKING:
-    from app.system.service.document import DocumentService
+    from app.system.document.service import DocumentService
 
 @dataclass
 class ProcessWithChaptersResult:

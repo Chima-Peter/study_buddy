@@ -6,8 +6,8 @@ from langgraph.config import get_stream_writer
 from app.agent.chat_agent.prompts import title_prompt
 from app.agent.chat_agent.state import AgentState
 from app.utils.llm import is_rate_limit_error
-from app.system.schemas.conversation import UpdateConversationTitleRequest
-from app.system.service.conversation import ConversationService
+from app.system.conversation.schema import UpdateConversationTitleRequest
+from app.system.conversation.service import ConversationService
 
 
 class UpdateConversationTitleNode:

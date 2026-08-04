@@ -5,10 +5,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.authentication.models.user import UserDBModel, UserModel
-from app.system.models.chat import ChatDBModel
-from app.system.models.conversation import ConversationDBModel
-from app.system.models.documents import DocumentDBModel
-from app.system.models.notifications import NotificationDBModel
+from app.system.chat.model import ChatDBModel
+from app.system.conversation.model import ConversationDBModel
+from app.system.document.model import DocumentDBModel
+from app.system.notification.model import NotificationDBModel
 from app.utils.errors.user import DuplicateEmailError, UserCreateError
 
 

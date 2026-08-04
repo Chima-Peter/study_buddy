@@ -5,12 +5,12 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.core.redis import RedisClient
 from app.handlers.document.util import notify_document_status
-from app.system.schemas.document import (
+from app.system.document.schema import (
     DOCUMENT_STATUS_COMMENTS,
     ingest_failure_comment,
 )
-from app.system.service.document import DocumentService
-from app.system.service.notification import NotificationService
+from app.system.document.service import DocumentService
+from app.system.notification.service import NotificationService
 
 
 async def handle_document_dead_letter_queue(

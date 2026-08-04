@@ -6,7 +6,7 @@ from app.agent.chat_agent.prompts import summary_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY, SUMMARY_MAX_CHARS
 from app.agent.chat_agent.state import AgentState
 from app.utils.llm import is_rate_limit_error
-from app.system.service.conversation import ConversationService
+from app.system.conversation.service import ConversationService
 
 
 class UpdateConversationSummaryNode:

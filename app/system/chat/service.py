@@ -1,9 +1,9 @@
 from logging import Logger
 from typing import Any
 
-from app.system.models.chat import ChatModel
-from app.system.repository.chat import ChatRepository
-from app.system.schemas.chat import ChatResponse
+from app.system.chat.model import ChatModel
+from app.system.chat.repository import ChatRepository
+from app.system.chat.schema import ChatResponse
 
 SAVE_MAX_ATTEMPTS = 3
 

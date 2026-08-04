@@ -22,8 +22,8 @@ from app.handlers.memory_extract import (
 from app.memory.service import MemoryService
 from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
-from app.system.service.document import DocumentService
-from app.system.service.notification import NotificationService
+from app.system.document.service import DocumentService
+from app.system.notification.service import NotificationService
 
 
 class Handlers:

@@ -1,9 +1,9 @@
 from datetime import datetime
 from logging import Logger
 
-from app.system.models.notifications import NotificationModel
-from app.system.repository.notification import NotificationRepository
-from app.system.schemas.notification import (
+from app.system.notification.model import NotificationModel
+from app.system.notification.repository import NotificationRepository
+from app.system.notification.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
     CreateNotificationRequest,

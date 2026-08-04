@@ -1,9 +1,9 @@
 from logging import Logger
 
-from app.system.models.conversation import ConversationModel
-from app.system.repository.conversation import ConversationRepository
-from app.system.schemas.chat import ChatResponse
-from app.system.schemas.conversation import (
+from app.system.conversation.model import ConversationModel
+from app.system.conversation.repository import ConversationRepository
+from app.system.chat.schema import ChatResponse
+from app.system.conversation.schema import (
     ConversationDetailResponse,
     ConversationResponse,
     CreateConversationRequest,

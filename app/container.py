@@ -39,15 +39,15 @@ from app.rag.ingest_pipeline import IngestPipeline
 from app.rag.rag_retriever import RAGRetriever
 from app.memory.repository import MemoryRepository
 from app.memory.service import MemoryService
-from app.system.repository.conversation import ConversationRepository
-from app.system.repository.document import DocumentRepository
-from app.system.repository.chat import ChatRepository
-from app.system.repository.notification import NotificationRepository
-from app.system.schemas.chat import ChatResponse
-from app.system.service.chat import ChatService
-from app.system.service.conversation import ConversationService
-from app.system.service.document import DocumentService
-from app.system.service.notification import NotificationService
+from app.system.conversation.repository import ConversationRepository
+from app.system.document.repository import DocumentRepository
+from app.system.chat.repository import ChatRepository
+from app.system.notification.repository import NotificationRepository
+from app.system.chat.schema import ChatResponse
+from app.system.chat.service import ChatService
+from app.system.conversation.service import ConversationService
+from app.system.document.service import DocumentService
+from app.system.notification.service import NotificationService
 
 
 def init_sync_engine(database_url: str) -> Iterator[Engine]:

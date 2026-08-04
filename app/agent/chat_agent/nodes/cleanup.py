@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from app.agent.chat_agent.state import AgentState
 
 if TYPE_CHECKING:
-    from app.system.service.document import DocumentService
+    from app.system.document.service import DocumentService
 
 
 class CleanupNode:

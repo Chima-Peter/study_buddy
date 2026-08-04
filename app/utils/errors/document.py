@@ -2,7 +2,7 @@ import re
 
 from sqlalchemy.exc import IntegrityError
 
-from app.system.models.documents import DocumentModel
+from app.system.document.model import DocumentModel
 
 _UNIQUE_KEY_RE = re.compile(
     r"key \(([^)]+)\)=\((.+)\) already exists",

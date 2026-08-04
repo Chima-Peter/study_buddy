@@ -30,7 +30,7 @@ from app.rag.document_parsers import parse_csv
 from app.rag.ocr_cleanup import clean_ocr_documents
 from app.rag.schema import ALLOWED_FILE_TYPES
 from app.rag.unstructured_api import normalize_unstructured_base_url
-from app.system.schemas.document import IngestDocumentRequest
+from app.system.document.schema import IngestDocumentRequest
 from app.utils.errors.rabbitmq import NonRetryableIngestError
 
 

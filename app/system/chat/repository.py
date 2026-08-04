@@ -4,8 +4,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
-from app.system.models.chat import ChatDBModel, ChatModel
-from app.system.models.conversation import ConversationDBModel
+from app.system.chat.model import ChatDBModel, ChatModel
+from app.system.conversation.model import ConversationDBModel
 
 
 class ChatRepository:

@@ -6,9 +6,9 @@ from app.core.elasticsearch import Elasticsearch
 from app.core.rabbitmq import RabbitMQ
 from app.core.supabase import Supabase
 from app.rag.ingest_pipeline import IngestPipeline
-from app.system.models.documents import DocumentModel
-from app.system.repository.document import DocumentRepository
-from app.system.schemas.document import (
+from app.system.document.model import DocumentModel
+from app.system.document.repository import DocumentRepository
+from app.system.document.schema import (
     DEFAULT_LIST_LIMIT,
     DOCUMENT_STATUS_COMMENTS,
     CreateDocumentRequest,

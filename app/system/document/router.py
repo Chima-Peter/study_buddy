@@ -11,7 +11,7 @@ from app.container import Container
 from app.core.response import ApiResponse, BasicResponse
 from app.core.security import get_current_user
 from app.core.supabase import Supabase
-from app.system.schemas.document import (
+from app.system.document.schema import (
     ALL_ALLOWED_EXTENSIONS,
     DEFAULT_LIST_LIMIT,
     CreateDocumentRequest,
@@ -23,7 +23,7 @@ from app.system.schemas.document import (
     UploadUrlApiResponse,
     UploadUrlResponseData,
 )
-from app.system.service.document import DocumentService
+from app.system.document.service import DocumentService
 from app.utils.errors.document import (
     DocumentCreateError,
     DocumentNotRetryableError,

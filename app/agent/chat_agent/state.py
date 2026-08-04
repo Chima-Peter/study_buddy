@@ -3,7 +3,7 @@ from typing import Annotated, TypedDict
 from langchain_core.messages import AnyMessage
 from app.core.elasticsearch_schema import FusedResult
 from app.memory.schema import Memory
-from app.system.schemas.chat import ChatResponse
+from app.system.chat.schema import ChatResponse
 
 import operator
 

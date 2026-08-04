@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql import select
 
-from app.system.models.chat import ChatModel
-from app.system.models.conversation import ConversationDBModel, ConversationModel
+from app.system.chat.model import ChatModel
+from app.system.conversation.model import ConversationDBModel, ConversationModel
 
 
 class ConversationRepository:

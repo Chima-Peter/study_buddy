@@ -23,12 +23,12 @@ from app.core.redis import RedisClient
 from app.core.supabase import Supabase
 from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
-from app.system.schemas.document import (
+from app.system.document.schema import (
     IngestDocumentRequest,
     ingest_failure_comment,
 )
-from app.system.service.document import DocumentService
-from app.system.service.notification import NotificationService
+from app.system.document.service import DocumentService
+from app.system.notification.service import NotificationService
 from app.utils.errors.rabbitmq import NonRetryableIngestError
 
 

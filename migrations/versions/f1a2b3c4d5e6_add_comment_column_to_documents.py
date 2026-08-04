@@ -10,7 +10,7 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-from app.system.schemas.document import DOCUMENT_STATUS_COMMENTS
+from app.system.document.schema import DOCUMENT_STATUS_COMMENTS
 
 
 # revision identifiers, used by Alembic.

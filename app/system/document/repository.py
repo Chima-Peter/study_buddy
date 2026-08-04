@@ -7,8 +7,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
-from app.system.models.documents import DocumentDBModel, DocumentModel
-from app.system.schemas.document import (
+from app.system.document.model import DocumentDBModel, DocumentModel
+from app.system.document.schema import (
     DEFAULT_LIST_LIMIT,
     DOCUMENT_STATUS_COMMENTS,
     DocumentStatus,

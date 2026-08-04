@@ -1,7 +1,7 @@
 from logging import Logger
 
 from app.agent.chat_agent.state import AgentState
-from app.system.service.chat import ChatService
+from app.system.chat.service import ChatService
 
 
 class SaveChatNode:

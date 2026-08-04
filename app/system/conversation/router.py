@@ -7,11 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.security import get_current_user
-from app.system.schemas.conversation import (
+from app.system.conversation.schema import (
     ConversationHistoryResponse,
     ConversationResponse,
 )
-from app.system.service.conversation import ConversationService
+from app.system.conversation.service import ConversationService
 
 conversation_router = APIRouter(
     prefix="/conversations",

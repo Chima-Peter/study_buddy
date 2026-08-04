@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.system.schemas.notification import (
+from app.system.notification.schema import (
     CreateNotificationRequest,
     NotificationResponse,
 )

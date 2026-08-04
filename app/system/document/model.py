@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 from app.database import Base
-from app.system.schemas.document import (
+from app.system.document.schema import (
     DOCUMENT_STATUS_COMMENTS,
     CreateDocumentRequest,
     DocumentResponse,

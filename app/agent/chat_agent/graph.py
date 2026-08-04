@@ -25,9 +25,9 @@ from app.authentication.repository.user_repository import UserRepository
 from app.core.rabbitmq import RabbitMQ
 from app.memory.service import MemoryService
 from app.rag.rag_retriever import RAGRetriever
-from app.system.service.chat import ChatService
-from app.system.service.conversation import ConversationService
-from app.system.service.document import DocumentService
+from app.system.chat.service import ChatService
+from app.system.conversation.service import ConversationService
+from app.system.document.service import DocumentService
 
 class AgentGraph:
     def __init__(

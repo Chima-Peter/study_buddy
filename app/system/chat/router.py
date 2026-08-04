@@ -19,8 +19,8 @@ from app.container import Container
 from app.utils.llm import is_rate_limit_error
 from app.core.redis import RedisClient
 from app.core.security import get_current_user_websocket
-from app.system.schemas.conversation import CreateConversationRequest
-from app.system.service.conversation import ConversationService
+from app.system.conversation.schema import CreateConversationRequest
+from app.system.conversation.service import ConversationService
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
 

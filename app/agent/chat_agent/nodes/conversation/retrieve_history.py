@@ -1,7 +1,7 @@
 from logging import Logger
 
 from app.agent.chat_agent.state import AgentState
-from app.system.service.conversation import ConversationService
+from app.system.conversation.service import ConversationService
 
 
 class RetrieveConversationHistoryNode:

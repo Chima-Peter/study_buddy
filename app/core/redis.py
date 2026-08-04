@@ -4,7 +4,7 @@ from logging import Logger
 import uuid_utils
 from redis.asyncio import Redis
 
-from app.system.schemas.notification import EventPayload
+from app.system.notification.schema import EventPayload
 
 CONNECTION_TTL_SECONDS = 5 * 60
 CONNECTION_COUNT_TTL_SECONDS = 24 * 60 * 60

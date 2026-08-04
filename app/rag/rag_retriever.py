@@ -6,7 +6,7 @@ from app.core.elasticsearch import Elasticsearch
 from app.core.elasticsearch_schema import FusedResult
 from app.core.embedding import EmbeddingManager
 from app.core.retriever import Retriever
-from app.system.schemas.chat import TOP_K
+from app.system.chat.schema import TOP_K
 
 
 class RAGRetriever(Retriever):
