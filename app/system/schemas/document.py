@@ -10,11 +10,9 @@ FileType = Literal[
     "docx",
     "txt",
     "md",
-    "html",
     "doc",
     "rtf",
     "odt",
-    "htm",
     "epub",
 ]
 
@@ -42,11 +40,9 @@ ALLOWED_EXTENSIONS: dict[FileType, set[str]] = {
     "docx": {".docx"},
     "txt": {".txt"},
     "md": {".md", ".markdown"},
-    "html": {".html"},
     "doc": {".doc"},
     "rtf": {".rtf"},
     "odt": {".odt"},
-    "htm": {".htm"},
     "epub": {".epub"},
 }
 

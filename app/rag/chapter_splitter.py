@@ -4,19 +4,22 @@ import tempfile
 from logging import Logger
 from pathlib import Path
 
+import fitz
 from unstructured.documents.elements import Element, Title
 
 from app.rag.schema import (
     ALLOWED_FILE_TYPES,
-    CHAPTER_HEADING_RE,
     MIN_SECTION_CHARS,
     ExtractedSection,
     ParsedSections,
     SectionCandidate,
+    is_section_heading,
+    named_section_key,
     normalize_chapter_key,
 )
 from app.rag.unstructured_api import normalize_unstructured_base_url, partition_file_via_api
 from app.utils.errors.rabbitmq import NonRetryableIngestError
+
 
 class ChapterSplitter:
     def __init__(
@@ -32,6 +35,7 @@ class ChapterSplitter:
     def initiate_chapter_split(self, filepath: str) -> list[ParsedSections]:
         """
         Split a document into chapter-level sections via the Unstructured API.
+        Each section is written as a PDF so embedded images are preserved.
         """
         self.logger.info(f"Initiating chapter split for file: {filepath}")
 
@@ -66,10 +70,12 @@ class ChapterSplitter:
             f"Found {len(extracted_sections)} extracted chapters for file: {filepath}"
         )
 
-        final_parsed_documents = self._write_sections(filepath, extracted_sections)
+        final_parsed_documents = self._write_sections(
+            filepath, elements, extracted_sections
+        )
         self.logger.info(
             f"Wrote {len(extracted_sections)} chapters to "
-            f"{len(final_parsed_documents)} temp files for processing."
+            f"{len(final_parsed_documents)} temp PDF files for processing."
         )
 
         return final_parsed_documents
@@ -92,14 +98,15 @@ class ChapterSplitter:
             self.logger.error(f"Failed to partition file {filepath}: {e}")
             raise NonRetryableIngestError(f"Failed to parse document: {e}") from e
 
-    def _is_chapter_heading(self, text: str) -> bool:
-        """True only for Chapter/Part/Unit/Module/Book N headings."""
-        return bool(CHAPTER_HEADING_RE.match((text or "").strip()))
+    def _is_section_heading(self, text: str) -> bool:
+        """True for numbered chapter-like headings and named front/back matter."""
+        return is_section_heading(text)
 
     def _find_chapter_candidates(self, elements: list[Element]) -> list[SectionCandidate]:
         """
-        Find chapter headings only (ignores intro/conclusion/subsections).
-        `start` is the element index used for slicing chapter bodies.
+        Find top-level section headings (chapters plus intro/TOC/conclusion/etc.).
+        Subsections like "1.1 …" are left inside their parent body.
+        `start` is the element index used for slicing section bodies.
         """
         candidates: list[SectionCandidate] = []
 
@@ -112,11 +119,11 @@ class ChapterSplitter:
             is_title = category == "Title" or isinstance(element, Title)
             is_header = category == "Header"
 
-            # Also accept plain narrative lines that clearly match Chapter N
-            # (some parsers mis-classify headings).
-            if not (is_title or is_header or self._is_chapter_heading(text)):
+            # Also accept plain narrative lines that clearly match a section
+            # heading (some parsers mis-classify headings).
+            if not (is_title or is_header or self._is_section_heading(text)):
                 continue
-            if not self._is_chapter_heading(text):
+            if not self._is_section_heading(text):
                 continue
 
             candidates.append(
@@ -149,7 +156,7 @@ class ChapterSplitter:
                 if str(elements[i]).strip()
             ]
             content = "\n\n".join(parts).strip()
-            if len(content) < MIN_SECTION_CHARS:
+            if len(content) < MIN_SECTION_CHARS and named_section_key(candidate.title) is None:
                 self.logger.debug(
                     "Skipping short chapter title=%s chars=%s min=%s",
                     candidate.title,
@@ -163,6 +170,7 @@ class ChapterSplitter:
                     title=candidate.title,
                     level=candidate.level,
                     start=candidate.start,
+                    end=end,
                     content=content,
                 )
             )
@@ -170,39 +178,124 @@ class ChapterSplitter:
         return extracted
 
     def _write_sections(
-        self, filepath: str, sections: list[ExtractedSection]
+        self,
+        filepath: str,
+        elements: list[Element],
+        sections: list[ExtractedSection],
     ) -> list[ParsedSections]:
-        """Write chapter bodies to temporary files for downstream processing."""
+        """Write each chapter as a PDF (page-sliced when source is PDF)."""
         stem = Path(filepath).stem
         out_dir = Path(tempfile.mkdtemp(prefix=f"chapters_{stem}_"))
         written: list[ParsedSections] = []
         used_keys: dict[str, int] = {}
+        source_is_pdf = Path(filepath).suffix.lower() == ".pdf"
+        source_doc = fitz.open(filepath) if source_is_pdf else None
 
-        for index, section in enumerate(sections):
-            base_key = normalize_chapter_key(section.title)
-            count = used_keys.get(base_key, 0) + 1
-            used_keys[base_key] = count
-            chapter_key = base_key if count == 1 else f"{base_key}_{count}"
+        try:
+            for index, section in enumerate(sections):
+                base_key = normalize_chapter_key(section.title)
+                count = used_keys.get(base_key, 0) + 1
+                used_keys[base_key] = count
+                chapter_key = base_key if count == 1 else f"{base_key}_{count}"
 
-            safe_title = re.sub(r"[^\w\-]+", "_", section.title).strip("_")[:60] or "chapter"
-            out_path = out_dir / f"{index:03d}_{safe_title}.txt"
-            out_path.write_text(section.content, encoding="utf-8")
-            written.append(
-                ParsedSections(
-                    title=section.title,
-                    chapter_key=chapter_key,
-                    file_path=str(out_path),
+                safe_title = (
+                    re.sub(r"[^\w\-]+", "_", section.title).strip("_")[:60] or "chapter"
                 )
-            )
-            self.logger.debug(
-                "Wrote chapter title=%s chapter_key=%s path=%s chars=%s",
-                section.title,
-                chapter_key,
-                out_path,
-                len(section.content),
-            )
+                out_path = out_dir / f"{index:03d}_{safe_title}.pdf"
+
+                if source_doc is not None:
+                    self._write_pdf_page_slice(
+                        source_doc, elements, section, out_path
+                    )
+                else:
+                    self._write_text_pdf(section.title, section.content, out_path)
+
+                written.append(
+                    ParsedSections(
+                        title=section.title,
+                        chapter_key=chapter_key,
+                        file_path=str(out_path),
+                    )
+                )
+                self.logger.debug(
+                    "Wrote chapter title=%s chapter_key=%s path=%s chars=%s",
+                    section.title,
+                    chapter_key,
+                    out_path,
+                    len(section.content),
+                )
+        finally:
+            if source_doc is not None:
+                source_doc.close()
 
         return written
+
+    def _element_page(self, element: Element) -> int | None:
+        """1-based page number from Unstructured metadata, if present."""
+        meta = getattr(element, "metadata", None)
+        page = getattr(meta, "page_number", None) if meta else None
+        if page is None:
+            return None
+        try:
+            return int(page)
+        except (TypeError, ValueError):
+            return None
+
+    def _write_pdf_page_slice(
+        self,
+        source_doc: fitz.Document,
+        elements: list[Element],
+        section: ExtractedSection,
+        out_path: Path,
+    ) -> None:
+        """Copy source pages spanning this section so images stay embedded."""
+        pages: list[int] = []
+        for i in range(section.start, section.end):
+            page = self._element_page(elements[i])
+            if page is not None:
+                pages.append(page)
+
+        out = fitz.open()
+        try:
+            if pages:
+                # Unstructured pages are 1-based; fitz is 0-based.
+                start_page = max(0, min(pages) - 1)
+                end_page = min(source_doc.page_count - 1, max(pages) - 1)
+                out.insert_pdf(source_doc, from_page=start_page, to_page=end_page)
+            else:
+                # No page metadata — fall back to a text-only PDF.
+                self._append_text_pages(out, section.title, section.content)
+            out.save(out_path)
+        finally:
+            out.close()
+
+    def _write_text_pdf(self, title: str, content: str, out_path: Path) -> None:
+        """Render non-PDF chapter content into a simple text PDF."""
+        out = fitz.open()
+        try:
+            self._append_text_pages(out, title, content)
+            out.save(out_path)
+        finally:
+            out.close()
+
+    def _append_text_pages(self, doc: fitz.Document, title: str, content: str) -> None:
+        width, height = fitz.paper_size("a4")
+        margin = 54
+        line_height = 14
+        page = doc.new_page(width=width, height=height)
+        y = margin
+        page.insert_text((margin, y), title[:200], fontsize=16, fontname="helv")
+        y += 28
+        for raw_line in (content or "").splitlines() or [""]:
+            # Soft-wrap long lines for the text fallback path.
+            chunk = raw_line if raw_line else " "
+            while chunk:
+                piece, chunk = chunk[:100], chunk[100:]
+                if y > height - margin:
+                    page = doc.new_page(width=width, height=height)
+                    y = margin
+                page.insert_text((margin, y), piece, fontsize=11, fontname="helv")
+                y += line_height
 
     def _dedupe_candidates(
         self, candidates: list[SectionCandidate]
