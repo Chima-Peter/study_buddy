@@ -2,7 +2,7 @@ from asyncio import TaskGroup
 from logging import Logger
 
 from app.agent.study_cards_agent.prompts import generate_chapter_prompt
-from app.agent.study_cards_agent.schema import ChapterResult
+from app.agent.study_cards_agent.schema import ChapterResult, Critique
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.core.elasticsearch_schema import IndexedRecord
 from app.utils.llm import is_rate_limit_error
@@ -19,6 +19,7 @@ class GenerateChapterNode:
         pending_chapters = state["pending_chapters"]
         retry_count = state["retry_count"]
         missing_chapters = state["missing_chapters"]
+        critique = state.get("critique")
 
         if not pending_chapters:
             self.logger.info(
@@ -29,14 +30,15 @@ class GenerateChapterNode:
             return state
 
         self.logger.info(
-            "Generate chapter node started document_id=%s user_id=%s pending_chapters=%s retry_count=%s",
+            "Generate chapter node started document_id=%s user_id=%s "
+            "pending_chapters=%s retry_count=%s",
             state["document_id"],
             state["user_id"],
             len(pending_chapters),
             retry_count,
         )
 
-        results: dict[str, ChapterResult] = state["generated_chapters"]
+        generated_chapters = state["generated_chapters"]
         chapter_keys_to_generate = [
             chapter_key
             for chapter_key in sections
@@ -49,6 +51,8 @@ class GenerateChapterNode:
                     self.generate_chapter(
                         chapter_key,
                         sections[chapter_key],
+                        self._critique_comment(critique, chapter_key),
+                        self._previous_draft(generated_chapters, chapter_key),
                     )
                 )
                 for chapter_key in chapter_keys_to_generate
@@ -57,36 +61,65 @@ class GenerateChapterNode:
         for task in tasks:
             result = task.result()
             if result is not None:
-                results[result.chapter_key] = result
+                generated_chapters[result.chapter_key] = result
 
         self.logger.info(
             "Generated chapters for document_id=%s user_id=%s generated_chapters=%s",
             state["document_id"],
             state["user_id"],
-            len(results),
+            len(generated_chapters),
         )
 
         return {
-            "generated_chapters": results,
+            "generated_chapters": generated_chapters,
             "retry_count": {
                 "generate": retry_count["generate"] + 1,
                 "critique": retry_count["critique"],
             },
         }
 
+    @staticmethod
+    def _critique_comment(
+        critique: dict[str, Critique] | None, chapter_key: str
+    ) -> str | None:
+        if critique is None:
+            return None
+        entry = critique.get(chapter_key)
+        if entry is None or not entry.comment:
+            return None
+        return entry.comment
+
+    @staticmethod
+    def _previous_draft(
+        generated_chapters: dict[str, ChapterResult], chapter_key: str
+    ) -> str | None:
+        chapter = generated_chapters.get(chapter_key)
+        if chapter is None:
+            return None
+        return chapter.model_dump_json()
+
     async def generate_chapter(
-        self, chapter_key: str, section: list[IndexedRecord]
+        self,
+        chapter_key: str,
+        section: list[IndexedRecord],
+        critique_comment: str | None = None,
+        previous_draft: str | None = None,
     ) -> ChapterResult | None:
         content = "\n".join([record.content for record in section])
         self.logger.info(
-            "Generating chapter for section chapter_key=%s content_len=%s",
+            "Generating chapter for section chapter_key=%s content_len=%s "
+            "has_critique=%s has_previous_draft=%s",
             chapter_key,
             len(content),
+            bool(critique_comment),
+            bool(previous_draft),
         )
 
         try:
             response = await self.model.ainvoke(
-                generate_chapter_prompt(chapter_key, content)
+                generate_chapter_prompt(
+                    chapter_key, content, critique_comment, previous_draft
+                )
             )
             result = response.model_copy(update={"chapter_key": chapter_key})
 

@@ -1,6 +1,6 @@
 from typing import Literal, TypedDict
 
-from app.agent.study_cards_agent.schema import ChapterResult, StudyCardsResult
+from app.agent.study_cards_agent.schema import ChapterResult, Critique, StudyCardsResult
 from app.core.elasticsearch_schema import IndexedRecord
 
 
@@ -15,3 +15,4 @@ class StudyCardsState(TypedDict):
     missing_chapters: list[str]
     retry_count: dict[Literal["generate", "critique"], int]
     final_result: StudyCardsResult
+    critique: dict[str, Critique]
