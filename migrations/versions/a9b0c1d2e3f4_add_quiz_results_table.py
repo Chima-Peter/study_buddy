@@ -24,7 +24,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), primary_key=True),
         sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("document_id", sa.UUID(), nullable=False),
-        sa.Column("result", sa.String(), nullable=True),
+        sa.Column("result", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column(
             "created_at",
             postgresql.TIMESTAMP(timezone=True),

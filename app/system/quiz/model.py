@@ -5,7 +5,7 @@ import sqlalchemy as sa
 import uuid_utils
 from pydantic import BaseModel, Field, field_serializer
 from sqlalchemy import ForeignKey
-from sqlalchemy.dialects.postgresql import TIMESTAMP
+from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -16,7 +16,7 @@ class QuizResultModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
     user_id: str = Field(min_length=36, max_length=36)
     document_id: str = Field(min_length=36, max_length=36)
-    result: Optional[str] = None
+    result: Optional[dict[str, Any]] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -66,7 +66,10 @@ class QuizResultDBModel(Base):
         ForeignKey("documents.id"),
         nullable=False,
     )
-    result: Mapped[Optional[str]] = mapped_column(sa.String(), nullable=True)
+    result: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,

@@ -15,7 +15,7 @@ class QuizGenerateAccepted(BaseModel):
 class QuizResultResponse(BaseModel):
     id: str
     document_id: str
-    result: str | None
+    result: dict | None
     created_at: str
     updated_at: str
 
@@ -25,3 +25,5 @@ class QuizGenerateApiResponse(BaseModel):
     success: bool = True
     message: str | None = None
     error: str | None = None
+
+

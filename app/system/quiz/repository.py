@@ -55,7 +55,7 @@ class QuizRepository:
         self,
         quiz_result_id: str,
         user_id: str,
-        result: str,
+        result: dict,
     ) -> QuizResultModel | None:
         async with self.session_factory() as session:
             row = await session.execute(
