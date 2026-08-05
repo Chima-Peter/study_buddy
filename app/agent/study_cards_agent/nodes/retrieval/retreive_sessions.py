@@ -1,6 +1,6 @@
 from logging import Logger
 
-from app.agent.quiz_agent.state import QuizState
+from app.agent.study_cards_agent.state import StudyCardsState
 from app.core.elasticsearch import Elasticsearch
 from app.core.elasticsearch_schema import IndexedRecord
 
@@ -10,7 +10,7 @@ class RetrieveSessionsNode:
         self.logger = logger
         self.elasticsearch = elasticsearch
 
-    async def __call__(self, state: QuizState) -> QuizState:
+    async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         self.logger.info(
             "Retrieve sessions node started document_id=%s user_id=%s",
             state["document_id"],

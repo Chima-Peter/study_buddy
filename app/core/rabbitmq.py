@@ -64,15 +64,15 @@ def retry_queue_name(target_queue: str, delay_ms: int) -> str:
 class RabbitMQ:
     channel: Channel
     llm_channel: Channel
-    quiz_channel: Channel
+    study_cards_channel: Channel
     email_queue: Queue
     email_dlq_queue: Queue
     document_queue: Queue
     document_dlq_queue: Queue
     memory_extract_queue: Queue
     memory_extract_dlq_queue: Queue
-    quiz_generate_queue: Queue
-    quiz_generate_dlq_queue: Queue
+    study_cards_generate_queue: Queue
+    study_cards_generate_dlq_queue: Queue
     logger: Logger
     # target_queue -> { delay_ms -> Queue }
     retry_queues: dict[str, dict[int, Queue]] = field(default_factory=dict)
@@ -92,8 +92,8 @@ class RabbitMQ:
     def _channel_for_queue(self, queue_name: str) -> Channel:
         if queue_name.startswith("memory_extract_queue"):
             return self.llm_channel
-        if queue_name.startswith("quiz_generate_queue"):
-            return self.quiz_channel
+        if queue_name.startswith("study_cards_generate_queue"):
+            return self.study_cards_channel
         return self.channel
 
     async def publish_message(self, queue_name: str, payload: dict, retry_count: int = 0):
@@ -193,7 +193,7 @@ class RabbitMQ:
         memory_extract_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
         ],
-        quiz_generate_callback: Callable[
+        study_cards_generate_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
         ],
         mail_dlq_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
@@ -203,7 +203,7 @@ class RabbitMQ:
         memory_extract_dlq_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
         ],
-        quiz_generate_dlq_callback: Callable[
+        study_cards_generate_dlq_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
         ],
     ) -> list[RabbitMQConsumer]:
@@ -214,8 +214,8 @@ class RabbitMQ:
         memory_extract_consumer = await self._start_consumer(
             "memory_extract_queue", memory_extract_callback
         )
-        quiz_generate_consumer = await self._start_consumer(
-            "quiz_generate_queue", quiz_generate_callback
+        study_cards_generate_consumer = await self._start_consumer(
+            "study_cards_generate_queue", study_cards_generate_callback
         )
         mail_dlq_consumer = await self._start_consumer(
             "mail_queue_dlq", mail_dlq_callback
@@ -226,19 +226,19 @@ class RabbitMQ:
         memory_extract_dlq_consumer = await self._start_consumer(
             "memory_extract_queue_dlq", memory_extract_dlq_callback
         )
-        quiz_generate_dlq_consumer = await self._start_consumer(
-            "quiz_generate_queue_dlq", quiz_generate_dlq_callback
+        study_cards_generate_dlq_consumer = await self._start_consumer(
+            "study_cards_generate_queue_dlq", study_cards_generate_dlq_callback
         )
         self.logger.info("Started RabbitMQ consumers")
         return [
             mail_consumer,
             document_consumer,
             memory_extract_consumer,
-            quiz_generate_consumer,
+            study_cards_generate_consumer,
             mail_dlq_consumer,
             document_dlq_consumer,
             memory_extract_dlq_consumer,
-            quiz_generate_dlq_consumer,
+            study_cards_generate_dlq_consumer,
         ]
 
     async def stop_consumers(self, consumers: list[RabbitMQConsumer]) -> None:
@@ -271,10 +271,10 @@ class RabbitMQ:
                 queue = self.memory_extract_queue
             case "memory_extract_queue_dlq":
                 queue = self.memory_extract_dlq_queue
-            case "quiz_generate_queue":
-                queue = self.quiz_generate_queue
-            case "quiz_generate_queue_dlq":
-                queue = self.quiz_generate_dlq_queue
+            case "study_cards_generate_queue":
+                queue = self.study_cards_generate_queue
+            case "study_cards_generate_queue_dlq":
+                queue = self.study_cards_generate_dlq_queue
             case _:
                 raise HTTPException(
                     status_code=400,

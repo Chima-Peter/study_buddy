@@ -5,10 +5,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
-from app.system.quiz.model import QuizResultDBModel, QuizResultModel
+from app.system.study_cards.model import StudyCardsDBModel, StudyCardsModel
 
 
-class QuizRepository:
+class StudyCardsRepository:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
@@ -17,51 +17,51 @@ class QuizRepository:
         self.session_factory = session_factory
         self.logger = logger
 
-    async def create(self, quiz_result: QuizResultModel) -> QuizResultModel:
+    async def create(self, study_cards: StudyCardsModel) -> StudyCardsModel:
         async with self.session_factory() as session:
-            db_row = QuizResultDBModel(**quiz_result.model_dump_for_db())
+            db_row = StudyCardsDBModel(**study_cards.model_dump_for_db())
             session.add(db_row)
             try:
                 await session.commit()
             except IntegrityError:
                 await session.rollback()
                 self.logger.exception(
-                    "Error creating quiz result id=%s", quiz_result.id
+                    "Error creating study cards id=%s", study_cards.id
                 )
                 raise
 
             await session.refresh(db_row)
-            self.logger.info("Quiz result created id=%s", db_row.id)
-            return QuizResultModel(**db_row.model_dump())
+            self.logger.info("Study cards created id=%s", db_row.id)
+            return StudyCardsModel(**db_row.model_dump())
 
     async def get_by_document(
         self,
         document_id: str,
         user_id: str,
-    ) -> QuizResultModel | None:
+    ) -> StudyCardsModel | None:
         async with self.session_factory() as session:
             result = await session.execute(
-                select(QuizResultDBModel).where(
-                    QuizResultDBModel.document_id == document_id,
-                    QuizResultDBModel.user_id == user_id,
-                ).order_by(QuizResultDBModel.created_at.desc()).limit(1)
+                select(StudyCardsDBModel).where(
+                    StudyCardsDBModel.document_id == document_id,
+                    StudyCardsDBModel.user_id == user_id,
+                ).order_by(StudyCardsDBModel.created_at.desc()).limit(1)
             )
             db_row = result.scalar_one_or_none()
             if db_row is None:
                 return None
-            return QuizResultModel(**db_row.model_dump())
+            return StudyCardsModel(**db_row.model_dump())
 
     async def update_result(
         self,
-        quiz_result_id: str,
+        study_cards_id: str,
         user_id: str,
         result: dict,
-    ) -> QuizResultModel | None:
+    ) -> StudyCardsModel | None:
         async with self.session_factory() as session:
             row = await session.execute(
-                select(QuizResultDBModel).where(
-                    QuizResultDBModel.id == quiz_result_id,
-                    QuizResultDBModel.user_id == user_id,
+                select(StudyCardsDBModel).where(
+                    StudyCardsDBModel.id == study_cards_id,
+                    StudyCardsDBModel.user_id == user_id,
                 )
             )
             db_row = row.scalar_one_or_none()
@@ -72,5 +72,5 @@ class QuizRepository:
             db_row.updated_at = datetime.now(timezone.utc)
             await session.commit()
             await session.refresh(db_row)
-            self.logger.info("Quiz result updated id=%s", quiz_result_id)
-            return QuizResultModel(**db_row.model_dump())
+            self.logger.info("Study cards updated id=%s", study_cards_id)
+            return StudyCardsModel(**db_row.model_dump())

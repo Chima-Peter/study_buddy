@@ -5,10 +5,10 @@ from aio_pika.abc import AbstractIncomingMessage
 from pydantic import ValidationError
 
 from app.core.rabbitmq import RabbitMQ, read_retry_count
-from app.system.quiz.schema import QuizGenerateRequest
+from app.system.study_cards.schema import StudyCardsGenerateRequest
 
 
-async def handle_quiz_generate(
+async def handle_study_cards_generate(
     message: AbstractIncomingMessage,
     logger: Logger,
     rabbitmq: RabbitMQ,
@@ -18,32 +18,32 @@ async def handle_quiz_generate(
     async with message.process(requeue=False, ignore_processed=True):
         try:
             payload = json.loads(message.body)
-            request = QuizGenerateRequest(**payload)
+            request = StudyCardsGenerateRequest(**payload)
             retry_count = read_retry_count(message.headers)
 
             logger.info(
-                "Received quiz generate message document_id=%s "
+                "Received study cards generate message document_id=%s "
                 "user_id=%s retry=%s",
                 request.document_id,
                 request.user_id,
                 retry_count,
             )
 
-            # TODO: invoke quiz_agent graph to generate quiz / study cards
+            # TODO: invoke study_cards_agent graph
             logger.info(
-                "Quiz generate stub completed document_id=%s user_id=%s",
+                "Study cards generate stub completed document_id=%s user_id=%s",
                 request.document_id,
                 request.user_id,
             )
         except (json.JSONDecodeError, ValidationError, TypeError) as e:
             logger.warning(
-                "Non-retryable quiz generate payload error: %s",
+                "Non-retryable study cards generate payload error: %s",
                 e,
             )
             await message.reject(requeue=False)
             return
         except Exception as e:
-            logger.exception("Error generating quiz artifacts: %s", e)
+            logger.exception("Error generating study cards: %s", e)
             if payload is None:
                 await message.reject(requeue=False)
                 return
@@ -51,7 +51,7 @@ async def handle_quiz_generate(
             retry_count = read_retry_count(message.headers)
             if retry_count >= rabbitmq.max_retries:
                 logger.error(
-                    "Exhausted quiz generate retries document_id=%s "
+                    "Exhausted study cards generate retries document_id=%s "
                     "user_id=%s attempts=%s → DLQ",
                     payload.get("document_id"),
                     payload.get("user_id"),
@@ -61,7 +61,7 @@ async def handle_quiz_generate(
                 return
 
             await rabbitmq.schedule_retry(
-                "quiz_generate_queue",
+                "study_cards_generate_queue",
                 payload,
                 retry_count=retry_count,
                 headers=message.headers,

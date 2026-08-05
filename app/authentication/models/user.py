@@ -86,8 +86,8 @@ class UserDBModel(Base):
         "NotificationDBModel",
         back_populates="user",
     )
-    quiz_results = relationship(
-        "QuizResultDBModel",
+    study_cards = relationship(
+        "StudyCardsDBModel",
         back_populates="user",
     )
 

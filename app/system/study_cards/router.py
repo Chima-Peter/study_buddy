@@ -8,27 +8,27 @@ from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.response import BasicResponse
 from app.core.security import get_current_user
-from app.system.quiz.schema import QuizGenerateApiResponse
-from app.system.quiz.service import QuizService
+from app.system.study_cards.schema import StudyCardsGenerateApiResponse
+from app.system.study_cards.service import StudyCardsService
 
-quiz_router = APIRouter(prefix="/quiz", tags=["quiz"])
+study_cards_router = APIRouter(prefix="/study-cards", tags=["study-cards"])
 
 
-@quiz_router.post(
+@study_cards_router.post(
     "/{document_id}",
     status_code=status.HTTP_202_ACCEPTED,
-    response_model=QuizGenerateApiResponse,
-    summary="Generate quiz and study cards",
+    response_model=StudyCardsGenerateApiResponse,
+    summary="Generate study cards",
     description=(
-        "Queues quiz and study-card generation for an owned document. "
-        "Results are written asynchronously to quiz_results."
+        "Queues study-card generation for an owned document. "
+        "Results are written asynchronously to study_cards."
     ),
 )
 @inject
-async def generate_quiz(
+async def generate_study_cards(
     document_id: str,
     user: Annotated[UserResponse, Depends(get_current_user)],
-    service: QuizService = Depends(Provide[Container.quiz_service]),
+    service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
@@ -40,7 +40,8 @@ async def generate_quiz(
         )
     except Exception:
         logger.exception(
-            "Unexpected error queueing quiz generate document_id=%s user_id=%s",
+            "Unexpected error queueing study cards generate "
+            "document_id=%s user_id=%s",
             document_id,
             user.id,
         )
@@ -51,6 +52,6 @@ async def generate_quiz(
 
     return BasicResponse(
         data=result.model_dump(mode="json"),
-        message="Quiz generation started successfully",
+        message="Study cards generation started successfully",
         status_code=status.HTTP_202_ACCEPTED,
     )

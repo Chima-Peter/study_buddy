@@ -19,9 +19,9 @@ from app.handlers.memory_extract import (
     handle_memory_extract,
     handle_memory_extract_dead_letter_queue,
 )
-from app.handlers.quiz_generate import (
-    handle_quiz_generate,
-    handle_quiz_generate_dead_letter_queue,
+from app.handlers.study_cards_generate import (
+    handle_study_cards_generate,
+    handle_study_cards_generate_dead_letter_queue,
 )
 from app.memory.service import MemoryService
 from app.rag.chapter_splitter import ChapterSplitter
@@ -119,16 +119,16 @@ class Handlers:
             label="handle_memory_extract",
         )
 
-    async def handle_quiz_generate(
+    async def handle_study_cards_generate(
         self, message: AbstractIncomingMessage
     ) -> None:
         self._fire_and_forget(
-            handle_quiz_generate(
+            handle_study_cards_generate(
                 message,
                 logger=self._logger,
                 rabbitmq=self._rabbitmq,
             ),
-            label="handle_quiz_generate",
+            label="handle_study_cards_generate",
         )
 
     async def handle_mail_dead_letter_queue(
@@ -161,10 +161,14 @@ class Handlers:
             label="handle_memory_extract_dead_letter_queue",
         )
 
-    async def handle_quiz_generate_dead_letter_queue(
+    async def handle_study_cards_generate_dead_letter_queue(
         self, message: AbstractIncomingMessage
     ) -> None:
         self._fire_and_forget(
-            handle_quiz_generate_dead_letter_queue(message, self._logger),
-            label="handle_quiz_generate_dead_letter_queue",
+            handle_study_cards_generate_dead_letter_queue(
+                message,
+                self._logger,
+                self._redis,
+            ),
+            label="handle_study_cards_generate_dead_letter_queue",
         )

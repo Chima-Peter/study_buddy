@@ -9,10 +9,10 @@ from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.system.quiz.schema import QuizResultResponse
+from app.system.study_cards.schema import StudyCardsResultResponse
 
 
-class QuizResultModel(BaseModel):
+class StudyCardsModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
     user_id: str = Field(min_length=36, max_length=36)
     document_id: str = Field(min_length=36, max_length=36)
@@ -38,8 +38,8 @@ class QuizResultModel(BaseModel):
             "updated_at": self.updated_at,
         }
 
-    def to_response(self) -> QuizResultResponse:
-        return QuizResultResponse(
+    def to_response(self) -> StudyCardsResultResponse:
+        return StudyCardsResultResponse(
             id=self.id,
             document_id=self.document_id,
             result=self.result,
@@ -48,12 +48,12 @@ class QuizResultModel(BaseModel):
         )
 
     @classmethod
-    def pending(cls, *, document_id: str, user_id: str) -> "QuizResultModel":
+    def pending(cls, *, document_id: str, user_id: str) -> "StudyCardsModel":
         return cls(document_id=document_id, user_id=user_id, result=None)
 
 
-class QuizResultDBModel(Base):
-    __tablename__ = "quiz_results"
+class StudyCardsDBModel(Base):
+    __tablename__ = "study_cards"
 
     id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
     user_id: Mapped[str] = mapped_column(
@@ -79,8 +79,8 @@ class QuizResultDBModel(Base):
         nullable=False,
     )
 
-    user = relationship("UserDBModel", back_populates="quiz_results")
-    document = relationship("DocumentDBModel", back_populates="quiz_results")
+    user = relationship("UserDBModel", back_populates="study_cards")
+    document = relationship("DocumentDBModel", back_populates="study_cards")
 
     def model_dump(self) -> dict[str, Any]:
         return {

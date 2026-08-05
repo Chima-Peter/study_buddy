@@ -1,6 +1,6 @@
 from logging import Logger
 
-from app.agent.quiz_agent.state import QuizState
+from app.agent.study_cards_agent.state import StudyCardsState
 from app.system.document.service import DocumentService
 
 
@@ -9,7 +9,7 @@ class RetrieveChaptersNode:
         self.logger = logger
         self.document_service = document_service
 
-    async def __call__(self, state: QuizState) -> QuizState:
+    async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         self.logger.info(
             "Retrieve chapters node started document_id=%s user_id=%s",
             state["document_id"],

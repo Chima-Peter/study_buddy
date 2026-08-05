@@ -148,8 +148,8 @@ class DocumentDBModel(Base):
     )
 
     user = relationship("UserDBModel", back_populates="documents")
-    quiz_results = relationship(
-        "QuizResultDBModel",
+    study_cards = relationship(
+        "StudyCardsDBModel",
         back_populates="document",
     )
 
