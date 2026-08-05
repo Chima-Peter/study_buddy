@@ -24,6 +24,8 @@ class RetrieveChaptersNode:
             "pending_chapters": document.sections.split(","),
             "missing_chapters": [],
             "approved_chapters": [],
+            "undone_critique_chapters": [],
+            "critique": {},
             "retry_count": {
                 "generate": 0,
                 "critique": 0,

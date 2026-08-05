@@ -21,9 +21,10 @@ class GenerateChapterNode:
         missing_chapters = state["missing_chapters"]
         critique = state.get("critique")
 
-        if not pending_chapters:
+        if not pending_chapters and not missing_chapters:
             self.logger.info(
-                "No pending chapters to generate for document_id=%s user_id=%s",
+                "No pending or missing chapters to generate "
+                "for document_id=%s user_id=%s",
                 state["document_id"],
                 state["user_id"],
             )
@@ -31,19 +32,32 @@ class GenerateChapterNode:
 
         self.logger.info(
             "Generate chapter node started document_id=%s user_id=%s "
-            "pending_chapters=%s retry_count=%s",
+            "missing_chapters=%s pending_chapters=%s retry_count=%s",
             state["document_id"],
             state["user_id"],
+            len(missing_chapters),
             len(pending_chapters),
-            retry_count,
+            retry_count["generate"],
         )
 
         generated_chapters = state["generated_chapters"]
+        undone_critique_chapters = set(state.get("undone_critique_chapters", []))
         chapter_keys_to_generate = [
             chapter_key
             for chapter_key in sections
-            if chapter_key in pending_chapters or chapter_key in missing_chapters
+            if (chapter_key in pending_chapters or chapter_key in missing_chapters)
+            and chapter_key not in undone_critique_chapters
         ]
+
+        if not chapter_keys_to_generate:
+            self.logger.info(
+                "Nothing to generate after excluding undone critiques "
+                "document_id=%s user_id=%s undone=%s",
+                state["document_id"],
+                state["user_id"],
+                len(undone_critique_chapters),
+            )
+            return state
 
         async with TaskGroup() as tg:
             tasks = [
