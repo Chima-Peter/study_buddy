@@ -78,26 +78,6 @@ class GenerateChapterNode:
             },
         }
 
-    @staticmethod
-    def _critique_comment(
-        critique: dict[str, Critique] | None, chapter_key: str
-    ) -> str | None:
-        if critique is None:
-            return None
-        entry = critique.get(chapter_key)
-        if entry is None or not entry.comment:
-            return None
-        return entry.comment
-
-    @staticmethod
-    def _previous_draft(
-        generated_chapters: dict[str, ChapterResult], chapter_key: str
-    ) -> str | None:
-        chapter = generated_chapters.get(chapter_key)
-        if chapter is None:
-            return None
-        return chapter.model_dump_json()
-
     async def generate_chapter(
         self,
         chapter_key: str,
@@ -137,3 +117,27 @@ class GenerateChapterNode:
                 "Error generating chapter for section chapter_key=%s", chapter_key
             )
             return None
+
+    @staticmethod
+    def _critique_comment(
+        critique: dict[str, Critique] | None, chapter_key: str
+    ) -> str | None:
+        if critique is None:
+            return None
+        entry = critique.get(chapter_key)
+        if entry is None or entry.status != "rejected":
+            return None
+        return (
+            entry.comment
+            or "Rejected without detailed feedback. Revise against all "
+            "ChapterResult requirements and quality rules."
+        )
+
+    @staticmethod
+    def _previous_draft(
+        generated_chapters: dict[str, ChapterResult], chapter_key: str
+    ) -> str | None:
+        chapter = generated_chapters.get(chapter_key)
+        if chapter is None:
+            return None
+        return chapter.model_dump_json()
