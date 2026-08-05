@@ -148,6 +148,10 @@ class DocumentDBModel(Base):
     )
 
     user = relationship("UserDBModel", back_populates="documents")
+    quiz_results = relationship(
+        "QuizResultDBModel",
+        back_populates="document",
+    )
 
 
     def model_dump(self) -> dict[str, Any]:

@@ -86,6 +86,10 @@ class UserDBModel(Base):
         "NotificationDBModel",
         back_populates="user",
     )
+    quiz_results = relationship(
+        "QuizResultDBModel",
+        back_populates="user",
+    )
 
     def model_dump(self) -> dict[str, Any]:
         return {

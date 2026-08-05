@@ -1,0 +1,90 @@
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+import sqlalchemy as sa
+import uuid_utils
+from pydantic import BaseModel, Field, field_serializer
+from sqlalchemy import ForeignKey
+from sqlalchemy.dialects.postgresql import TIMESTAMP
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+from app.system.quiz.schema import QuizResultResponse
+
+
+class QuizResultModel(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
+    user_id: str = Field(min_length=36, max_length=36)
+    document_id: str = Field(min_length=36, max_length=36)
+    result: Optional[str] = None
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_dates(self, value: datetime, _info) -> str:
+        return value.isoformat()
+
+    def model_dump_for_db(self) -> dict:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "document_id": self.document_id,
+            "result": self.result,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
+
+    def to_response(self) -> QuizResultResponse:
+        return QuizResultResponse(
+            id=self.id,
+            document_id=self.document_id,
+            result=self.result,
+            created_at=self.created_at.isoformat(),
+            updated_at=self.updated_at.isoformat(),
+        )
+
+    @classmethod
+    def pending(cls, *, document_id: str, user_id: str) -> "QuizResultModel":
+        return cls(document_id=document_id, user_id=user_id, result=None)
+
+
+class QuizResultDBModel(Base):
+    __tablename__ = "quiz_results"
+
+    id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        sa.UUID,
+        ForeignKey("users.id"),
+        nullable=False,
+    )
+    document_id: Mapped[str] = mapped_column(
+        sa.UUID,
+        ForeignKey("documents.id"),
+        nullable=False,
+    )
+    result: Mapped[Optional[str]] = mapped_column(sa.String(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+    )
+
+    user = relationship("UserDBModel", back_populates="quiz_results")
+    document = relationship("DocumentDBModel", back_populates="quiz_results")
+
+    def model_dump(self) -> dict[str, Any]:
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id),
+            "document_id": str(self.document_id),
+            "result": self.result,
+            "created_at": self.created_at.isoformat(),
+            "updated_at": self.updated_at.isoformat(),
+        }

@@ -43,11 +43,13 @@ from app.system.conversation.repository import ConversationRepository
 from app.system.document.repository import DocumentRepository
 from app.system.chat.repository import ChatRepository
 from app.system.notification.repository import NotificationRepository
+from app.system.quiz.repository import QuizRepository
 from app.system.chat.schema import ChatResponse
 from app.system.chat.service import ChatService
 from app.system.conversation.service import ConversationService
 from app.system.document.service import DocumentService
 from app.system.notification.service import NotificationService
+from app.system.quiz.service import QuizService
 
 
 def init_sync_engine(database_url: str) -> Iterator[Engine]:
@@ -124,12 +126,15 @@ async def init_async_redis() -> AsyncIterator[Redis]:
 class RabbitMQResources:
     channel: aio_pika.Channel
     llm_channel: aio_pika.Channel
+    quiz_channel: aio_pika.Channel
     email_queue: aio_pika.Queue
     email_dlq_queue: aio_pika.Queue
     document_queue: aio_pika.Queue
     document_dlq_queue: aio_pika.Queue
     memory_extract_queue: aio_pika.Queue
     memory_extract_dlq_queue: aio_pika.Queue
+    quiz_generate_queue: aio_pika.Queue
+    quiz_generate_dlq_queue: aio_pika.Queue
     retry_queues: dict[str, dict[int, aio_pika.Queue]]
 
 
@@ -204,13 +209,20 @@ async def init_async_rabbitmq(
             publisher_confirms=True,
             on_return_raises=True,
         )
+        quiz_channel = await connection.channel(
+            publisher_confirms=True,
+            on_return_raises=True,
+        )
     except Exception as e:
         logger.exception("Error connecting to RabbitMQ")
         raise e
     await channel.set_qos(prefetch_count=5)
     await llm_channel.set_qos(prefetch_count=20)
+    await quiz_channel.set_qos(prefetch_count=10)
 
-    email_queue, email_dlq_queue = await init_async_rabbitmq_queue(channel, "mail_queue")
+    email_queue, email_dlq_queue = await init_async_rabbitmq_queue(
+        channel, "mail_queue"
+        )
     document_queue, document_dlq_queue = await init_async_rabbitmq_queue(
         channel, "document_queue"
     )
@@ -218,13 +230,27 @@ async def init_async_rabbitmq(
     memory_extract_queue, memory_extract_dlq_queue = await init_async_rabbitmq_queue(
         llm_channel, "memory_extract_queue"
     )
+    # Declare on quiz_channel so consume uses that channel's prefetch=10.
+    quiz_generate_queue, quiz_generate_dlq_queue = await init_async_rabbitmq_queue(
+        quiz_channel, "quiz_generate_queue"
+    )
 
     tiers = retry_delay_tiers_ms(retry_base_ms, retry_max_ms, max_retries)
-    retry_targets = ("document_queue", "memory_extract_queue")
+    retry_targets = (
+        "document_queue",
+        "memory_extract_queue",
+        "quiz_generate_queue",
+    )
     retry_queues: dict[str, dict[int, aio_pika.Queue]] = {}
     for target in retry_targets:
+        if target.startswith("memory_extract_queue"):
+            retry_channel = llm_channel
+        elif target.startswith("quiz_generate_queue"):
+            retry_channel = quiz_channel
+        else:
+            retry_channel = channel
         retry_queues[target] = await init_retry_queues(
-            channel,
+            retry_channel,
             target_queue=target,
             delay_tiers_ms=tiers,
         )
@@ -238,16 +264,19 @@ async def init_async_rabbitmq(
         yield RabbitMQResources(
             channel=channel,
             llm_channel=llm_channel,
+            quiz_channel=quiz_channel,
             email_queue=email_queue,
             email_dlq_queue=email_dlq_queue,
             document_queue=document_queue,
             document_dlq_queue=document_dlq_queue,
             memory_extract_queue=memory_extract_queue,
             memory_extract_dlq_queue=memory_extract_dlq_queue,
+            quiz_generate_queue=quiz_generate_queue,
+            quiz_generate_dlq_queue=quiz_generate_dlq_queue,
             retry_queues=retry_queues,
         )
     finally:
-        for ch in (llm_channel, channel):
+        for ch in (quiz_channel, llm_channel, channel):
             try:
                 await asyncio.wait_for(ch.close(), timeout=2.0)
             except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
@@ -266,9 +295,11 @@ async def init_rabbitmq_consumers(
         email_callback=handlers.handle_mail,
         document_callback=handlers.handle_document,
         memory_extract_callback=handlers.handle_memory_extract,
+        quiz_generate_callback=handlers.handle_quiz_generate,
         mail_dlq_callback=handlers.handle_mail_dead_letter_queue,
         document_dlq_callback=handlers.handle_document_dead_letter_queue,
         memory_extract_dlq_callback=handlers.handle_memory_extract_dead_letter_queue,
+        quiz_generate_dlq_callback=handlers.handle_quiz_generate_dead_letter_queue,
     )
     try:
         yield active_consumers
@@ -410,12 +441,15 @@ class Container(containers.DeclarativeContainer):
         RabbitMQ,
         channel=rabbitmq_resources.provided.channel,
         llm_channel=rabbitmq_resources.provided.llm_channel,
+        quiz_channel=rabbitmq_resources.provided.quiz_channel,
         email_queue=rabbitmq_resources.provided.email_queue,
         email_dlq_queue=rabbitmq_resources.provided.email_dlq_queue,
         document_queue=rabbitmq_resources.provided.document_queue,
         document_dlq_queue=rabbitmq_resources.provided.document_dlq_queue,
         memory_extract_queue=rabbitmq_resources.provided.memory_extract_queue,
         memory_extract_dlq_queue=rabbitmq_resources.provided.memory_extract_dlq_queue,
+        quiz_generate_queue=rabbitmq_resources.provided.quiz_generate_queue,
+        quiz_generate_dlq_queue=rabbitmq_resources.provided.quiz_generate_dlq_queue,
         retry_queues=rabbitmq_resources.provided.retry_queues,
         max_retries=settings.provided.rabbitmq_max_retries,
         retry_base_ms=settings.provided.rabbitmq_retry_base_ms,
@@ -552,6 +586,20 @@ class Container(containers.DeclarativeContainer):
     notification_service = providers.Factory(
         NotificationService,
         repository=notification_repository,
+        logger=logger,
+    )
+
+    quiz_repository = providers.Factory(
+        QuizRepository,
+        session_factory=async_session_factory,
+        logger=logger,
+    )
+
+    quiz_service = providers.Factory(
+        QuizService,
+        repository=quiz_repository,
+        document_service=document_service,
+        rabbitmq=rabbitmq,
         logger=logger,
     )
 
