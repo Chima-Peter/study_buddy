@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-TOP_K = 5
+TOP_K = 10
 
 
 class ChatResponse(BaseModel):

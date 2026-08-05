@@ -21,4 +21,12 @@ class RetrieveChaptersNode:
         )
         return {
             "chapter_keys": document.sections.split(","),
+            "pending_chapters": document.sections.split(","),
+            "missing_chapters": [],
+            "approved_chapters": [],
+            "retry_count": {
+                "generate": 0,
+                "critique": 0,
+            },
+            "generated_chapters": {},
         }

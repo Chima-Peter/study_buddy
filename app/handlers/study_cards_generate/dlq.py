@@ -37,7 +37,10 @@ async def handle_study_cards_generate_dead_letter_queue(
             {
                 "type": "study_cards_generate_exhausted",
                 "data": {
-                    "message": (
+                    "document_id": payload.get("document_id"),
+                    "name": payload.get("name"),
+                    "status": "failed",
+                    "comment": (
                         f"Study cards generation for document_id="
                         f"{payload.get('document_id')} failed after all retries"
                     ),
