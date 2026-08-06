@@ -31,11 +31,11 @@ class ConversationHistoryResponse(ConversationResponse):
 
 
 class ConversationPatchRequest(BaseModel):
-    title: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    status: Optional[STATUS_LITERAL] = None
+    title: str = Field(default=None, min_length=1, max_length=255)
+    # status: Optional[STATUS_LITERAL] = None
 
-    @model_validator(mode="after")
-    def require_at_least_one_field(self) -> "ConversationPatchRequest":
-        if self.title is None and self.status is None:
-            raise ValueError("At least one of title or status must be provided")
-        return self
+    # @model_validator(mode="after")
+    # def require_at_least_one_field(self) -> "ConversationPatchRequest":
+    #     if self.title is None and self.status is None:
+    #         raise ValueError("At least one of title or status must be provided")
+    #     return self
