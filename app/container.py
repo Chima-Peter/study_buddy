@@ -36,7 +36,7 @@ from app.core.elasticsearch import Elasticsearch
 from app.core.elasticsearch_schema import FusedResult, IndexedRecord
 from app.core.embedding import EmbeddingManager
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
-from app.core.redis import RedisClient
+from app.core.redis import RedisClient, SSE_PING_INTERVAL_MS
 from app.core.supabase import Supabase
 from app.handlers.index import Handlers
 from app.logging_config import init_logging
@@ -121,10 +121,12 @@ def init_sync_redis(redis_url: str) -> Iterator[redis.Redis]:
 
 async def init_async_redis() -> AsyncIterator[Redis]:
     """Create the async Redis client and close it on shutdown."""
+    socket_timeout_s = (SSE_PING_INTERVAL_MS / 1000) + 10
     client = Redis(
         host="localhost",
         port=6379,
-        socket_timeout=10,
+        socket_timeout=socket_timeout_s,
+        socket_connect_timeout=10,
         decode_responses=True,
     )
     try:
