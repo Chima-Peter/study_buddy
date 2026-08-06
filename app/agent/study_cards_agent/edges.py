@@ -6,6 +6,7 @@ from app.agent.study_cards_agent.state import StudyCardsState
 RouteTarget = Literal[
     "retrieve_chapter_keys",
     "retrieve_sessions",
+    "retrieve_memories",
     "generate",
     "critique",
     "consolidate",
@@ -24,6 +25,8 @@ def route_from_checkpoint(state: StudyCardsState) -> RouteTarget:
         return "retrieve_chapter_keys"
     if not state.get("document_sections"):
         return "retrieve_sessions"
+    if not state.get("memories"):
+        return "retrieve_memories"
     return decide_generation_or_critique(state)
 
 

@@ -5,6 +5,7 @@ from app.agent.study_cards_agent.prompts import generate_chapter_prompt
 from app.agent.study_cards_agent.schema import ChapterResult, Critique
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.core.elasticsearch_schema import IndexedRecord
+from app.memory.schema import Memory
 from app.utils.llm import is_rate_limit_error
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -59,6 +60,9 @@ class GenerateChapterNode:
             )
             return state
 
+        memories = state.get("memories", [])
+        learning_preferences = self._extract_learning_preferences(memories)
+
         async with TaskGroup() as tg:
             tasks = [
                 tg.create_task(
@@ -67,6 +71,7 @@ class GenerateChapterNode:
                         sections[chapter_key],
                         self._critique_comment(critique, chapter_key),
                         self._previous_draft(generated_chapters, chapter_key),
+                        learning_preferences,
                     )
                 )
                 for chapter_key in chapter_keys_to_generate
@@ -98,21 +103,27 @@ class GenerateChapterNode:
         section: list[IndexedRecord],
         critique_comment: str | None = None,
         previous_draft: str | None = None,
+        learning_preferences: list[str] | None = None,
     ) -> ChapterResult | None:
         content = "\n".join([record.content for record in section])
         self.logger.info(
             "Generating chapter for section chapter_key=%s content_len=%s "
-            "has_critique=%s has_previous_draft=%s",
+            "has_critique=%s has_previous_draft=%s has_preferences=%s",
             chapter_key,
             len(content),
             bool(critique_comment),
             bool(previous_draft),
+            bool(learning_preferences),
         )
 
         try:
             response = await self.model.ainvoke(
                 generate_chapter_prompt(
-                    chapter_key, content, critique_comment, previous_draft
+                    chapter_key,
+                    content,
+                    critique_comment,
+                    previous_draft,
+                    learning_preferences,
                 )
             )
             result = response.model_copy(update={"chapter_key": chapter_key})
@@ -155,3 +166,9 @@ class GenerateChapterNode:
         if chapter is None:
             return None
         return chapter.model_dump_json()
+
+    @staticmethod
+    def _extract_learning_preferences(memories: list[Memory]) -> list[str] | None:
+        if not memories:
+            return None
+        return [m.content for m in memories]

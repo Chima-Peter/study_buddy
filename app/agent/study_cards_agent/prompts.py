@@ -59,6 +59,7 @@ def generate_chapter_prompt(
     chapter_content: str,
     critique_comment: str | None = None,
     previous_draft: str | None = None,
+    learning_preferences: list[str] | None = None,
 ) -> str:
     revision_section = ""
     if critique_comment and previous_draft:
@@ -79,10 +80,20 @@ def generate_chapter_prompt(
             "requirements below. Do not ignore the feedback.\n\n"
         )
 
+    preferences_section = ""
+    if learning_preferences:
+        prefs = "\n".join(f"- {pref}" for pref in learning_preferences)
+        preferences_section = (
+            "User learning preferences (adapt your communication style, "
+            "examples, and explanations accordingly):\n"
+            f"{prefs}\n\n"
+        )
+
     return (
         "You are a study-card generator. Turn the source chapter material "
         "into a structured study guide.\n\n"
         f"{revision_section}"
+        f"{preferences_section}"
         f"Produce a ChapterResult that meets all of the following.\n\n"
         f"{CHAPTER_REQUIREMENTS}\n"
         f"Chapter key: {chapter_key}\n\n"

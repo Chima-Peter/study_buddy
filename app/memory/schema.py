@@ -9,7 +9,7 @@ IMPORTANCE_BUMP = 0.001
 MEMORY_INDEX = "user_memories"
 DUPLICATE_TOP_K = 10
 DUPLICATE_MIN_SCORE = 0.5
-SEARCH_TOP_K = 5
+SEARCH_TOP_K = 10
 
 MEMORY_CATEGORY = Literal["personal", "study"]
 

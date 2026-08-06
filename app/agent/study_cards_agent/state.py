@@ -3,12 +3,14 @@ from typing import Annotated, Literal, TypedDict
 
 from app.agent.study_cards_agent.schema import ChapterResult, Critique, StudyCardsResult
 from app.core.elasticsearch_schema import IndexedRecord
+from app.memory.schema import Memory
 
 
 class StudyCardsState(TypedDict):
     document_id: str
     document_sections: dict[str, list[IndexedRecord]]
     user_id: str
+    memories: list[Memory]
     chapter_keys: list[str]
     generated_chapters: dict[str, ChapterResult]
     approved_chapters: Annotated[list[str], operator.add]

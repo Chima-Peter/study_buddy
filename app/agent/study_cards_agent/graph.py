@@ -1,5 +1,6 @@
 from logging import Logger
 
+from app.agent.study_cards_agent.nodes.retrieval.retrieve_memories import RetrieveMemoriesNode
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
@@ -51,6 +52,10 @@ class StudyCardsGraph:
                 logger=self.logger,
                 elasticsearch=self.elasticsearch,
             ),
+            "retrieve_memories": RetrieveMemoriesNode(
+                logger=self.logger,
+                memory_service=self.memory_service,
+            ),
             "generate": GenerateChapterNode(
                 logger=self.logger,
                 model=self.chat_model,
@@ -74,6 +79,7 @@ class StudyCardsGraph:
             "checkpointer",
             route_from_checkpoint,
             {
+                "retrieve_memories": "retrieve_memories",
                 "retrieve_chapter_keys": "retrieve_chapter_keys",
                 "retrieve_sessions": "retrieve_sessions",
                 "generate": "generate",
@@ -83,6 +89,7 @@ class StudyCardsGraph:
                 "END": END,
             },
         )
+        graph.add_edge("retrieve_memories", "retrieve_chapter_keys")
         graph.add_edge("retrieve_chapter_keys", "retrieve_sessions")
         graph.add_edge("retrieve_sessions", "checkpointer")
         graph.add_edge("generate", "checkpointer")
