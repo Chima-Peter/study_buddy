@@ -29,6 +29,7 @@ from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
 from app.system.document.service import DocumentService
 from app.system.notification.service import NotificationService
+from app.system.study_cards.service import StudyCardsService
 
 
 class Handlers:
@@ -46,6 +47,7 @@ class Handlers:
         notification_service: NotificationService,
         memory_service: MemoryService,
         study_cards_graph: StudyCardsGraph,
+        study_cards_service: StudyCardsService,
     ):
         self._logger = logger
         self._ingest_pipeline = ingest_pipeline
@@ -59,6 +61,7 @@ class Handlers:
         self._notification_service = notification_service
         self._memory_service = memory_service
         self._study_cards_graph = study_cards_graph
+        self._study_cards_service = study_cards_service
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _fire_and_forget(
@@ -131,6 +134,7 @@ class Handlers:
                 logger=self._logger,
                 rabbitmq=self._rabbitmq,
                 study_cards_graph=self._study_cards_graph,
+                study_cards_service=self._study_cards_service,
             ),
             label="handle_study_cards_generate",
         )

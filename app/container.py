@@ -659,6 +659,7 @@ class Container(containers.DeclarativeContainer):
         notification_service=notification_service,
         memory_service=memory_service,
         study_cards_graph=study_cards_graph,
+        study_cards_service=study_cards_service,
     )
 
     rabbitmq_consumers = providers.Resource(

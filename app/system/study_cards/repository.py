@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
 from app.system.study_cards.model import StudyCardsDBModel, StudyCardsModel
+from app.system.study_cards.schema import StudyCardsStatus
 
 
 class StudyCardsRepository:
@@ -51,11 +52,43 @@ class StudyCardsRepository:
                 return None
             return StudyCardsModel(**db_row.model_dump())
 
+    async def delete_by_document(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> bool:
+        async with self.session_factory() as session:
+            row = await session.execute(
+                select(StudyCardsDBModel).where(
+                    StudyCardsDBModel.document_id == document_id,
+                    StudyCardsDBModel.user_id == user_id,
+                )
+            )
+            db_row = row.scalar_one_or_none()
+            if db_row is None:
+                return False
+            await session.delete(db_row)
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                self.logger.exception(
+                    "Error deleting study cards document_id=%s", document_id
+                )
+                raise
+            self.logger.info(
+                "Study cards deleted document_id=%s user_id=%s",
+                document_id,
+                user_id,
+            )
+            return True
+
     async def update_result(
         self,
         document_id: str,
         user_id: str,
         result: dict,
+        status: StudyCardsStatus = "success",
     ) -> StudyCardsModel | None:
         async with self.session_factory() as session:
             row = await session.execute(
@@ -69,8 +102,41 @@ class StudyCardsRepository:
                 return None
 
             db_row.result = result
+            db_row.status = status
             db_row.updated_at = datetime.now(timezone.utc)
             await session.commit()
             await session.refresh(db_row)
-            self.logger.info("Study cards updated document_id=%s", document_id)
+            self.logger.info(
+                "Study cards updated document_id=%s status=%s",
+                document_id,
+                status,
+            )
+            return StudyCardsModel(**db_row.model_dump())
+
+    async def update_status(
+        self,
+        document_id: str,
+        user_id: str,
+        status: StudyCardsStatus,
+    ) -> StudyCardsModel | None:
+        async with self.session_factory() as session:
+            row = await session.execute(
+                select(StudyCardsDBModel).where(
+                    StudyCardsDBModel.document_id == document_id,
+                    StudyCardsDBModel.user_id == user_id,
+                )
+            )
+            db_row = row.scalar_one_or_none()
+            if db_row is None:
+                return None
+
+            db_row.status = status
+            db_row.updated_at = datetime.now(timezone.utc)
+            await session.commit()
+            await session.refresh(db_row)
+            self.logger.info(
+                "Study cards status updated document_id=%s status=%s",
+                document_id,
+                status,
+            )
             return StudyCardsModel(**db_row.model_dump())

@@ -9,13 +9,14 @@ from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.system.study_cards.schema import StudyCardsResultResponse
+from app.system.study_cards.schema import StudyCardsResultResponse, StudyCardsStatus
 
 
 class StudyCardsModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
     user_id: str = Field(min_length=36, max_length=36)
     document_id: str = Field(min_length=36, max_length=36)
+    status: StudyCardsStatus = "pending"
     result: Optional[dict[str, Any]] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -33,6 +34,7 @@ class StudyCardsModel(BaseModel):
             "id": self.id,
             "user_id": self.user_id,
             "document_id": self.document_id,
+            "status": self.status,
             "result": self.result,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -42,6 +44,7 @@ class StudyCardsModel(BaseModel):
         return StudyCardsResultResponse(
             id=self.id,
             document_id=self.document_id,
+            status=self.status,
             result=self.result,
             created_at=self.created_at.isoformat(),
             updated_at=self.updated_at.isoformat(),
@@ -49,7 +52,12 @@ class StudyCardsModel(BaseModel):
 
     @classmethod
     def pending(cls, *, document_id: str, user_id: str) -> "StudyCardsModel":
-        return cls(document_id=document_id, user_id=user_id, result=None)
+        return cls(
+            document_id=document_id,
+            user_id=user_id,
+            status="pending",
+            result=None,
+        )
 
 
 class StudyCardsDBModel(Base):
@@ -66,6 +74,13 @@ class StudyCardsDBModel(Base):
         ForeignKey("documents.id"),
         nullable=False,
         unique=True,
+    )
+    status: Mapped[str] = mapped_column(
+        sa.String(32),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+        index=True,
     )
     result: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB,
@@ -88,6 +103,7 @@ class StudyCardsDBModel(Base):
             "id": str(self.id),
             "user_id": str(self.user_id),
             "document_id": str(self.document_id),
+            "status": self.status,
             "result": self.result,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

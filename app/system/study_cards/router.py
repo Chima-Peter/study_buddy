@@ -8,7 +8,12 @@ from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.response import BasicResponse
 from app.core.security import get_current_user
-from app.system.study_cards.schema import StudyCardsGenerateApiResponse
+from app.system.study_cards.schema import (
+    StudyCardsAlreadyExistsError,
+    StudyCardsGenerateApiResponse,
+    StudyCardsGetApiResponse,
+    StudyCardsInProgressError,
+)
 from app.system.study_cards.service import StudyCardsService
 
 study_cards_router = APIRouter(prefix="/study-cards", tags=["study-cards"])
@@ -21,8 +26,16 @@ study_cards_router = APIRouter(prefix="/study-cards", tags=["study-cards"])
     summary="Generate study cards",
     description=(
         "Queues study-card generation for an owned document. "
-        "Results are written asynchronously to study_cards."
+        "Results are written asynchronously to study_cards. "
+        "Failed cards can be regenerated; successful or in-progress cards cannot."
     ),
+    responses={
+        409: {
+            "description": (
+                "Study cards already exist (success) or generation is in progress"
+            )
+        },
+    },
 )
 @inject
 async def generate_study_cards(
@@ -33,6 +46,16 @@ async def generate_study_cards(
 ) -> BasicResponse:
     try:
         result = await service.enqueue_generate(document_id, user.id)
+    except StudyCardsAlreadyExistsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except StudyCardsInProgressError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -54,4 +77,42 @@ async def generate_study_cards(
         data=result.model_dump(mode="json"),
         message="Study cards generation started successfully",
         status_code=status.HTTP_202_ACCEPTED,
+    )
+
+
+@study_cards_router.get(
+    "/{document_id}",
+    response_model=StudyCardsGetApiResponse,
+    summary="Get study cards",
+    description="Retrieve study cards for an owned document, including status and result.",
+)
+@inject
+async def get_study_cards(
+    document_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        study_card = await service.get_by_document(document_id, user.id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Study cards not found",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error getting study cards "
+            "document_id=%s user_id=%s",
+            document_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=study_card.to_response().model_dump(mode="json"),
+        message="Study cards retrieved successfully",
     )
