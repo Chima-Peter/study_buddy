@@ -1,16 +1,20 @@
 # StudyBuddy
 
-FastAPI backend for uploading study documents, ingesting them into a searchable index, and answering questions with RAG (retrieval-augmented generation).
+FastAPI backend for uploading study materials, ingesting them into a searchable index, tutoring via RAG chat, and generating chapter study cards with quizzes.
+
+For a client-oriented API walkthrough, see [`docs/student-platform-guide.md`](docs/student-platform-guide.md). OpenAPI at `/api/docs` is the contract source of truth.
 
 ## Features
 
-- **Auth** — register, login, logout with JWT (Redis-backed session invalidation)
+- **Auth** — register, login, logout, short grace-period token refresh; JWT with Redis blacklist
+- **Users** — get / update / delete own profile
 - **Documents** — signed upload/download via Supabase Storage, metadata CRUD, async ingest
-- **Ingest pipeline** — parse → chunk → embed → index (Chroma + Elasticsearch)
-- **Chat / RAG** — hybrid, vector, or BM25 search over user documents; answers via Gemini
-- **Realtime** — Redis Streams fan-out: SSE for notifications, WebSocket for chat (replacing HTTP query)
-- **Notifications** — ingest status updates with cursor pagination + live SSE stream
-- **Resilient queues** — RabbitMQ with TTL retries and a dead-letter queue for failed ingest
+- **Ingest pipeline** — parse → chunk → embed → index (Elasticsearch hybrid search)
+- **Chat / RAG** — LangGraph agent over WebSocket; grounded answers via Gemini + document/memory retrieval
+- **Conversations** — list, history, and title update (create via WebSocket)
+- **Study cards** — async chapter notes + MCQ quizzes per document (RabbitMQ + LangGraph)
+- **Notifications** — cursor-paginated inbox + live SSE (`document.status`, study-card events)
+- **Resilient queues** — RabbitMQ with TTL retries and DLQs for ingest, study cards, and memory extract
 
 ## Stack
 
@@ -18,12 +22,12 @@ FastAPI backend for uploading study documents, ingesting them into a searchable 
 | --- | --- |
 | API | FastAPI, Uvicorn, dependency-injector |
 | DB | Local Supabase Postgres (SQLAlchemy async + Alembic) |
-| Cache / tokens | Redis |
+| Cache / tokens / SSE | Redis |
 | Jobs | RabbitMQ (aio-pika, quorum queues) |
 | Storage | Supabase Storage (signed URLs) |
 | Embeddings | Sentence Transformers (`all-MiniLM-L6-v2`) |
-| Vectors | Chroma (local `vector_store/`) |
 | Search | Elasticsearch 8 (hybrid RRF / kNN / BM25) |
+| Agents | LangGraph (chat, study cards) + Postgres checkpoints |
 | LLM | Google Gemini (`gemini-3.1-flash-lite`) |
 | Parsing | LangChain loaders, Unstructured, PyMuPDF |
 
@@ -126,7 +130,9 @@ Settings are loaded from environment variables / `.env` via `app.config.Settings
 | `REDIS_URL` | Redis | `redis://localhost:16379/0` |
 | `RABBITMQ_URL` | AMQP broker | `amqp://guest:guest@localhost:25672/` |
 | `JWT_SECRET` / `JWT_ALGORITHM` / `JWT_EXPIRE_MINUTES` | Auth tokens | change in production |
+| `JWT_REFRESH_GRACE_MINUTES` | Post-expiry refresh window | `10` |
 | `GOOGLE_API_KEY` | Gemini | — |
+| `CHAT_MODEL_NAME` / `SUMMARIZER_MODEL_NAME` / `QUERY_MODEL_NAME` | Gemini model ids | `gemini-3.1-flash-lite` |
 | `SUPABASE_URL` / `SUPABASE_KEY` | Local Kong + service_role key | `http://localhost:54323` |
 | `UNSTRUCTURED_API_URL` / `UNSTRUCTURED_API_KEY` | Self-hosted Unstructured API | `http://localhost:18001` |
 | `ELASTICSEARCH_URL` | Search cluster | `http://localhost:19200` |
@@ -138,115 +144,137 @@ Do not commit real secrets. Keep `.env` local.
 
 ## Document ingest flow
 
-1. `POST /api/system/documents/upload` — create document row + signed upload URL  
+1. `POST /api/documents/upload` — create document row + signed upload URL  
 2. `PUT` file bytes to the signed URL (Supabase)  
-3. `POST /api/system/documents/{id}/ingest` — enqueue on `document_queue` (`202`)  
-4. Worker downloads the file, parses/chunks, embeds, writes Chroma + Elasticsearch  
+3. `POST /api/documents/{id}/ingest` — enqueue on `document_queue` (`202`)  
+4. Worker downloads the file, parses/chunks, embeds, indexes into Elasticsearch  
 5. Status moves: `pending` → `processing` → `completed` | `failed` | `cancelled`  
 6. Failed jobs retry via TTL delay queues; exhausted retries land on `document_queue_dlq`
 
-Retry a failed document with `POST /api/system/documents/{id}/ingest/retry`.
+Retry a failed document with `POST /api/documents/{id}/ingest/retry`.
 
-**Allowed extensions:** `.pdf`, `.txt`, `.csv`, `.json`, `.md`, `.markdown`, `.doc`, `.docx`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`
+**Allowed extensions:** `.pdf`, `.docx`, `.txt`, `.md`, `.markdown`, `.doc`, `.rtf`, `.odt`, `.epub`  
+Default max upload size: **10 MB**.
 
-## Realtime (SSE + WebSocket)
+## Realtime
 
-Both live channels read from the same per-user **Redis Stream**. Producers (e.g. ingest workers) call `publish_to_user`; clients consume via SSE or WebSocket.
+### SSE — notifications
 
-```
-Ingest worker / services
-        │  publish_to_user(user_id, EventPayload)
-        ▼
-  Redis Stream (per user)  ←── orchestrate_stream() on connect
-        │
-        ├── GET  /api/system/notifications/stream   (SSE, one-way)
-        └── WS   /api/system/chat                   (bidirectional; chat + events)
-```
+`GET /api/notifications/stream` (`text/event-stream`)
 
-| Concern | SSE (`/notifications/stream`) | WebSocket (`/chat`) |
-| --- | --- | --- |
-| Direction | Server → client | Bidirectional |
-| Auth | `Authorization: Bearer <token>` | Query `?token=<jwt>` |
-| Resume | `Last-Event-ID` header | Query `?cursor=<stream-id>` (default `0`) |
-| Use case | Live notification / status push | Chat queries + same event stream |
-| Limits | — | Max **5** concurrent connections per user; payload ≤ **64 KB** |
+Producers (ingest / study-card workers) publish to a per-user Redis Stream. Clients consume via SSE.
 
-On connect, the server attaches (or creates) the user’s stream. Events are `XREAD`’d, forwarded to the client, then deleted from the stream. After disconnect, the connection key and stream get a short TTL so a quick reconnect can resume.
+- Auth: `Authorization: Bearer <token>`
+- Frames use standard SSE fields: `id`, `event`, `data`
+- Resume with `Last-Event-ID`
+- Idle reads emit `event: ping` keepalives
 
-**Typical event shape** (both channels):
+**Typical payload:**
 
 ```json
 { "type": "document.status", "data": { "document_id": "...", "name": "...", "status": "completed", "comment": "..." } }
 ```
 
-Ingest publishes `document.status` as the document moves through `pending` → `processing` → `completed` | `failed` | `cancelled`.
+Also emitted: `study_cards_generated`, `study_cards_failed`.
 
-### SSE — notifications
+### WebSocket — tutor chat
 
-`GET /api/system/notifications/stream` (`text/event-stream`)
+`WS /api/chat?token=<jwt>`
 
-- Frames use standard SSE fields: `id`, `event`, `data`
-- Idle reads emit `event: ping` keepalives
-- Reconnect with `Last-Event-ID` set to the last received message id
+- Max **5** concurrent connections per user; query payload ≤ **64 KB**
+- Auth via query `?token=` (not a header)
+- Server greets with a heartbeat `Ping`
 
-### WebSocket — chat (replaces HTTP query)
+**Client → server** (flat JSON — not a `type`/`data` envelope):
 
-`WS /api/system/chat?token=<jwt>&cursor=<optional>`
+```json
+{
+  "query": "Explain mitosis",
+  "conversation_id": "<uuid optional>",
+  "document_ids": ["<uuid optional>"]
+}
+```
 
-WebSocket is the intended path for RAG chat; `POST /query` remains for now but will be removed once clients migrate.
-
-**Client → server** (JSON object with `type`, or plain `ping`):
-
-| `type` | Purpose |
+| Field | Behavior |
 | --- | --- |
-| `ping` | Heartbeat; server replies `pong` (also accepts the bare string `ping`) |
-| `query` | RAG question (payload in `data`) — replaces `POST /query` |
-| `subscribe` / `unsubscribe` | Channel subscription control |
+| Omit `conversation_id` | Creates a new conversation |
+| `document_ids` | Scope RAG to those documents |
+| Legacy `document_id` | Accepted; coerced to a one-element list |
+| `query: "ping"` | Heartbeat `Pong` |
 
-**Server → client:**
+**Server → client** (`type` field):
 
-- Greeting: `Hello!`
-- Stream events: `{"type": "<event>", "data": {…}}`
-- Errors may include the current `cursor` so the client can reconnect and resume
+| `type` | Meaning |
+| --- | --- |
+| `heartbeat` | Ping / Pong keep-alive |
+| `chat.response` | Answer chunk (`response`) |
+| `chat.title` | Auto-generated title (first turn) |
+| `chat.done` | Turn finished |
+| `chat.error` / `error` | Failure (`message`) |
 
 ## API overview
 
-All system routes (except health) require `Authorization: Bearer <token>`, unless noted (WebSocket uses `?token=`).
+Paths live under `/api/...` — there is **no** `/api/system` prefix. Most HTTP routes require `Authorization: Bearer <token>` (WebSocket uses `?token=`).
 
 ### Auth — `/api/authentication`
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/register` | Create account |
+| `POST` | `/register` | Create account + JWT |
 | `POST` | `/login` | Get JWT |
-| `POST` | `/logout` | Invalidate token |
+| `POST` | `/refresh` | Exchange recently expired JWT (grace window) |
+| `POST` | `/logout` | Blacklist current token |
 
-### Documents — `/api/system/documents`
+### Users — `/api/users`
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/me` | Current profile |
+| `PATCH` | `/me` | Update profile (≥1 field) |
+| `DELETE` | `/me` | Delete account |
+
+### Documents — `/api/documents`
 
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/upload` | Signed upload URL + document record |
 | `GET` | `/download?document_id=` | Signed download URL |
-| `POST` | `/{id}/ingest` | Start ingest |
+| `POST` | `/{id}/ingest` | Start ingest (`202`) |
 | `POST` | `/{id}/ingest/retry` | Retry failed ingest |
 | `GET` | `/` | List (cursor pagination, filters) |
 | `GET` | `/{id}` | Get one |
-| `PUT` / `PATCH` | `/{id}` | Update metadata |
+| `PATCH` | `/{id}` | Update metadata |
 | `DELETE` | `/{id}` | Delete document + related data |
 
-### Chat — `/api/system/chat`
+### Chat — `/api/chat`
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `WS` | `/` | Bidirectional chat + Redis stream events (`?token=` required). **Preferred; replaces HTTP query** |
-| `POST` | `/query` | RAG Q&A (legacy HTTP; top 5 chunks) — migrate to WebSocket `type: "query"` |
+| `WS` | `/?token=` | Streaming tutor chat |
 
-### Notifications — `/api/system/notifications`
+### Conversations — `/api/conversations`
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/` | List (cursor pagination) |
+| `GET` | `/{id}` | History + messages |
+| `PATCH` | `/{id}` | Update title |
+
+### Study cards — `/api/study-cards`
+
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/` | List decks (cursor pagination, optional status) |
+| `POST` | `/{document_id}` | Queue generation (`202`; `409` if success/in progress) |
+| `GET` | `/{document_id}` | Get status + result (chapters, quizzes) |
+
+### Notifications — `/api/notifications`
 
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/` | List (cursor pagination, optional `unread_only`) |
-| `PATCH` | `/{id}/read` | Mark as read |
+| `PATCH` | `/read` | Bulk mark read |
+| `PATCH` | `/{id}/read` | Mark one as read |
 | `GET` | `/stream` | SSE live stream (`Last-Event-ID` to resume) |
 
 ## Project layout
@@ -254,14 +282,18 @@ All system routes (except health) require `Authorization: Bearer <token>`, unles
 ```
 app/
   authentication/   # users, JWT auth
-  system/           # documents, chat, notifications
-  core/             # RabbitMQ, ingest, ES, embeddings, handlers
+  system/           # documents, chat, conversations, study cards, notifications
+  agent/            # LangGraph chat + study-cards agents
+  handlers/         # RabbitMQ consumers (ingest, study cards, memory, mail)
+  rag/              # ingest pipeline, parsers, chapter split
+  memory/           # internal memory extract/store (Elasticsearch)
+  core/             # Redis, RabbitMQ, ES, embeddings, middleware
   config.py         # Settings
   container.py      # DI wiring + resource lifecycle
   main.py           # FastAPI app factory
+docs/               # client platform guide
 migrations/         # Alembic revisions
-scripts/            # load_test_ingest.py + fixtures
-vector_store/       # local Chroma persistence
+scripts/            # load_test_ingest.py + helpers
 main.py             # uvicorn entrypoint
 ```
 
