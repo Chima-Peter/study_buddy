@@ -6,6 +6,7 @@ from sqlalchemy.sql import select
 
 from app.system.chat.model import ChatModel
 from app.system.conversation.model import ConversationDBModel, ConversationModel
+from app.system.conversation.schema import DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT, STATUS_LITERAL
 
 
 class ConversationRepository:
@@ -49,30 +50,56 @@ class ConversationRepository:
             )
             return ConversationModel(**db_conversation.model_dump())
 
-    async def list_by_user(self, user_id: str) -> list[ConversationModel]:
-        self.logger.info("Listing conversations user_id=%s", user_id)
+    async def list_by_user(
+        self,
+        user_id: str,
+        *,
+        limit: int = DEFAULT_LIST_LIMIT,
+        cursor: str | None = None,
+        status: STATUS_LITERAL | None = None,
+    ) -> tuple[list[ConversationModel], str | None, bool]:
+        limit = min(max(limit, 1), MAX_LIST_LIMIT)
+        self.logger.info(
+            "Listing conversations user_id=%s limit=%s cursor=%s status=%s",
+            user_id,
+            limit,
+            cursor,
+            status,
+        )
         async with self.session_factory() as session:
+            filters = [ConversationDBModel.user_id == user_id]
+            if status is not None:
+                filters.append(ConversationDBModel.status == status)
+            if cursor is not None:
+                filters.append(ConversationDBModel.id < cursor)
+
             result = await session.execute(
                 select(ConversationDBModel)
-                .where(ConversationDBModel.user_id == user_id)
-                .order_by(ConversationDBModel.created_at.desc())
+                .where(*filters)
+                .order_by(ConversationDBModel.id.desc())
+                .limit(limit + 1)
             )
-            if result is None:
-                self.logger.info(
-                    "No conversations found user_id=%s",
-                    user_id,
-                )
-                return []
+            db_rows = list(result.scalars().all())
+
+            has_more = len(db_rows) > limit
+            page = db_rows[:limit]
+            next_cursor = page[-1].id if has_more and page else None
+
             conversations = [
                 ConversationModel(**conversation.model_dump())
-                for conversation in result.scalars().all()
+                for conversation in page
             ]
             self.logger.info(
-                "Conversations listed user_id=%s count=%s",
+                "Conversations listed user_id=%s count=%s has_more=%s",
                 user_id,
                 len(conversations),
+                has_more,
             )
-            return conversations
+            return (
+                conversations,
+                str(next_cursor) if next_cursor is not None else None,
+                has_more,
+            )
 
     async def get_with_chats(
         self,

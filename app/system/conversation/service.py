@@ -4,10 +4,14 @@ from app.system.conversation.model import ConversationModel
 from app.system.conversation.repository import ConversationRepository
 from app.system.chat.schema import ChatResponse
 from app.system.conversation.schema import (
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
     ConversationDetailResponse,
+    ConversationListResponseData,
     ConversationPatchRequest,
     ConversationResponse,
     CreateConversationRequest,
+    STATUS_LITERAL,
 )
 
 
@@ -42,29 +46,40 @@ class ConversationService:
             status=result.status,
         )
 
-    async def list_by_user(self, user_id: str) -> list[ConversationResponse]:
-        self.logger.info("Listing conversations user_id=%s", user_id)
-        conversations = await self.repository.list_by_user(user_id)
-        if not conversations:
-            self.logger.info(
-                "No conversations found user_id=%s",
-                user_id,
-            )
-            return []
-        response = [
-            ConversationResponse(
-                id=item.id,
-                title=item.title,
-                status=item.status,
-            )
-            for item in conversations
-        ]
+    async def list_by_user(
+        self,
+        user_id: str,
+        *,
+        limit: int = DEFAULT_LIST_LIMIT,
+        cursor: str | None = None,
+        status: STATUS_LITERAL | None = None,
+    ) -> ConversationListResponseData:
         self.logger.info(
-            "Conversation listing completed user_id=%s count=%s",
+            "Listing conversations user_id=%s limit=%s cursor=%s status=%s",
             user_id,
-            len(response),
+            limit,
+            cursor,
+            status,
         )
-        return response
+        conversations, next_cursor, has_more = await self.repository.list_by_user(
+            user_id,
+            limit=limit,
+            cursor=cursor,
+            status=status,
+        )
+        return ConversationListResponseData(
+            items=[
+                ConversationResponse(
+                    id=item.id,
+                    title=item.title,
+                    status=item.status,
+                )
+                for item in conversations
+            ],
+            next_cursor=next_cursor,
+            has_more=has_more,
+            limit=min(max(limit, 1), MAX_LIST_LIMIT),
+        )
 
     async def get(
         self,
