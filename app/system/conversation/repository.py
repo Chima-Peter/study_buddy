@@ -193,8 +193,7 @@ class ConversationRepository:
                 db_conversation.title = payload.title
             if payload.summary:
                 db_conversation.summary = payload.summary
-            if payload.status:
-                db_conversation.status = payload.status
+                
             try:
                 await session.commit()
             except Exception:

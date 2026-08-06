@@ -130,7 +130,7 @@ async def process_with_chapters(
     payload: IngestDocumentRequest,
     file_path: str,
     logger: Logger,
-) -> list[Document]:
+) -> ProcessWithChaptersResult:
     """
     Split into chapters when possible, then chunk each section.
     Falls back to whole-file processing if no chapters are found.
@@ -144,9 +144,11 @@ async def process_with_chapters(
             payload.file_name,
             payload.document_id,
         )
-        return await asyncio.to_thread(
+        chunks = await asyncio.to_thread(
             ingest_pipeline.process_file, payload, file_path
         )
+
+        return ProcessWithChaptersResult(chunks, [])
 
     logger.info(
         "Processing %s chapters for file=%s document_id=%s",
@@ -196,4 +198,4 @@ async def process_with_chapters(
 
     chapters = [section.chapter_key for section in sections]
 
-    return chunks, chapters
+    return ProcessWithChaptersResult(chunks, chapters)

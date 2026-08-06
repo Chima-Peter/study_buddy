@@ -154,7 +154,7 @@ Do not commit real secrets. Keep `.env` local.
 Retry a failed document with `POST /api/documents/{id}/ingest/retry`.
 
 **Allowed extensions:** `.pdf`, `.docx`, `.txt`, `.md`, `.markdown`, `.doc`, `.rtf`, `.odt`, `.epub`  
-Default max upload size: **10 MB**.
+Uploads go directly to Supabase via signed URL (not through the API), so the API does not enforce a file size limit.
 
 ## Realtime
 

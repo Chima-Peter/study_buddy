@@ -40,10 +40,14 @@ class StudyCardsModel(BaseModel):
             "updated_at": self.updated_at,
         }
 
-    def to_response(self) -> StudyCardsResultResponse:
+    def to_response(
+        self,
+        document_name: str | None = None,
+    ) -> StudyCardsResultResponse:
         return StudyCardsResultResponse(
             id=self.id,
             document_id=self.document_id,
+            document_name=document_name,
             status=self.status,
             result=self.result,
             created_at=self.created_at.isoformat(),

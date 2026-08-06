@@ -1,8 +1,6 @@
 from datetime import datetime
-from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import HTTPException, UploadFile, status
 from pydantic import BaseModel, Field, model_validator
 
 FileType = Literal[
@@ -46,7 +44,6 @@ ALLOWED_EXTENSIONS: dict[FileType, set[str]] = {
     "epub": {".epub"},
 }
 
-DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 DEFAULT_LIST_LIMIT = 20
 MAX_LIST_LIMIT = 50
 ALL_ALLOWED_EXTENSIONS = {
@@ -149,40 +146,6 @@ def _classify_ingest_failure(reason: str) -> tuple[str, str]:
     )
 
 
-def validate_upload(
-    file: UploadFile,
-    max_bytes: int = DEFAULT_MAX_UPLOAD_BYTES,
-) -> None:
-    filename = file.filename or ""
-    extension = Path(filename).suffix.lower()
-    allowed = ALL_ALLOWED_EXTENSIONS
-
-    if extension not in allowed:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"File '{filename}' has extension '{extension or '(none)'}'; "
-                f"allowed: {', '.join(sorted(allowed))}"
-            ),
-        )
-
-    size = file.size
-    if size is None and file.file is not None:
-        pos = file.file.tell()
-        file.file.seek(0, 2)
-        size = file.file.tell()
-        file.file.seek(pos)
-
-    if size is not None and size > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(
-                f"File '{filename}' is {size} bytes; "
-                f"max allowed is {max_bytes} bytes"
-            ),
-        )
-
-
 class CreateDocumentRequest(BaseModel):
     name: str = Field(
         ...,
@@ -193,7 +156,7 @@ class CreateDocumentRequest(BaseModel):
     )
     category: str = Field(
         ...,
-        min_length=1,
+        min_length=3,
         max_length=255,
         examples=["pdf"],
         description="Document category/label (free text)",

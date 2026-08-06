@@ -201,13 +201,21 @@ async def handle_document(
                     return
 
                 start_time = perf_counter()
-                chunks, sections = await process_with_chapters(
+                result = await process_with_chapters(
                     chapter_splitter,
                     ingest_pipeline,
                     ingest_payload,
                     tmp.name,
                     logger,
                 )
+                if result is None:
+                    raise NonRetryableIngestError(
+                        "No readable content was found in the file"
+                    )
+
+                chunks = result.chunks
+                sections = result.sections
+
                 end_time = perf_counter()
                 logger.info(
                     "Time taken to process file=%s user_id=%s document_id=%s "
@@ -376,7 +384,7 @@ async def handle_document(
             retry_count = read_retry_count(message.headers)
             if retry_count >= rabbitmq.max_retries:
                 comment = ingest_failure_comment(
-                    str(e),
+                    "processing could not be completed",
                     exhausted_retries=True,
                 )
                 if user_id and document_id:
@@ -387,17 +395,6 @@ async def handle_document(
                         from_statuses=("pending", "processing", "failed"),
                         comment=comment,
                     )
-                    if failed is not None:
-                        await notify_document_status(
-                            redis,
-                            logger,
-                            user_id,
-                            notification_service,
-                            document_id=failed.id,
-                            name=failed.name,
-                            status=failed.status,
-                            comment=failed.comment,
-                        )
                 logger.error(
                     "Exhausted retries file=%s user_id=%s document_id=%s "
                     "attempts=%s comment=%s → DLQ",

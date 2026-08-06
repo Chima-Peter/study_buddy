@@ -170,7 +170,10 @@ class StudyCardsService:
             has_more,
         )
         return StudyCardsListResponseData(
-            items=[item.to_response() for item in items],
+            items=[
+                item.to_response(document_name=document_name)
+                for item, document_name in items
+            ],
             next_cursor=next_cursor,
             has_more=has_more,
             limit=min(max(limit, 1), MAX_LIST_LIMIT),

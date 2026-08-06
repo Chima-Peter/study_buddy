@@ -41,6 +41,7 @@ class StudyCardsGenerateAccepted(BaseModel):
 class StudyCardsResultResponse(BaseModel):
     id: str
     document_id: str
+    document_name: str | None = None
     status: StudyCardsStatus
     result: dict | None
     created_at: str

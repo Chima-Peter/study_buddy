@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
+from app.system.document.model import DocumentDBModel
 from app.system.study_cards.model import StudyCardsDBModel, StudyCardsModel
 from app.system.study_cards.schema import (
     DEFAULT_LIST_LIMIT,
@@ -63,7 +64,7 @@ class StudyCardsRepository:
         limit: int = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
         status: StudyCardsStatus | None = None,
-    ) -> tuple[list[StudyCardsModel], str | None, bool]:
+    ) -> tuple[list[tuple[StudyCardsModel, str | None]], str | None, bool]:
         limit = min(max(limit, 1), MAX_LIST_LIMIT)
 
         async with self.session_factory() as session:
@@ -74,16 +75,20 @@ class StudyCardsRepository:
                 filters.append(StudyCardsDBModel.id < cursor)
 
             result = await session.execute(
-                select(StudyCardsDBModel)
+                select(StudyCardsDBModel, DocumentDBModel.name)
+                .outerjoin(
+                    DocumentDBModel,
+                    StudyCardsDBModel.document_id == DocumentDBModel.id,
+                )
                 .where(*filters)
                 .order_by(StudyCardsDBModel.id.desc())
                 .limit(limit + 1)
             )
-            db_rows = list(result.scalars().all())
+            db_rows = list(result.all())
 
             has_more = len(db_rows) > limit
             page = db_rows[:limit]
-            next_cursor = page[-1].id if has_more and page else None
+            next_cursor = page[-1][0].id if has_more and page else None
 
             self.logger.info(
                 "Study cards listed user_id=%s count=%s has_more=%s",
@@ -92,7 +97,10 @@ class StudyCardsRepository:
                 has_more,
             )
             return (
-                [StudyCardsModel(**row.model_dump()) for row in page],
+                [
+                    (StudyCardsModel(**row.model_dump()), document_name)
+                    for row, document_name in page
+                ],
                 str(next_cursor) if next_cursor is not None else None,
                 has_more,
             )

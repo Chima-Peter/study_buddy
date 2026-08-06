@@ -54,7 +54,7 @@ class ConversationService:
         cursor: str | None = None,
     ) -> ConversationListResponseData:
         self.logger.info(
-            "Listing conversations user_id=%s limit=%s cursor=%s status=%s",
+            "Listing conversations user_id=%s limit=%s cursor=%s",
             user_id,
             limit,
             cursor,
@@ -181,8 +181,6 @@ class ConversationService:
         updates: dict = {}
         if payload.title is not None:
             updates["title"] = payload.title
-        if payload.status is not None:
-            updates["status"] = payload.status
 
         conversation.patch_model(updates)
         conversation = await self.repository.update(conversation)

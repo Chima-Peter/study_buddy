@@ -33,13 +33,13 @@ StudyBuddy is a **backend-only** FastAPI app. There is no frontend in this repo 
 
 | Domain | Student value |
 |--------|----------------|
-| Identity | Register, login, profile, logout, delete account |
+| Identity | Register, login, refresh, profile, logout, delete account |
 | Library | Upload lecture materials → ingest → searchable knowledge |
 | Tutor | Streaming RAG chat grounded in documents + internal memory |
 | Study deck | Chapter notes + embedded multiple-choice quizzes |
 | Inbox | Know when ingest / study-card jobs finish |
 
-**Live surface:** ~19 HTTP routes + 1 WebSocket + 1 SSE stream + health.
+**Live surface:** ~25 HTTP routes + 1 WebSocket + 1 SSE stream (health included in HTTP count).
 
 **Happy path:**
 
@@ -85,7 +85,7 @@ Agents the UI never calls directly:
 
 ## 3. Response conventions
 
-### Standard envelope (most endpoints)
+### Standard envelope (all HTTP JSON endpoints)
 
 ```json
 {
@@ -96,16 +96,29 @@ Agents the UI never calls directly:
 }
 ```
 
-### Exceptions
+Cursor-paginated lists (`documents`, `conversations`, `study-cards`, `notifications`) use the same envelope with:
+
+```json
+{
+  "data": {
+    "items": […],
+    "next_cursor": "<string|null>",
+    "has_more": false,
+    "limit": 20
+  },
+  "success": true,
+  "message": "…"
+}
+```
+
+### Exceptions (non-envelope)
 
 | Surface | Shape |
 |---------|--------|
-| `GET /api/conversations` | Raw array `[{ id, title }]` |
-| `GET /api/conversations/{id}` | Raw detail object (no envelope) |
 | WebSocket | `{ type, response?, message?, conversation_id? }` |
 | SSE | `event` + `data` JSON `{ type, data }` |
 
-Normalize these in one API client layer.
+Normalize WS/SSE in one API client layer.
 
 ---
 
@@ -117,7 +130,10 @@ Normalize these in one API client layer.
 2. HTTP: `Authorization: Bearer <token>`.
 3. WebSocket: `WS /api/chat?token=<jwt>` (**query param**, not header).
 4. Logout / account delete: token written to Redis blacklist until natural expiry.
-5. Default TTL: `JWT_EXPIRE_MINUTES` (typically 60). **No refresh tokens.**
+5. Default TTL: `JWT_EXPIRE_MINUTES` (typically 60).
+6. Soft refresh: `POST /authentication/refresh` with the **expired** JWT — only within `JWT_REFRESH_GRACE_MINUTES` (default **10**) after expiry. Still-valid tokens are rejected. Blacklisted tokens are rejected. On success, the old token is blacklisted and a new `{ user, token }` is returned.
+
+There is **no** separate refresh-token cookie/string — you reuse the access JWT inside the grace window.
 
 ### Endpoints
 
@@ -125,6 +141,7 @@ Normalize these in one API client layer.
 |--------|------|------|--------|
 | `POST` | `/api/authentication/register` | None | `201` — body `{ name, email, password }` → `{ user, token }` |
 | `POST` | `/api/authentication/login` | None | Body `{ email, password }` → `{ user, token }` |
+| `POST` | `/api/authentication/refresh` | None | Body `{ token }` (expired JWT) → `{ user, token }` |
 | `POST` | `/api/authentication/logout` | Bearer | Blacklists current token |
 | `GET` | `/api/users/me` | Bearer | Current profile |
 | `PATCH` | `/api/users/me` | Bearer | Partial update; **≥1 field required** |
@@ -146,9 +163,11 @@ Normalize these in one API client layer.
 
 ### Client notes
 
-- Persist JWT securely; attach on every HTTP call; clear on 401 / logout.
-- Reconnect WebSocket with the same token; force re-login if blacklisted/expired.
-- Error codes: `409` email taken, `401` bad credentials.
+- Persist JWT securely; attach on every HTTP call.
+- On `401`, try `POST /authentication/refresh` with the stored token **once** if it expired recently; otherwise clear session and send to login.
+- After refresh, update stored token and reconnect WebSocket with the new JWT.
+- Clear token on logout / account delete / failed refresh.
+- Error codes: `409` email taken, `401` bad credentials / invalid refresh.
 
 ---
 
@@ -169,7 +188,7 @@ Upload is a **3-step pipeline** — do **not** multipart-upload through FastAPI.
 ### Allowed files
 
 `.pdf`, `.docx`, `.txt`, `.md`, `.markdown`, `.doc`, `.rtf`, `.odt`, `.epub`  
-Extension comes from `file_name`. Default max size ~10 MB.
+Extension comes from `file_name`. No API file-size limit — bytes go straight to Supabase via the signed URL.
 
 ### Other document APIs
 
@@ -252,6 +271,7 @@ Most chat frames include `conversation_id`.
 3. Append `chat.response` chunks into the assistant bubble; finalize on `chat.done`.  
 4. Idle ~80s may trigger server Ping — keep the socket alive.  
 5. Surface rate-limit copy when `chat.error` says so.
+6. After token refresh, close and reopen the socket with the new JWT.
 
 ### What the agent does (for UX copy)
 
@@ -268,12 +288,23 @@ Memories are **internal** (Elasticsearch). There is no student-facing memory CRU
 
 ## 7. Conversations
 
-| Method | Path | Response |
-|--------|------|----------|
-| `GET` | `/api/conversations` | `[{ id, title }]` (raw) |
-| `GET` | `/api/conversations/{id}` | `{ id, title, chats: [{ id, conversation_id, query, response, created_at }] }` |
+All conversation HTTP responses use the standard envelope.
 
-**Missing HTTP:** create (use WS), rename (agent auto-titles), delete.
+| Method | Path | Notes |
+|--------|------|--------|
+| `GET` | `/api/conversations` | Cursor list: `limit` (1–50, default 20), `cursor` → `{ items, next_cursor, has_more, limit }` |
+| `GET` | `/api/conversations/{id}` | `{ id, title, status, chats: [{ id, conversation_id, query, response, created_at }] }` |
+| `PATCH` | `/api/conversations/{id}` | Body `{ title }` (1–255 chars) → `{ id, title, status }` |
+
+List item shape: `{ id, title, status }` where `status` is `active` | `archived`.
+
+**Missing HTTP:** create (use WS — omit `conversation_id`), delete / archive via API (`status` patch is not exposed yet).
+
+### Client notes
+
+- Paginate the sidebar with `next_cursor` while `has_more`.
+- Rename from the UI with `PATCH`; agent may still auto-title on the first turn (`chat.title`).
+- Prefer agent title updates over fighting the user rename — last write wins on the server.
 
 ---
 
@@ -285,12 +316,11 @@ Study cards turn a **completed** document into chapters with notes + MCQs. Gener
 
 | Method | Path | Notes |
 |--------|------|--------|
+| `GET` | `/api/study-cards` | Cursor list: `limit` (1–50, default 20), `cursor`, `status` (`pending` \| `failed` \| `success`) → `{ items, next_cursor, has_more, limit }` |
 | `POST` | `/api/study-cards/{document_id}` | `202` → `{ document_id }`. **409** if already `success` or in progress. Failed can be regenerated. |
 | `GET` | `/api/study-cards/{document_id}` | `{ id, document_id, status, result, created_at, updated_at }` |
 
-`status`: `pending` | `failed` | `success`.
-
-Prefer SSE `study_cards_generated` / `study_cards_failed`, then `GET` once.
+Prefer SSE `study_cards_generated` / `study_cards_failed`, then `GET` once. Use the list endpoint for a decks index without N+1 per document.
 
 ### Result shape (`status === "success"`)
 
@@ -324,13 +354,12 @@ Prefer SSE `study_cards_generated` / `study_cards_failed`, then `GET` once.
 
 | View | Behavior |
 |------|----------|
+| Decks index | `GET /study-cards` (optional `status=success`) |
 | Document action | “Generate study cards” when ingest is `completed` |
 | Chapter outline | Navigate by `chapter_key`; intro + sections |
 | Quiz player | MCQ from `quiz[]`; **score client-side** (no score API) |
 | References | Show `references` + `external_references` |
 | Failure | Toast on `study_cards_failed`; allow `POST` again |
-
-There is **no list-all-decks** endpoint. Derive decks from the document library (optional `GET` per completed doc).
 
 ---
 
@@ -364,7 +393,7 @@ Accept: text/event-stream
 | `study_cards_generated` | Cards ready | Enable Study view; `GET` cards |
 | `study_cards_failed` | Generation exhausted | Show retry CTA |
 
-**Tip:** One authenticated EventSource/fetch-stream per session; fan out to a global store for the unread badge.
+**Tip:** One authenticated EventSource/fetch-stream per session; fan out to a global store for the unread badge. After token refresh, reconnect the stream with the new Bearer token.
 
 ---
 
@@ -375,6 +404,7 @@ Accept: text/event-stream
 | `GET` | `/api/health` | Health check | None |
 | `POST` | `/api/authentication/register` | Create account + JWT | None |
 | `POST` | `/api/authentication/login` | Login + JWT | None |
+| `POST` | `/api/authentication/refresh` | Soft-refresh expired JWT | None |
 | `POST` | `/api/authentication/logout` | Blacklist JWT | Bearer |
 | `GET` | `/api/users/me` | Current profile | Bearer |
 | `PATCH` | `/api/users/me` | Update profile | Bearer |
@@ -387,9 +417,11 @@ Accept: text/event-stream
 | `GET` | `/api/documents/{id}` | Get document | Bearer |
 | `PATCH` | `/api/documents/{id}` | Update metadata | Bearer |
 | `DELETE` | `/api/documents/{id}` | Delete document | Bearer |
-| `GET` | `/api/conversations` | List conversations | Bearer |
+| `GET` | `/api/conversations` | List conversations (cursor) | Bearer |
 | `GET` | `/api/conversations/{id}` | History + messages | Bearer |
+| `PATCH` | `/api/conversations/{id}` | Rename conversation | Bearer |
 | `WS` | `/api/chat?token=` | Streaming tutor | Query JWT |
+| `GET` | `/api/study-cards` | List study cards (cursor) | Bearer |
 | `POST` | `/api/study-cards/{document_id}` | Queue generation (`202`) | Bearer |
 | `GET` | `/api/study-cards/{document_id}` | Get cards + quiz | Bearer |
 | `GET` | `/api/notifications` | List notifications | Bearer |
@@ -404,12 +436,13 @@ Accept: text/event-stream
 | Student feature | Endpoints |
 |-----------------|-----------|
 | Sign up / login / logout | `POST …/register`, `/login`, `/logout` |
+| Stay signed in | `POST …/refresh` within grace window after expiry |
 | Profile settings | `GET/PATCH/DELETE /api/users/me` |
 | Upload materials | `POST /upload` → `PUT` signed URL → `POST …/ingest` |
 | Ingest progress | SSE `/notifications/stream` (`document.status`) + list |
 | Study chat | `WS /api/chat?token=` |
-| Conversation sidebar | `GET /conversations`, `GET /conversations/{id}` |
-| Study cards / chapter quizzes | `POST/GET /study-cards/{document_id}` + SSE `study_cards_*` |
+| Conversation sidebar | `GET /conversations`, `GET /conversations/{id}`, `PATCH /conversations/{id}` |
+| Study cards / chapter quizzes | `GET /study-cards`, `POST/GET /study-cards/{document_id}` + SSE `study_cards_*` |
 | Notification center | `GET /notifications`, `PATCH …/read`, SSE stream |
 
 ---
@@ -420,13 +453,13 @@ Accept: text/event-stream
 
 | Module | Responsibility |
 |--------|----------------|
-| `api/http.ts` | Fetch wrapper, Bearer injection, envelope unwrap, 401 handler |
-| `api/ws.ts` | Chat socket lifecycle, reconnect, frame dispatch |
-| `api/sse.ts` | Notification stream + `Last-Event-ID` resume |
-| `stores/session` | User + token |
+| `api/http.ts` | Fetch wrapper, Bearer injection, envelope unwrap, 401 → refresh once → retry |
+| `api/ws.ts` | Chat socket lifecycle, reconnect (incl. after refresh), frame dispatch |
+| `api/sse.ts` | Notification stream + `Last-Event-ID` resume; reconnect after refresh |
+| `stores/session` | User + token + expiry |
 | `stores/documents` | List cache; patch statuses from SSE |
 | `stores/chat` | Active conversation + streaming buffer |
-| `stores/studyCards` | Per-document status + result cache |
+| `stores/studyCards` | Decks list + per-document status/result cache |
 | `stores/notifications` | Inbox + unread count |
 
 ### Route map
@@ -442,6 +475,7 @@ Accept: text/event-stream
 - `/library/:id`
 - `/chat`
 - `/chat/:conversationId`
+- `/study`
 - `/study/:documentId`
 - `/notifications`
 - `/settings`
@@ -461,13 +495,13 @@ Ensure backend `CORS_ORIGINS` includes the SPA origin.
 
 | Phase | Ship | Done when |
 |-------|------|-----------|
-| **P0** | Auth + API client + shell nav | Register / login / logout round-trip |
+| **P0** | Auth + refresh + API client + shell nav | Register / login / refresh / logout round-trip |
 | **P1** | Upload → ingest → SSE status | PDF reaches `completed` in UI |
-| **P2** | Chat WS + conversation sidebar | Grounded Q&A on a document |
-| **P3** | Study cards + quiz player | Chapter read + local quiz score |
+| **P2** | Chat WS + conversation sidebar + rename | Grounded Q&A on a document |
+| **P3** | Study cards list + quiz player | Chapter read + local quiz score |
 | **P4** | Notification center + polish | Unread badge + mark read |
 
-**MVP cut:** Auth → Library → Chat → Study cards → Inbox. Defer profile polish and conversation rename until the core loop works.
+**MVP cut:** Auth → Library → Chat → Study cards → Inbox. Defer profile polish and archive until the core loop works.
 
 ---
 
@@ -477,10 +511,8 @@ Ensure backend `CORS_ORIGINS` includes the SPA origin.
 |-----|--------|------------|
 | No memory CRUD API | Can't show “what tutor remembers” | Omit UI; agent uses memories silently |
 | Quiz only inside study-card `result` | No quiz bank / server score | Score in client; optional local history |
-| No conversation DELETE / rename HTTP | Sidebar clutter | Hide locally; titles from agent |
-| Cards keyed only by `document_id` | No global decks in one call | Derive from document list (careful N+1) |
-| Envelope inconsistency | Conversations vs others | Normalize in API client |
-| No refresh token | Hard logout after ~60m | Re-login UX; watch `exp` |
+| No conversation DELETE / archive HTTP | Sidebar clutter | Hide locally; `status` exists on reads but patch only accepts `title` |
+| Soft refresh only (no long-lived refresh token) | Must refresh within ~10m of expiry | Schedule refresh near `exp`; on failure, re-login |
 | No courses / curriculum | No class hierarchy | Use `category` on documents as a light tag |
 | No password reset / OAuth / email verify | Friction | Email/password only for now |
 
@@ -515,6 +547,21 @@ const body = await res.json();
 const token = body.data.token;
 ```
 
+### Soft refresh on 401
+
+```ts
+async function refreshToken(expiredToken: string) {
+  const res = await fetch(`${API}/authentication/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: expiredToken }),
+  });
+  if (!res.ok) throw new Error("refresh failed");
+  const body = await res.json();
+  return body.data.token as string;
+}
+```
+
 ### Upload pipeline
 
 ```ts
@@ -528,6 +575,15 @@ await fetch(data.upload_url, { method: "PUT", body: file });
 
 await api.post(`/documents/${data.document.id}/ingest`);
 // wait for SSE document.status === "completed"
+```
+
+### Conversations list + rename
+
+```ts
+const { data } = await api.get("/conversations", { limit: 20 });
+// data.items, data.next_cursor, data.has_more
+
+await api.patch(`/conversations/${id}`, { title: "Mitosis review" });
 ```
 
 ### Chat WebSocket
@@ -582,8 +638,8 @@ Prefer `fetch` + `ReadableStream` with `Authorization: Bearer …` (browser `Eve
 |--------|---------|--------|
 | User | Postgres | Profile fields above |
 | Document | Postgres + Supabase + ES | Status machine for ingest |
-| Conversation / Chat | Postgres | Created via WS |
-| StudyCards | Postgres | Unique per `document_id`; `result` JSONB |
+| Conversation / Chat | Postgres | Created via WS; rename via `PATCH` |
+| StudyCards | Postgres | Unique per `document_id`; listable; `result` JSONB |
 | Notification | Postgres | + Redis SSE |
 | Memory | Elasticsearch only | **No public API** |
 

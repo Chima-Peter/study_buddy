@@ -25,7 +25,7 @@ from app.system.conversation.service import ConversationService
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
 MAX_PAYLOAD_SIZE = 64 * 1024
-MAX_CONNECTIONS_PER_USER = 5
+MAX_CONNECTIONS_PER_USER = 1
 
 @chat_router.websocket("")
 @inject
@@ -41,7 +41,7 @@ async def websocket_endpoint(
 
     try:
         connection_count = await redis_service.get_connection_count(user.id)
-        if connection_count >= MAX_CONNECTIONS_PER_USER:
+        if connection_count > 1:
             logger.warning(
                 "Too many connections user_id=%s count=%d",
                 user.id,

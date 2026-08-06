@@ -41,9 +41,6 @@ async def handle_document_dead_letter_queue(
         user_id = payload.get("user_id")
         if not document_id or not user_id:
             return
-
-        # Handler already sets a specific failure comment before reject.
-        # Preserve it; only fill a DLQ fallback when still pending/processing.
         try:
             existing = await document_service.get_document_by_id(
                 document_id, user_id
