@@ -3,13 +3,9 @@ from logging import Logger
 
 from aio_pika.abc import AbstractIncomingMessage
 
-from app.core.redis import RedisClient
-
-
 async def handle_study_cards_generate_dead_letter_queue(
     message: AbstractIncomingMessage,
     logger: Logger,
-    redis: RedisClient,
 ) -> None:
     async with message.process():
         body = message.body.decode()
@@ -31,19 +27,4 @@ async def handle_study_cards_generate_dead_letter_queue(
             "Study cards generate exhausted retries document_id=%s user_id=%s",
             payload.get("document_id"),
             payload.get("user_id"),
-        )
-        await redis.publish_to_user(
-            payload.get("user_id"),
-            {
-                "type": "study_cards_generate_exhausted",
-                "data": {
-                    "document_id": payload.get("document_id"),
-                    "name": payload.get("name"),
-                    "status": "failed",
-                    "comment": (
-                        f"Study cards generation for document_id="
-                        f"{payload.get('document_id')} failed after all retries"
-                    ),
-                },
-            },
         )

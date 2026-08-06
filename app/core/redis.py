@@ -8,7 +8,7 @@ from app.system.notification.schema import EventPayload
 
 CONNECTION_TTL_SECONDS = 5 * 60
 CONNECTION_COUNT_TTL_SECONDS = 24 * 60 * 60
-SSE_PING_INTERVAL_MS = 5_000
+SSE_PING_INTERVAL_MS = 120_000
 
 
 class RedisClient:

@@ -27,6 +27,7 @@ class StudyCardsGenerateRequest(BaseModel):
 
     document_id: str
     user_id: str
+    name: str
 
 
 class StudyCardsGenerateAccepted(BaseModel):

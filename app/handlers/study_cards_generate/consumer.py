@@ -3,6 +3,7 @@ from logging import Logger
 
 from aio_pika.abc import AbstractIncomingMessage
 from app.core.redis import RedisClient
+from app.system.notification.schema import EventPayload
 from pydantic import ValidationError
 
 from app.agent.study_cards_agent.graph import StudyCardsGraph
@@ -52,13 +53,17 @@ async def handle_study_cards_generate(
 
             await redis.publish_to_user(
                 request.user_id,
-                {
-                    "type": "study_cards_generated",
-                    "data": {
+                EventPayload(
+                    type="study_cards_generated",
+                    data={
                         "document_id": request.document_id,
-                        "comment": f"Study cards generation completed for document {request.document_id}",
+                        "name": request.name,
+                        "status": "success",
+                        "comment": (
+                            f'Study cards for "{request.name}" are ready.'
+                        ),
                     },
-                }
+                )
             )
 
             logger.info(
@@ -83,6 +88,7 @@ async def handle_study_cards_generate(
             if retry_count >= rabbitmq.max_retries:
                 document_id = payload.get("document_id")
                 user_id = payload.get("user_id")
+                name = payload.get("name") or document_id
                 if document_id and user_id:
                     try:
                         await study_cards_service.mark_failed(document_id, user_id)
@@ -92,7 +98,7 @@ async def handle_study_cards_generate(
                             "document_id=%s user_id=%s",
                             document_id,
                             user_id,
-                    )
+                        )
                 logger.error(
                     "Exhausted study cards generate retries document_id=%s "
                     "user_id=%s attempts=%s → DLQ",
@@ -102,13 +108,18 @@ async def handle_study_cards_generate(
                 )
                 await redis.publish_to_user(
                     user_id,
-                    {
-                        "type": "study_cards_failed",
-                        "data": {
-                            "document_id": request.document_id,
-                            "comment": f"Study cards generation failed for document {document_id}",
+                    EventPayload(
+                        type="study_cards_failed",
+                        data={
+                            "document_id": document_id,
+                            "name": name,
+                            "status": "failed",
+                            "comment": (
+                                f'Study cards generation for "{name}" '
+                                "failed after all retries."
+                            ),
                         },
-                    }
+                    )
                 )
                 await message.reject(requeue=False)
                 return

@@ -27,4 +27,4 @@ class SaveNode:
             state["document_id"],
             state["user_id"],
         )
-        return {}
+        return {"saved": True}

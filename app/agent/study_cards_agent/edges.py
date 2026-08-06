@@ -10,11 +10,14 @@ RouteTarget = Literal[
     "critique",
     "consolidate",
     "save",
+    "END",
 ]
 
 
 def route_from_checkpoint(state: StudyCardsState) -> RouteTarget:
     """Resume-aware router: pick the next step from current/checkpointed state."""
+    if state.get("saved"):
+        return "END"
     if state.get("final_result") is not None:
         return "save"
     if not state.get("chapter_keys"):

@@ -18,3 +18,4 @@ class StudyCardsState(TypedDict):
     retry_count: dict[Literal["generate", "critique"], int]
     final_result: StudyCardsResult
     critique: dict[str, Critique]
+    saved: bool

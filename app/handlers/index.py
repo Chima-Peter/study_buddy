@@ -135,6 +135,7 @@ class Handlers:
                 rabbitmq=self._rabbitmq,
                 study_cards_graph=self._study_cards_graph,
                 study_cards_service=self._study_cards_service,
+                redis=self._redis,
             ),
             label="handle_study_cards_generate",
         )
@@ -176,7 +177,6 @@ class Handlers:
             handle_study_cards_generate_dead_letter_queue(
                 message,
                 self._logger,
-                self._redis,
             ),
             label="handle_study_cards_generate_dead_letter_queue",
         )

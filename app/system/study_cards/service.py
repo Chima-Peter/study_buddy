@@ -32,7 +32,9 @@ class StudyCardsService:
         document_id: str,
         user_id: str,
     ) -> StudyCardsGenerateAccepted:
-        await self.document_service.get_document_by_id(document_id, user_id)
+        document = await self.document_service.get_document_by_id(
+            document_id, user_id
+        )
 
         existing = await self.repository.get_by_document(document_id, user_id)
         if existing is not None:
@@ -59,6 +61,7 @@ class StudyCardsService:
         payload = StudyCardsGenerateRequest(
             document_id=document_id,
             user_id=user_id,
+            name=document.name,
         )
         await self.rabbitmq.publish_message(
             "study_cards_generate_queue",

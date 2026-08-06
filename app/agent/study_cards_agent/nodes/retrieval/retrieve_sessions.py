@@ -35,7 +35,7 @@ class RetrieveSessionsNode:
             "sessions_by_chapter=%s",
             state["document_id"],
             state["user_id"],
-            sessions_by_chapter,
+            len(sessions_by_chapter),
         )
 
         return {

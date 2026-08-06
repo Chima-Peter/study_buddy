@@ -80,6 +80,7 @@ class StudyCardsGraph:
                 "critique": "critique",
                 "consolidate": "consolidate",
                 "save": "save",
+                "END": END,
             },
         )
         graph.add_edge("retrieve_chapter_keys", "retrieve_sessions")
