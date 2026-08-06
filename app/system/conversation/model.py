@@ -16,6 +16,7 @@ class ConversationModel(BaseModel):
     title: Optional[str] = None
     summary: Optional[str] = None
     user_id: str = Field(min_length=36, max_length=36)
+    status: str = Field(default="active")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -31,7 +32,17 @@ class ConversationModel(BaseModel):
             "summary": self.summary,
             "user_id": self.user_id,
             "created_at": self.created_at,
+            "status": self.status,
         }
+
+    def patch_model(self, patch: dict[str, Any]) -> "ConversationModel":
+        if "title" in patch:
+            self.title = patch["title"]
+        if "summary" in patch:
+            self.summary = patch["summary"]
+        if "status" in patch:
+            self.status = patch["status"]
+        return self
 
 
 class ConversationDBModel(Base):
@@ -39,6 +50,7 @@ class ConversationDBModel(Base):
 
     id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
     title: Mapped[Optional[str]] = mapped_column(sa.String(255), nullable=True)
+    status: Mapped[str] = mapped_column(sa.String(255), nullable=False, default='active')
     summary: Mapped[Optional[str]] = mapped_column(sa.String(1500), nullable=True)
     user_id: Mapped[str] = mapped_column(
         sa.UUID,
@@ -61,6 +73,7 @@ class ConversationDBModel(Base):
     def model_dump(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
+            "status": self.status,
             "title": self.title,
             "summary": self.summary,
             "user_id": str(self.user_id),

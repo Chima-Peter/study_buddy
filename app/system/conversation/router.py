@@ -9,6 +9,7 @@ from app.container import Container
 from app.core.security import get_current_user
 from app.system.conversation.schema import (
     ConversationHistoryResponse,
+    ConversationPatchRequest,
     ConversationResponse,
 )
 from app.system.conversation.service import ConversationService
@@ -76,6 +77,7 @@ async def get_conversation(
         return ConversationHistoryResponse(
             id=conversation_id,
             title=conversation.title,
+            status=conversation.status,
             chats=conversation.chats,
         )
     except ValueError as error:
@@ -91,6 +93,60 @@ async def get_conversation(
     except Exception:
         logger.exception(
             "Unexpected error getting conversation id=%s user_id=%s",
+            conversation_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+
+
+@conversation_router.patch(
+    "/{conversation_id}",
+    response_model=ConversationResponse,
+)
+@inject
+async def patch_conversation(
+    conversation_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    request: ConversationPatchRequest,
+    service: ConversationService = Depends(
+        Provide[Container.conversation_service]
+    ),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> ConversationResponse:
+    logger.info(
+        "Update conversation request id=%s user_id=%s",
+        conversation_id,
+        user.id,
+    )
+    try:
+        conversation = await service.update(
+            conversation_id=conversation_id,
+            user_id=user.id,
+            payload=request,
+        )
+        logger.info(
+            "Update conversation request completed id=%s user_id=%s",
+            conversation_id,
+            user.id,
+        )
+        return conversation
+    except ValueError as error:
+        logger.warning(
+            "Update conversation request not found id=%s user_id=%s",
+            conversation_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(error),
+        ) from error
+    except Exception:
+        logger.exception(
+            "Unexpected error updating conversation id=%s user_id=%s",
             conversation_id,
             user.id,
         )

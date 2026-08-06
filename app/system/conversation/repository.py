@@ -142,89 +142,46 @@ class ConversationRepository:
                 return None
             return ConversationModel(**db_conversation.model_dump())
 
-    async def update_title(
+    async def update(
         self,
-        conversation_id: str,
-        user_id: str,
-        title: str,
+        payload: ConversationModel
     ) -> ConversationModel | None:
         async with self.session_factory() as session:
             result = await session.execute(
                 select(ConversationDBModel).where(
-                    ConversationDBModel.id == conversation_id,
-                    ConversationDBModel.user_id == user_id,
+                    ConversationDBModel.id == payload.id,
+                    ConversationDBModel.user_id == payload.user_id,
                 )
             )
             db_conversation = result.scalar_one_or_none()
             if db_conversation is None:
                 self.logger.info(
                     "Conversation not found for title update id=%s user_id=%s",
-                    conversation_id,
-                    user_id,
+                    payload.id,
+                    payload.user_id,
                 )
                 return None
 
-            db_conversation.title = title
+            if payload.title:
+                db_conversation.title = payload.title
+            if payload.summary:
+                db_conversation.summary = payload.summary
+            if payload.status:
+                db_conversation.status = payload.status
             try:
                 await session.commit()
             except Exception:
                 await session.rollback()
                 self.logger.exception(
                     "Failed to update conversation title id=%s user_id=%s",
-                    conversation_id,
-                    user_id,
+                    payload.id,
+                    payload.user_id,
                 )
                 raise
             await session.refresh(db_conversation)
             self.logger.info(
                 "Conversation title updated id=%s user_id=%s",
-                conversation_id,
-                user_id,
-            )
-            return ConversationModel(**db_conversation.model_dump())
-
-    async def update_summary(
-        self,
-        conversation_id: str,
-        user_id: str,
-        summary: str,
-    ) -> ConversationModel | None:
-        self.logger.info(
-            "Updating conversation summary id=%s user_id=%s",
-            conversation_id,
-            user_id,
-        )
-        async with self.session_factory() as session:
-            result = await session.execute(
-                select(ConversationDBModel).where(
-                    ConversationDBModel.id == conversation_id,
-                    ConversationDBModel.user_id == user_id,
-                )
-            )
-            db_conversation = result.scalar_one_or_none()
-            if db_conversation is None:
-                self.logger.info(
-                    "Conversation not found for summary update id=%s user_id=%s",
-                    conversation_id,
-                    user_id,
-                )
-                return None
-
-            db_conversation.summary = summary
-            try:
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                self.logger.exception(
-                    "Failed to update conversation summary id=%s user_id=%s",
-                    conversation_id,
-                    user_id,
-                )
-                raise
-            await session.refresh(db_conversation)
-            self.logger.info(
-                "Conversation summary updated id=%s user_id=%s",
-                conversation_id,
-                user_id,
+                payload.id,
+                payload.user_id,
             )
             return ConversationModel(**db_conversation.model_dump())

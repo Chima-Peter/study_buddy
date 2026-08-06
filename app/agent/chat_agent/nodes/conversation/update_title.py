@@ -6,7 +6,7 @@ from langgraph.config import get_stream_writer
 from app.agent.chat_agent.prompts import title_prompt
 from app.agent.chat_agent.state import AgentState
 from app.utils.llm import is_rate_limit_error
-from app.system.conversation.schema import UpdateConversationTitleRequest
+from app.system.conversation.schema import ConversationPatchRequest
 from app.system.conversation.service import ConversationService
 
 
@@ -60,10 +60,10 @@ class UpdateConversationTitleNode:
             "response": title,
         })
 
-        await self.conversation_service.update_title(
+        await self.conversation_service.update(
             conversation_id=state["conversation_id"],
             user_id=state["user_id"],
-            request=UpdateConversationTitleRequest(
+            payload=ConversationPatchRequest(
                 title=title,
             ),
         )
