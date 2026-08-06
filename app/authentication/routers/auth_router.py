@@ -1,13 +1,14 @@
 from logging import Logger
 from typing import Annotated
 
+from app.authentication.schemas import UserResponse
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.authentication.schemas import UserResponse
 from app.authentication.schemas.auth import (
     LoginRequest,
+    RefreshTokenRequest,
     RegisterRequest,
 )
 from app.authentication.services.auth_service import AuthService
@@ -85,9 +86,49 @@ async def login(
 
 
 @auth_router.post(
+    "/refresh",
+    response_model=ApiResponse,
+    summary="Refresh token",
+    description=(
+        "Exchange an expired JWT for a new access token. "
+        "Only tokens that expired within the last 10 minutes are accepted. "
+        "Blacklisted tokens are rejected."
+    ),
+)
+@inject
+async def refresh(
+    data: RefreshTokenRequest,
+    service: AuthService = Depends(Provide[Container.auth_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        response = await service.refresh_token(data)
+    except (InvalidCredentialsError, UserNotFoundError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    except Exception:
+        logger.exception("Unexpected error during token refresh")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=response.model_dump(mode="json"),
+        message="Token refreshed successfully",
+    )
+
+
+@auth_router.post(
     "/logout",
     response_model=ApiResponse,
     summary="Logout",
+    description=(
+        "Requires a valid Bearer token. "
+        "Blacklists it for its remaining lifetime."
+    ),
 )
 @inject
 async def logout(
@@ -98,6 +139,11 @@ async def logout(
 ) -> BasicResponse:
     try:
         await service.logout(credentials.credentials)
+    except InvalidCredentialsError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
     except Exception:
         logger.exception("Unexpected error during logout")
         raise HTTPException(
