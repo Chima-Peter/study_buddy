@@ -53,14 +53,14 @@ class StudyCardsRepository:
 
     async def update_result(
         self,
-        study_cards_id: str,
+        document_id: str,
         user_id: str,
         result: dict,
     ) -> StudyCardsModel | None:
         async with self.session_factory() as session:
             row = await session.execute(
                 select(StudyCardsDBModel).where(
-                    StudyCardsDBModel.id == study_cards_id,
+                    StudyCardsDBModel.document_id == document_id,
                     StudyCardsDBModel.user_id == user_id,
                 )
             )
@@ -72,5 +72,5 @@ class StudyCardsRepository:
             db_row.updated_at = datetime.now(timezone.utc)
             await session.commit()
             await session.refresh(db_row)
-            self.logger.info("Study cards updated id=%s", study_cards_id)
+            self.logger.info("Study cards updated document_id=%s", document_id)
             return StudyCardsModel(**db_row.model_dump())

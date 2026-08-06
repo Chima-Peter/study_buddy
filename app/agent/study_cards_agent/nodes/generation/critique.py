@@ -57,6 +57,10 @@ class CritiqueNode:
                 "approved_chapters": [],
                 "critique": critique,
                 "undone_critique_chapters": [],
+                "retry_count": {
+                    "critique": retry_count["critique"] + 1,
+                    "generate": retry_count["generate"],
+                },
             }
 
         self.logger.info(

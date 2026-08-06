@@ -1,6 +1,9 @@
 from typing import Literal
 from pydantic import BaseModel
 
+MAX_GENERATE_RETRIES = 3
+MAX_CRITIQUE_RETRIES = 3
+
 class Sections(BaseModel):
     title: str
     content: str 

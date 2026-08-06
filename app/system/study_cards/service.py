@@ -48,3 +48,40 @@ class StudyCardsService:
             user_id,
         )
         return StudyCardsGenerateAccepted(document_id=document_id)
+
+    async def update_result(
+        self,
+        document_id: str,
+        user_id: str,
+        result: dict,
+    ) -> StudyCardsModel:
+        self.logger.info(
+            "Updating study cards result document_id=%s user_id=%s",
+            document_id,
+            user_id,
+        )
+        study_card = await self.repository.update_result(document_id, user_id, result)
+        self.logger.info(
+            "Study cards result updated document_id=%s user_id=%s",
+            document_id,
+            user_id,
+        )
+        return study_card
+
+    async def get_by_document(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> StudyCardsModel | None:
+        self.logger.info(
+            "Getting study cards by document id=%s user_id=%s",
+            document_id,
+            user_id,
+        )
+        study_card = await self.repository.get_by_document(document_id, user_id)
+        self.logger.info(
+            "Study cards found id=%s user_id=%s",
+            study_card.id,
+            user_id,
+        )
+        return study_card

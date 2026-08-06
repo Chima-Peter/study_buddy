@@ -65,6 +65,7 @@ class StudyCardsDBModel(Base):
         sa.UUID,
         ForeignKey("documents.id"),
         nullable=False,
+        unique=True,
     )
     result: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSONB,
