@@ -4,6 +4,7 @@ from logging import Logger
 from aio_pika.abc import AbstractIncomingMessage
 from pydantic import ValidationError
 
+from app.agent.study_cards_agent.graph import StudyCardsGraph
 from app.core.rabbitmq import RabbitMQ, read_retry_count
 from app.system.study_cards.schema import StudyCardsGenerateRequest
 
@@ -12,6 +13,7 @@ async def handle_study_cards_generate(
     message: AbstractIncomingMessage,
     logger: Logger,
     rabbitmq: RabbitMQ,
+    study_cards_graph: StudyCardsGraph,
 ) -> None:
     payload: dict | None = None
 
@@ -29,9 +31,23 @@ async def handle_study_cards_generate(
                 retry_count,
             )
 
-            # TODO: invoke study_cards_agent graph
+            graph = study_cards_graph.start()
+            await graph.ainvoke(
+                {
+                    "document_id": request.document_id,
+                    "user_id": request.user_id,
+                },
+                config={
+                    "configurable": {
+                        "thread_id": (
+                            f"study-cards:{request.user_id}:{request.document_id}"
+                        ),
+                    }
+                },
+            )
+
             logger.info(
-                "Study cards generate stub completed document_id=%s user_id=%s",
+                "Study cards generate completed document_id=%s user_id=%s",
                 request.document_id,
                 request.user_id,
             )

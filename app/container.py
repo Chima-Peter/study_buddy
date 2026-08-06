@@ -23,6 +23,12 @@ from supabase import AsyncClient, create_async_client, create_client, Client
 from elasticsearch import AsyncElasticsearch
 
 from app.agent.chat_agent.graph import AgentGraph
+from app.agent.study_cards_agent.graph import StudyCardsGraph
+from app.agent.study_cards_agent.schema import (
+    ChapterResult,
+    Critique,
+    StudyCardsResult,
+)
 from app.authentication.repository import UserRepository
 from app.authentication.services import AuthService
 from app.config import Settings
@@ -83,13 +89,18 @@ async def init_checkpointer(database_url: str) -> AsyncIterator[AsyncPostgresSav
         max_size=5,
         min_size=1,
         open=False,
-        # setup() runs CREATE INDEX CONCURRENTLY, which cannot run in a transaction.
         kwargs={"autocommit": True, "prepare_threshold": 0},
     )
     await checkpoint_pool.open()
-    # Agent state types must be allowlisted or deserialization breaks on future versions.
     serde = JsonPlusSerializer(
-        allowed_msgpack_modules=(ChatResponse, FusedResult, IndexedRecord),
+        allowed_msgpack_modules=(
+            ChatResponse,
+            FusedResult,
+            IndexedRecord,
+            ChapterResult,
+            Critique,
+            StudyCardsResult,
+        ),
     )
     checkpointer = AsyncPostgresSaver(checkpoint_pool, serde=serde)
     try:
@@ -603,27 +614,6 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
-    handlers = providers.Factory(
-        Handlers,
-        logger=logger,
-        ingest_pipeline=ingest_pipeline_service,
-        chapter_splitter=chapter_splitter,
-        supabase=async_supabase,
-        document_service=document_service,
-        embedding_manager=embedding_manager,
-        elasticsearch=elasticsearch,
-        rabbitmq=rabbitmq,
-        redis=redis_client,
-        notification_service=notification_service,
-        memory_service=memory_service,
-    )
-
-    rabbitmq_consumers = providers.Resource(
-        init_rabbitmq_consumers,
-        rabbitmq=rabbitmq,
-        handlers=handlers,
-    )
-
     checkpoint_saver = providers.Resource(
         init_checkpointer,
         database_url=settings.provided.checkpoint_database_url,
@@ -643,4 +633,36 @@ class Container(containers.DeclarativeContainer):
         summarizer_model=summarizer_model,
         checkpointer=checkpoint_saver,
         rabbitmq=rabbitmq,
+    )
+
+    study_cards_graph = providers.Singleton(
+        StudyCardsGraph,
+        logger=logger,
+        document_service=document_service,
+        elasticsearch=elasticsearch,
+        chat_model=chat_model,
+        study_cards_service=study_cards_service,
+        checkpointer=checkpoint_saver,
+    )
+
+    handlers = providers.Factory(
+        Handlers,
+        logger=logger,
+        ingest_pipeline=ingest_pipeline_service,
+        chapter_splitter=chapter_splitter,
+        supabase=async_supabase,
+        document_service=document_service,
+        embedding_manager=embedding_manager,
+        elasticsearch=elasticsearch,
+        rabbitmq=rabbitmq,
+        redis=redis_client,
+        notification_service=notification_service,
+        memory_service=memory_service,
+        study_cards_graph=study_cards_graph,
+    )
+
+    rabbitmq_consumers = providers.Resource(
+        init_rabbitmq_consumers,
+        rabbitmq=rabbitmq,
+        handlers=handlers,
     )

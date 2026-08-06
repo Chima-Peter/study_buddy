@@ -19,6 +19,7 @@ from app.handlers.memory_extract import (
     handle_memory_extract,
     handle_memory_extract_dead_letter_queue,
 )
+from app.agent.study_cards_agent.graph import StudyCardsGraph
 from app.handlers.study_cards_generate import (
     handle_study_cards_generate,
     handle_study_cards_generate_dead_letter_queue,
@@ -44,6 +45,7 @@ class Handlers:
         redis: RedisClient,
         notification_service: NotificationService,
         memory_service: MemoryService,
+        study_cards_graph: StudyCardsGraph,
     ):
         self._logger = logger
         self._ingest_pipeline = ingest_pipeline
@@ -56,6 +58,7 @@ class Handlers:
         self._redis = redis
         self._notification_service = notification_service
         self._memory_service = memory_service
+        self._study_cards_graph = study_cards_graph
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _fire_and_forget(
@@ -127,6 +130,7 @@ class Handlers:
                 message,
                 logger=self._logger,
                 rabbitmq=self._rabbitmq,
+                study_cards_graph=self._study_cards_graph,
             ),
             label="handle_study_cards_generate",
         )
