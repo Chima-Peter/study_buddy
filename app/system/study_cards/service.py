@@ -7,10 +7,14 @@ from app.system.document.service import DocumentService
 from app.system.study_cards.model import StudyCardsModel
 from app.system.study_cards.repository import StudyCardsRepository
 from app.system.study_cards.schema import (
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
     StudyCardsAlreadyExistsError,
     StudyCardsGenerateAccepted,
     StudyCardsGenerateRequest,
     StudyCardsInProgressError,
+    StudyCardsListResponseData,
+    StudyCardsStatus,
 )
 
 
@@ -136,3 +140,38 @@ class StudyCardsService:
             user_id,
         )
         return study_card
+
+    async def list_by_user(
+        self,
+        user_id: str,
+        *,
+        limit: int = DEFAULT_LIST_LIMIT,
+        cursor: str | None = None,
+        status: StudyCardsStatus | None = None,
+    ) -> StudyCardsListResponseData:
+        self.logger.info(
+            "Listing study cards user_id=%s limit=%s cursor=%s status=%s",
+            user_id,
+            limit,
+            cursor,
+            status,
+        )
+        items, next_cursor, has_more = await self.repository.list_by_user(
+            user_id,
+            limit=limit,
+            cursor=cursor,
+            status=status,
+        )
+
+        self.logger.info(
+            "Study cards listed user_id=%s count=%s has_more=%s",
+            user_id,
+            len(items),
+            has_more,
+        )
+        return StudyCardsListResponseData(
+            items=[item.to_response() for item in items],
+            next_cursor=next_cursor,
+            has_more=has_more,
+            limit=min(max(limit, 1), MAX_LIST_LIMIT),
+        )

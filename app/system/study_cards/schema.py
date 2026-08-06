@@ -1,7 +1,11 @@
+from typing import Literal, Optional
+
 from pydantic import BaseModel
-from typing import Literal
 
 StudyCardsStatus = Literal["pending", "failed", "success"]
+
+DEFAULT_LIST_LIMIT = 20
+MAX_LIST_LIMIT = 50
 
 
 class StudyCardsAlreadyExistsError(Exception):
@@ -52,6 +56,20 @@ class StudyCardsGenerateApiResponse(BaseModel):
 
 class StudyCardsGetApiResponse(BaseModel):
     data: StudyCardsResultResponse | None = None
+    success: bool = True
+    message: str | None = None
+    error: str | None = None
+
+
+class StudyCardsListResponseData(BaseModel):
+    items: list[StudyCardsResultResponse]
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    limit: int
+
+
+class StudyCardsListApiResponse(BaseModel):
+    data: StudyCardsListResponseData | None = None
     success: bool = True
     message: str | None = None
     error: str | None = None

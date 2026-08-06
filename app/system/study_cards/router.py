@@ -2,21 +2,79 @@ from logging import Logger
 from typing import Annotated
 
 from dependency_injector.wiring import Provide, inject
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.authentication.schemas import UserResponse
 from app.container import Container
 from app.core.response import BasicResponse
 from app.core.security import get_current_user
 from app.system.study_cards.schema import (
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
     StudyCardsAlreadyExistsError,
     StudyCardsGenerateApiResponse,
     StudyCardsGetApiResponse,
     StudyCardsInProgressError,
+    StudyCardsListApiResponse,
+    StudyCardsStatus,
 )
 from app.system.study_cards.service import StudyCardsService
 
 study_cards_router = APIRouter(prefix="/study-cards", tags=["study-cards"])
+
+
+@study_cards_router.get(
+    "",
+    response_model=StudyCardsListApiResponse,
+    summary="List study cards",
+    description=(
+        "List study cards for the authenticated user with optional status filter "
+        f"and cursor-based pagination (max {MAX_LIST_LIMIT} per page)."
+    ),
+)
+@inject
+async def list_study_cards(
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+    limit: Annotated[
+        int,
+        Query(
+            ge=1,
+            le=MAX_LIST_LIMIT,
+            description=f"Page size (1–{MAX_LIST_LIMIT}, default {DEFAULT_LIST_LIMIT})",
+        ),
+    ] = DEFAULT_LIST_LIMIT,
+    cursor: Annotated[
+        str | None,
+        Query(description="Cursor from previous page's next_cursor"),
+    ] = None,
+    status_filter: Annotated[
+        StudyCardsStatus | None,
+        Query(alias="status", description="Filter by study cards status"),
+    ] = None,
+) -> BasicResponse:
+    try:
+        result = await service.list_by_user(
+            user.id,
+            limit=limit,
+            cursor=cursor,
+            status=status_filter,
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error listing study cards user_id=%s",
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=result.model_dump(mode="json"),
+        message="Study cards retrieved successfully",
+    )
 
 
 @study_cards_router.post(

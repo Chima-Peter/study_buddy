@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
 from app.system.study_cards.model import StudyCardsDBModel, StudyCardsModel
-from app.system.study_cards.schema import StudyCardsStatus
+from app.system.study_cards.schema import (
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
+    StudyCardsStatus,
+)
 
 
 class StudyCardsRepository:
@@ -51,6 +55,47 @@ class StudyCardsRepository:
             if db_row is None:
                 return None
             return StudyCardsModel(**db_row.model_dump())
+
+    async def list_by_user(
+        self,
+        user_id: str,
+        *,
+        limit: int = DEFAULT_LIST_LIMIT,
+        cursor: str | None = None,
+        status: StudyCardsStatus | None = None,
+    ) -> tuple[list[StudyCardsModel], str | None, bool]:
+        limit = min(max(limit, 1), MAX_LIST_LIMIT)
+
+        async with self.session_factory() as session:
+            filters = [StudyCardsDBModel.user_id == user_id]
+            if status is not None:
+                filters.append(StudyCardsDBModel.status == status)
+            if cursor is not None:
+                filters.append(StudyCardsDBModel.id < cursor)
+
+            result = await session.execute(
+                select(StudyCardsDBModel)
+                .where(*filters)
+                .order_by(StudyCardsDBModel.id.desc())
+                .limit(limit + 1)
+            )
+            db_rows = list(result.scalars().all())
+
+            has_more = len(db_rows) > limit
+            page = db_rows[:limit]
+            next_cursor = page[-1].id if has_more and page else None
+
+            self.logger.info(
+                "Study cards listed user_id=%s count=%s has_more=%s",
+                user_id,
+                len(page),
+                has_more,
+            )
+            return (
+                [StudyCardsModel(**row.model_dump()) for row in page],
+                str(next_cursor) if next_cursor is not None else None,
+                has_more,
+            )
 
     async def delete_by_document(
         self,

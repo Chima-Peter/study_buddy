@@ -52,20 +52,17 @@ class ConversationService:
         *,
         limit: int = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
-        status: STATUS_LITERAL | None = None,
     ) -> ConversationListResponseData:
         self.logger.info(
             "Listing conversations user_id=%s limit=%s cursor=%s status=%s",
             user_id,
             limit,
             cursor,
-            status,
         )
         conversations, next_cursor, has_more = await self.repository.list_by_user(
             user_id,
             limit=limit,
             cursor=cursor,
-            status=status,
         )
         return ConversationListResponseData(
             items=[

@@ -45,11 +45,7 @@ async def list_conversations(
     cursor: Annotated[
         str | None,
         Query(description="Cursor from previous page's next_cursor"),
-    ] = None,
-    status_filter: Annotated[
-        STATUS_LITERAL | None,
-        Query(alias="status", description="Filter by conversation status"),
-    ] = None,
+    ] = None
 ) -> BasicResponse:
     logger.info("List conversations request user_id=%s", user.id)
     try:
@@ -57,7 +53,6 @@ async def list_conversations(
             user.id,
             limit=limit,
             cursor=cursor,
-            status=status_filter,
         )
         logger.info(
             "List conversations request completed user_id=%s count=%s",
