@@ -1,6 +1,7 @@
 from logging import Logger
 
 from app.agent.study_cards_agent.nodes.retrieval.retrieve_memories import RetrieveMemoriesNode
+from app.memory.service import MemoryService
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
@@ -31,6 +32,7 @@ class StudyCardsGraph:
         chat_model: ChatGoogleGenerativeAI,
         study_cards_service: StudyCardsService,
         checkpointer: AsyncPostgresSaver,
+        memory_service: MemoryService,
     ):
         self.logger = logger
         self.document_service = document_service
@@ -38,7 +40,8 @@ class StudyCardsGraph:
         self.chat_model = chat_model
         self.study_cards_service = study_cards_service
         self.checkpointer = checkpointer
-
+        self.memory_service = memory_service
+        
         graph = StateGraph(StudyCardsState)
         self._raw_graph = graph
 

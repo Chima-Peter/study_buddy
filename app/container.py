@@ -645,6 +645,7 @@ class Container(containers.DeclarativeContainer):
         chat_model=chat_model,
         study_cards_service=study_cards_service,
         checkpointer=checkpoint_saver,
+        memory_service=memory_service,
     )
 
     handlers = providers.Factory(
