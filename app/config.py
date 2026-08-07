@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     chat_model_name: str = "gemini-3.1-flash-lite"
     summarizer_model_name: str = "gemini-3.1-flash-lite"
     query_model_name: str = "gemini-3.1-flash-lite"
+    study_cards_model_name: str = "gemini-3.1-flash-lite"
 
     # Local Supabase Kong (docker compose); use service_role key for storage
     supabase_url: str = "http://localhost:54323"

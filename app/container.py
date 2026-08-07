@@ -539,6 +539,15 @@ class Container(containers.DeclarativeContainer):
         google_api_key=settings.provided.google_api_key,
     )
 
+    study_cards_model = providers.Singleton(
+        ChatGoogleGenerativeAI,
+        model=settings.provided.study_cards_model_name,
+        temperature=0.5,
+        max_tokens=8192,
+        max_retries=3,
+        google_api_key=settings.provided.google_api_key,
+    )
+
     summarizer_model = providers.Singleton(
         ChatGoogleGenerativeAI,
         model=settings.provided.summarizer_model_name,
@@ -642,7 +651,7 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
         document_service=document_service,
         elasticsearch=elasticsearch,
-        chat_model=chat_model,
+        study_cards_model=study_cards_model,
         study_cards_service=study_cards_service,
         checkpointer=checkpoint_saver,
         memory_service=memory_service,

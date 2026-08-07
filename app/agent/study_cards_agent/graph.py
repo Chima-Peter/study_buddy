@@ -29,7 +29,7 @@ class StudyCardsGraph:
         logger: Logger,
         document_service: DocumentService,
         elasticsearch: Elasticsearch,
-        chat_model: ChatGoogleGenerativeAI,
+        study_cards_model: ChatGoogleGenerativeAI,
         study_cards_service: StudyCardsService,
         checkpointer: AsyncPostgresSaver,
         memory_service: MemoryService,
@@ -37,7 +37,7 @@ class StudyCardsGraph:
         self.logger = logger
         self.document_service = document_service
         self.elasticsearch = elasticsearch
-        self.chat_model = chat_model
+        self.study_cards_model = study_cards_model
         self.study_cards_service = study_cards_service
         self.checkpointer = checkpointer
         self.memory_service = memory_service
@@ -61,11 +61,11 @@ class StudyCardsGraph:
             ),
             "generate": GenerateChapterNode(
                 logger=self.logger,
-                model=self.chat_model,
+                model=self.study_cards_model,
             ),
             "critique": CritiqueNode(
                 logger=self.logger,
-                model=self.chat_model,
+                model=self.study_cards_model,
             ),
             "consolidate": ConsolidateNode(logger=self.logger),
             "save": SaveNode(
