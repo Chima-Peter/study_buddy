@@ -4,7 +4,7 @@ from typing import Annotated
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.authentication.schemas.user import UserResponse
+from app.system.user.schema import UserResponse
 from app.container import Container
 from app.core.response import BasicResponse
 from app.core.security import get_current_user

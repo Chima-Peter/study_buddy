@@ -5,12 +5,12 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.authentication.schemas.user import UpdateProfileRequest, UserResponse
-from app.authentication.services.auth_service import AuthService
-from app.authentication.services.user_service import UserService
+from app.authentication.service import AuthService
 from app.container import Container
 from app.core.response import ApiResponse, BasicResponse
 from app.core.security import bearer_scheme, get_current_user
+from app.system.user.schema import UpdateProfileRequest, UserResponse
+from app.system.user.service import UserService
 from app.utils.errors import EmailAlreadyExistsError, UserNotFoundError
 
 user_router = APIRouter(prefix="/users", tags=["users"])

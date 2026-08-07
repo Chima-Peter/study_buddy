@@ -23,7 +23,7 @@ from app.agent.chat_agent.nodes import (
 from app.agent.chat_agent.state import AgentState
 from langgraph.graph import START, StateGraph, END
 from logging import Logger
-from app.authentication.repository.user_repository import UserRepository
+from app.system.user.repository import UserRepository
 from app.core.rabbitmq import RabbitMQ
 from app.memory.service import MemoryService
 from app.rag.rag_retriever import RAGRetriever

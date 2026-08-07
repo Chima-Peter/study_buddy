@@ -29,8 +29,9 @@ from app.agent.study_cards_agent.schema import (
     Critique,
     StudyCardsResult,
 )
-from app.authentication.repository import UserRepository
-from app.authentication.services import AuthService, UserService
+from app.authentication.service import AuthService
+from app.system.user.repository import UserRepository
+from app.system.user.service import UserService
 from app.config import Settings
 from app.core.elasticsearch import Elasticsearch
 from app.core.elasticsearch_schema import FusedResult, IndexedRecord

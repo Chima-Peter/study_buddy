@@ -1,8 +1,9 @@
 from pydantic import BaseModel, EmailStr
 
-from app.authentication.schemas.user import UserResponse
+from app.system.user.schema import UserResponse
 
 BLACKLIST_PREFIX = "blacklist:"
+
 
 class RegisterRequest(BaseModel):
     name: str

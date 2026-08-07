@@ -4,10 +4,10 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import Depends, HTTPException, WebSocket, WebSocketException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.authentication.schemas.user import UserResponse
-from app.authentication.services.auth_service import AuthService
-from app.authentication.services.user_service import UserService
+from app.authentication.service import AuthService
 from app.container import Container
+from app.system.user.schema import UserResponse
+from app.system.user.service import UserService
 from app.utils.jwt import verify_token
 
 bearer_scheme = HTTPBearer()

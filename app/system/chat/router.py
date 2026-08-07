@@ -14,7 +14,7 @@ from fastapi import (
     status,
 )
 
-from app.authentication.schemas.user import UserResponse
+from app.system.user.schema import UserResponse
 from app.container import Container
 from app.utils.llm import is_rate_limit_error
 from app.core.redis import RedisClient

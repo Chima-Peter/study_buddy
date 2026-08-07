@@ -3,17 +3,23 @@ from logging import Logger
 
 import jwt
 
-from app.authentication.models.user import UserModel
-from app.authentication.repository.user_repository import UserRepository
-from app.authentication.schemas import LoginRequest, RegisterRequest
-from app.authentication.schemas.auth import BLACKLIST_PREFIX, LoginResponse, RefreshTokenRequest
-from app.authentication.schemas.user import UserResponse
+from app.authentication.schema import (
+    BLACKLIST_PREFIX,
+    LoginRequest,
+    LoginResponse,
+    RefreshTokenRequest,
+    RegisterRequest,
+)
 from app.config import Settings
 from app.core.redis import RedisClient
+from app.system.user.model import UserModel
+from app.system.user.repository import UserRepository
+from app.system.user.schema import UserResponse
 from app.utils.bcrypt import hash_password, verify_password
 from app.utils.errors import DuplicateEmailError, EmailAlreadyExistsError, UserNotFoundError
 from app.utils.errors.auth import InvalidCredentialsError
 from app.utils.jwt import generate_token
+
 
 class AuthService:
     """Authentication business logic."""

@@ -4,7 +4,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.authentication.models.user import UserDBModel, UserModel
+from app.system.user.model import UserDBModel, UserModel
 from app.system.chat.model import ChatDBModel
 from app.system.conversation.model import ConversationDBModel
 from app.system.document.model import DocumentDBModel

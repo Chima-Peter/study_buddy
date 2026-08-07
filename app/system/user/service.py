@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
 from logging import Logger
 
-from app.authentication.models.user import UserModel
-from app.authentication.repository.user_repository import UserRepository
-from app.authentication.schemas.user import UpdateProfileRequest, UserResponse
+from app.system.user.model import UserModel
+from app.system.user.repository import UserRepository
+from app.system.user.schema import UpdateProfileRequest, UserResponse
 from app.core.elasticsearch import Elasticsearch
 from app.core.supabase import Supabase
 from app.utils.errors import DuplicateEmailError, EmailAlreadyExistsError, UserNotFoundError
