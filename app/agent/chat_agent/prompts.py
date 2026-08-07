@@ -151,7 +151,7 @@ def chat_response_prompt(
     has_history = bool(conversation_history_prompt or conversation_summary)
 
     greeting_rule = (
-        "7. Do NOT repeat introductory greetings (e.g., 'Hello [name], nice to meet you') "
+        "8. Do NOT repeat introductory greetings (e.g., 'Hello [name], nice to meet you') "
         "if conversation history exists - the student already knows you\n"
         if has_history
         else ""
@@ -167,6 +167,11 @@ def chat_response_prompt(
         "4. Cite relevant sections when answering from context\n"
         "5. Use student memories to personalize (preferences, goals, strengths)\n"
         "6. Address the student by name when known\n"
+        "7. Always format the answer in Markdown: use headings (## / ###), "
+        "bullet/numbered lists, bold/italic emphasis, fenced code blocks when "
+        "useful, tables for comparisons or structured facts, and images via "
+        "![alt text](url) when a diagram, figure, or illustration aids "
+        "understanding. Prefer clear, scannable study notes over plain-text walls\n"
         f"{greeting_rule}\n"
         f"Student name: {student_name or '(unknown)'}\n"
         f"Student gender: {student_gender or '(unknown)'}\n\n"
