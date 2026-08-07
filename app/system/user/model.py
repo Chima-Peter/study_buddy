@@ -90,6 +90,10 @@ class UserDBModel(Base):
         "StudyCardsDBModel",
         back_populates="user",
     )
+    question_banks = relationship(
+        "QuestionBankDBModel",
+        back_populates="user",
+    )
 
     def model_dump(self) -> dict[str, Any]:
         return {

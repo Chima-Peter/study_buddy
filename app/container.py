@@ -63,6 +63,8 @@ from app.system.chat.service import ChatService
 from app.system.conversation.service import ConversationService
 from app.system.document.service import DocumentService
 from app.system.notification.service import NotificationService
+from app.system.question_bank.repository import QuestionBankRepository
+from app.system.question_bank.service import QuestionBankService
 from app.system.study_cards.service import StudyCardsService
 
 
@@ -160,6 +162,8 @@ class RabbitMQResources:
     memory_extract_dlq_queue: aio_pika.Queue
     study_cards_generate_queue: aio_pika.Queue
     study_cards_generate_dlq_queue: aio_pika.Queue
+    question_bank_generate_queue: aio_pika.Queue
+    question_bank_generate_dlq_queue: aio_pika.Queue
     retry_queues: dict[str, dict[int, aio_pika.Queue]]
 
 
@@ -259,18 +263,26 @@ async def init_async_rabbitmq(
     study_cards_generate_queue, study_cards_generate_dlq_queue = await init_async_rabbitmq_queue(
         study_cards_channel, "study_cards_generate_queue"
     )
+    question_bank_generate_queue, question_bank_generate_dlq_queue = (
+        await init_async_rabbitmq_queue(
+            study_cards_channel, "question_bank_generate_queue"
+        )
+    )
 
     tiers = retry_delay_tiers_ms(retry_base_ms, retry_max_ms, max_retries)
     retry_targets = (
         "document_queue",
         "memory_extract_queue",
         "study_cards_generate_queue",
+        "question_bank_generate_queue",
     )
     retry_queues: dict[str, dict[int, aio_pika.Queue]] = {}
     for target in retry_targets:
         if target.startswith("memory_extract_queue"):
             retry_channel = llm_channel
-        elif target.startswith("study_cards_generate_queue"):
+        elif target.startswith(
+            ("study_cards_generate_queue", "question_bank_generate_queue")
+        ):
             retry_channel = study_cards_channel
         else:
             retry_channel = channel
@@ -298,6 +310,8 @@ async def init_async_rabbitmq(
             memory_extract_dlq_queue=memory_extract_dlq_queue,
             study_cards_generate_queue=study_cards_generate_queue,
             study_cards_generate_dlq_queue=study_cards_generate_dlq_queue,
+            question_bank_generate_queue=question_bank_generate_queue,
+            question_bank_generate_dlq_queue=question_bank_generate_dlq_queue,
             retry_queues=retry_queues,
         )
     finally:
@@ -321,10 +335,12 @@ async def init_rabbitmq_consumers(
         document_callback=handlers.handle_document,
         memory_extract_callback=handlers.handle_memory_extract,
         study_cards_generate_callback=handlers.handle_study_cards_generate,
+        question_bank_generate_callback=handlers.handle_question_bank_generate,
         mail_dlq_callback=handlers.handle_mail_dead_letter_queue,
         document_dlq_callback=handlers.handle_document_dead_letter_queue,
         memory_extract_dlq_callback=handlers.handle_memory_extract_dead_letter_queue,
         study_cards_generate_dlq_callback=handlers.handle_study_cards_generate_dead_letter_queue,
+        question_bank_generate_dlq_callback=handlers.handle_question_bank_generate_dead_letter_queue,
     )
     try:
         yield active_consumers
@@ -475,6 +491,8 @@ class Container(containers.DeclarativeContainer):
         memory_extract_dlq_queue=rabbitmq_resources.provided.memory_extract_dlq_queue,
         study_cards_generate_queue=rabbitmq_resources.provided.study_cards_generate_queue,
         study_cards_generate_dlq_queue=rabbitmq_resources.provided.study_cards_generate_dlq_queue,
+        question_bank_generate_queue=rabbitmq_resources.provided.question_bank_generate_queue,
+        question_bank_generate_dlq_queue=rabbitmq_resources.provided.question_bank_generate_dlq_queue,
         retry_queues=rabbitmq_resources.provided.retry_queues,
         max_retries=settings.provided.rabbitmq_max_retries,
         retry_base_ms=settings.provided.rabbitmq_retry_base_ms,
@@ -643,6 +661,20 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
+    question_bank_repository = providers.Factory(
+        QuestionBankRepository,
+        session_factory=async_session_factory,
+        logger=logger,
+    )
+
+    question_bank_service = providers.Factory(
+        QuestionBankService,
+        repository=question_bank_repository,
+        document_service=document_service,
+        rabbitmq=rabbitmq,
+        logger=logger,
+    )
+
     checkpoint_saver = providers.Resource(
         init_checkpointer,
         database_url=settings.provided.checkpoint_database_url,
@@ -681,6 +713,7 @@ class Container(containers.DeclarativeContainer):
         document_service=document_service,
         elasticsearch=elasticsearch,
         question_bank_model=study_cards_model,
+        question_bank_service=question_bank_service,
         checkpointer=checkpoint_saver,
     )
 
@@ -699,6 +732,8 @@ class Container(containers.DeclarativeContainer):
         memory_service=memory_service,
         study_cards_graph=study_cards_graph,
         study_cards_service=study_cards_service,
+        question_bank_graph=question_bank_graph,
+        question_bank_service=question_bank_service,
     )
 
     rabbitmq_consumers = providers.Resource(

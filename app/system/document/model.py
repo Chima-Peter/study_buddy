@@ -152,6 +152,10 @@ class DocumentDBModel(Base):
         "StudyCardsDBModel",
         back_populates="document",
     )
+    question_banks = relationship(
+        "QuestionBankDBModel",
+        back_populates="document",
+    )
 
 
     def model_dump(self) -> dict[str, Any]:

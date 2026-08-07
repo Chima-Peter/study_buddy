@@ -18,6 +18,7 @@ from app.agent.question_bank.nodes import (
 from app.agent.question_bank.state import QuestionBankState
 from app.core.elasticsearch import Elasticsearch
 from app.system.document.service import DocumentService
+from app.system.question_bank.service import QuestionBankService
 
 
 class QuestionBankGraph:
@@ -27,12 +28,14 @@ class QuestionBankGraph:
         document_service: DocumentService,
         elasticsearch: Elasticsearch,
         question_bank_model: ChatGoogleGenerativeAI,
+        question_bank_service: QuestionBankService,
         checkpointer: AsyncPostgresSaver,
     ):
         self.logger = logger
         self.document_service = document_service
         self.elasticsearch = elasticsearch
         self.question_bank_model = question_bank_model
+        self.question_bank_service = question_bank_service
         self.checkpointer = checkpointer
 
         graph = StateGraph(QuestionBankState)
@@ -57,7 +60,10 @@ class QuestionBankGraph:
                 model=self.question_bank_model,
             ),
             "consolidate": ConsolidateNode(logger=self.logger),
-            "save": SaveNode(logger=self.logger),
+            "save": SaveNode(
+                logger=self.logger,
+                question_bank_service=self.question_bank_service,
+            ),
         }
 
         for node_name, node in nodes.items():

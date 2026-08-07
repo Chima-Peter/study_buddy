@@ -5,6 +5,8 @@ from typing import Any
 
 from aio_pika.abc import AbstractIncomingMessage
 
+from app.agent.question_bank.graph import QuestionBankGraph
+from app.agent.study_cards_agent.graph import StudyCardsGraph
 from app.core.elasticsearch import Elasticsearch
 from app.core.embedding import EmbeddingManager
 from app.core.rabbitmq import RabbitMQ
@@ -19,7 +21,10 @@ from app.handlers.memory_extract import (
     handle_memory_extract,
     handle_memory_extract_dead_letter_queue,
 )
-from app.agent.study_cards_agent.graph import StudyCardsGraph
+from app.handlers.question_bank_generate import (
+    handle_question_bank_generate,
+    handle_question_bank_generate_dead_letter_queue,
+)
 from app.handlers.study_cards_generate import (
     handle_study_cards_generate,
     handle_study_cards_generate_dead_letter_queue,
@@ -29,6 +34,7 @@ from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
 from app.system.document.service import DocumentService
 from app.system.notification.service import NotificationService
+from app.system.question_bank.service import QuestionBankService
 from app.system.study_cards.service import StudyCardsService
 
 
@@ -48,6 +54,8 @@ class Handlers:
         memory_service: MemoryService,
         study_cards_graph: StudyCardsGraph,
         study_cards_service: StudyCardsService,
+        question_bank_graph: QuestionBankGraph,
+        question_bank_service: QuestionBankService,
     ):
         self._logger = logger
         self._ingest_pipeline = ingest_pipeline
@@ -62,6 +70,8 @@ class Handlers:
         self._memory_service = memory_service
         self._study_cards_graph = study_cards_graph
         self._study_cards_service = study_cards_service
+        self._question_bank_graph = question_bank_graph
+        self._question_bank_service = question_bank_service
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _fire_and_forget(
@@ -141,6 +151,22 @@ class Handlers:
             label="handle_study_cards_generate",
         )
 
+    async def handle_question_bank_generate(
+        self, message: AbstractIncomingMessage
+    ) -> None:
+        self._fire_and_forget(
+            handle_question_bank_generate(
+                message,
+                logger=self._logger,
+                rabbitmq=self._rabbitmq,
+                question_bank_graph=self._question_bank_graph,
+                question_bank_service=self._question_bank_service,
+                redis=self._redis,
+                notification_service=self._notification_service,
+            ),
+            label="handle_question_bank_generate",
+        )
+
     async def handle_mail_dead_letter_queue(
         self, message: AbstractIncomingMessage
     ) -> None:
@@ -180,4 +206,15 @@ class Handlers:
                 self._logger,
             ),
             label="handle_study_cards_generate_dead_letter_queue",
+        )
+
+    async def handle_question_bank_generate_dead_letter_queue(
+        self, message: AbstractIncomingMessage
+    ) -> None:
+        self._fire_and_forget(
+            handle_question_bank_generate_dead_letter_queue(
+                message,
+                self._logger,
+            ),
+            label="handle_question_bank_generate_dead_letter_queue",
         )

@@ -73,6 +73,8 @@ class RabbitMQ:
     memory_extract_dlq_queue: Queue
     study_cards_generate_queue: Queue
     study_cards_generate_dlq_queue: Queue
+    question_bank_generate_queue: Queue
+    question_bank_generate_dlq_queue: Queue
     logger: Logger
     # target_queue -> { delay_ms -> Queue }
     retry_queues: dict[str, dict[int, Queue]] = field(default_factory=dict)
@@ -93,6 +95,8 @@ class RabbitMQ:
         if queue_name.startswith("memory_extract_queue"):
             return self.llm_channel
         if queue_name.startswith("study_cards_generate_queue"):
+            return self.study_cards_channel
+        if queue_name.startswith("question_bank_generate_queue"):
             return self.study_cards_channel
         return self.channel
 
@@ -196,6 +200,9 @@ class RabbitMQ:
         study_cards_generate_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
         ],
+        question_bank_generate_callback: Callable[
+            [AbstractIncomingMessage], Awaitable[Any]
+        ],
         mail_dlq_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
         document_dlq_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
@@ -204,6 +211,9 @@ class RabbitMQ:
             [AbstractIncomingMessage], Awaitable[Any]
         ],
         study_cards_generate_dlq_callback: Callable[
+            [AbstractIncomingMessage], Awaitable[Any]
+        ],
+        question_bank_generate_dlq_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
         ],
     ) -> list[RabbitMQConsumer]:
@@ -217,6 +227,9 @@ class RabbitMQ:
         study_cards_generate_consumer = await self._start_consumer(
             "study_cards_generate_queue", study_cards_generate_callback
         )
+        question_bank_generate_consumer = await self._start_consumer(
+            "question_bank_generate_queue", question_bank_generate_callback
+        )
         mail_dlq_consumer = await self._start_consumer(
             "mail_queue_dlq", mail_dlq_callback
         )
@@ -229,16 +242,22 @@ class RabbitMQ:
         study_cards_generate_dlq_consumer = await self._start_consumer(
             "study_cards_generate_queue_dlq", study_cards_generate_dlq_callback
         )
+        question_bank_generate_dlq_consumer = await self._start_consumer(
+            "question_bank_generate_queue_dlq",
+            question_bank_generate_dlq_callback,
+        )
         self.logger.info("Started RabbitMQ consumers")
         return [
             mail_consumer,
             document_consumer,
             memory_extract_consumer,
             study_cards_generate_consumer,
+            question_bank_generate_consumer,
             mail_dlq_consumer,
             document_dlq_consumer,
             memory_extract_dlq_consumer,
             study_cards_generate_dlq_consumer,
+            question_bank_generate_dlq_consumer,
         ]
 
     async def stop_consumers(self, consumers: list[RabbitMQConsumer]) -> None:
@@ -275,6 +294,10 @@ class RabbitMQ:
                 queue = self.study_cards_generate_queue
             case "study_cards_generate_queue_dlq":
                 queue = self.study_cards_generate_dlq_queue
+            case "question_bank_generate_queue":
+                queue = self.question_bank_generate_queue
+            case "question_bank_generate_queue_dlq":
+                queue = self.question_bank_generate_dlq_queue
             case _:
                 raise HTTPException(
                     status_code=400,
