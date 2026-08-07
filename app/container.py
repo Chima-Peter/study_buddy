@@ -23,6 +23,13 @@ from supabase import AsyncClient, create_async_client, create_client, Client
 from elasticsearch import AsyncElasticsearch
 
 from app.agent.chat_agent.graph import AgentGraph
+from app.agent.question_bank.graph import QuestionBankGraph
+from app.agent.question_bank.schema import (
+    ChapterQuestionBank,
+    QuestionBankCritique,
+    QuestionBankResult,
+    QuestionCritique,
+)
 from app.agent.study_cards_agent.graph import StudyCardsGraph
 from app.agent.study_cards_agent.schema import (
     ChapterResult,
@@ -101,6 +108,10 @@ async def init_checkpointer(database_url: str) -> AsyncIterator[AsyncPostgresSav
             ChapterResult,
             Critique,
             StudyCardsResult,
+            ChapterQuestionBank,
+            QuestionCritique,
+            QuestionBankCritique,
+            QuestionBankResult,
         ),
     )
     checkpointer = AsyncPostgresSaver(checkpoint_pool, serde=serde)
@@ -662,6 +673,15 @@ class Container(containers.DeclarativeContainer):
         study_cards_service=study_cards_service,
         checkpointer=checkpoint_saver,
         memory_service=memory_service,
+    )
+
+    question_bank_graph = providers.Singleton(
+        QuestionBankGraph,
+        logger=logger,
+        document_service=document_service,
+        elasticsearch=elasticsearch,
+        question_bank_model=study_cards_model,
+        checkpointer=checkpoint_saver,
     )
 
     handlers = providers.Factory(
