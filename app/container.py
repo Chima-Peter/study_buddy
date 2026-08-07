@@ -30,7 +30,7 @@ from app.agent.study_cards_agent.schema import (
     StudyCardsResult,
 )
 from app.authentication.repository import UserRepository
-from app.authentication.services import AuthService
+from app.authentication.services import AuthService, UserService
 from app.config import Settings
 from app.core.elasticsearch import Elasticsearch
 from app.core.elasticsearch_schema import FusedResult, IndexedRecord
@@ -475,6 +475,12 @@ class Container(containers.DeclarativeContainer):
         repository=user_repository,
         redis=redis_client,
         settings=settings,
+        logger=logger,
+    )
+
+    user_service = providers.Factory(
+        UserService,
+        repository=user_repository,
         logger=logger,
         elasticsearch=elasticsearch,
         supabase=async_supabase,

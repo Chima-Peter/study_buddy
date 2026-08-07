@@ -1,7 +1,6 @@
 from logging import Logger
 from typing import Annotated
 
-from app.authentication.schemas import UserResponse
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
@@ -11,6 +10,7 @@ from app.authentication.schemas.auth import (
     RefreshTokenRequest,
     RegisterRequest,
 )
+from app.authentication.schemas.user import UserResponse
 from app.authentication.services.auth_service import AuthService
 from app.container import Container
 from app.core.response import ApiResponse, BasicResponse

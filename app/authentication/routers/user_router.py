@@ -5,9 +5,9 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.authentication.schemas import UserResponse
-from app.authentication.schemas.auth import UpdateProfileRequest
+from app.authentication.schemas.user import UpdateProfileRequest, UserResponse
 from app.authentication.services.auth_service import AuthService
+from app.authentication.services.user_service import UserService
 from app.container import Container
 from app.core.response import ApiResponse, BasicResponse
 from app.core.security import bearer_scheme, get_current_user
@@ -39,7 +39,7 @@ async def get_profile(
 async def update_profile(
     data: UpdateProfileRequest,
     user: Annotated[UserResponse, Depends(get_current_user)],
-    service: AuthService = Depends(Provide[Container.auth_service]),
+    service: UserService = Depends(Provide[Container.user_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
@@ -78,12 +78,13 @@ async def update_profile(
 async def delete_account(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)],
     user: Annotated[UserResponse, Depends(get_current_user)],
-    service: AuthService = Depends(Provide[Container.auth_service]),
+    user_service: UserService = Depends(Provide[Container.user_service]),
+    auth_service: AuthService = Depends(Provide[Container.auth_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     try:
-        await service.delete_account(user.id)
-        await service.logout(credentials.credentials)
+        await user_service.delete_account(user.id)
+        await auth_service.logout(credentials.credentials)
     except UserNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

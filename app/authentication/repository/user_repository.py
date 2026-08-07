@@ -68,8 +68,6 @@ class UserRepository:
                 raise ValueError(f"User not found: {user.id}")
 
             db_user.name = user.name
-            db_user.email = user.email
-            db_user.hashed_password = user.hashed_password
             db_user.gender = user.gender
             db_user.university = user.university
             db_user.bio = user.bio

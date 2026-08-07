@@ -8,7 +8,7 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
-from app.authentication.schemas import UserResponse
+from app.authentication.schemas.user import UserResponse
 from app.container import Container
 from app.core.redis import RedisClient
 from app.core.response import BasicResponse
