@@ -3,6 +3,7 @@ from logging import Logger
 
 from aio_pika.abc import AbstractIncomingMessage
 
+
 async def handle_study_cards_generate_dead_letter_queue(
     message: AbstractIncomingMessage,
     logger: Logger,

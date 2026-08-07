@@ -83,6 +83,7 @@ class StudyCardsService:
         document_id: str,
         user_id: str,
         result: dict,
+        reason: str | None = None,
     ) -> StudyCardsModel:
         self.logger.info(
             "Updating study cards result document_id=%s user_id=%s",
@@ -94,6 +95,7 @@ class StudyCardsService:
             user_id,
             result,
             status="success",
+            reason=reason,
         )
         if study_card is None:
             raise ValueError("Study cards not found")
@@ -108,6 +110,7 @@ class StudyCardsService:
         self,
         document_id: str,
         user_id: str,
+        reason: str | None = None,
     ) -> StudyCardsModel | None:
         self.logger.info(
             "Marking study cards failed document_id=%s user_id=%s",
@@ -118,6 +121,7 @@ class StudyCardsService:
             document_id,
             user_id,
             status="failed",
+            reason=reason,
         )
 
     async def get_by_document(

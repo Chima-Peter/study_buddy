@@ -44,6 +44,7 @@ class StudyCardsResultResponse(BaseModel):
     document_name: str | None = None
     status: StudyCardsStatus
     result: dict | None
+    reason: Optional[str] = None
     created_at: str
     updated_at: str
 

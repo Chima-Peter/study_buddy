@@ -138,6 +138,7 @@ class GenerateChapterNode:
                     "Rate limit error generating chapter for section chapter_key=%s",
                     chapter_key,
                 )
+                raise
             self.logger.exception(
                 "Error generating chapter for section chapter_key=%s", chapter_key
             )

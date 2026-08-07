@@ -162,6 +162,7 @@ class CritiqueNode:
                     "Rate limit error critiquing chapter chapter_key=%s",
                     chapter_key,
                 )
+                raise e
             self.logger.exception(
                 "Error critiquing chapter chapter_key=%s",
                 chapter_key,

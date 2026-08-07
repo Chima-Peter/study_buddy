@@ -142,6 +142,7 @@ class StudyCardsRepository:
         user_id: str,
         result: dict,
         status: StudyCardsStatus = "success",
+        reason: str | None = None,
     ) -> StudyCardsModel | None:
         async with self.session_factory() as session:
             row = await session.execute(
@@ -156,6 +157,7 @@ class StudyCardsRepository:
 
             db_row.result = result
             db_row.status = status
+            db_row.reason = reason
             db_row.updated_at = datetime.now(timezone.utc)
             await session.commit()
             await session.refresh(db_row)
@@ -163,6 +165,7 @@ class StudyCardsRepository:
                 "Study cards updated document_id=%s status=%s",
                 document_id,
                 status,
+                reason,
             )
             return StudyCardsModel(**db_row.model_dump())
 
@@ -171,6 +174,7 @@ class StudyCardsRepository:
         document_id: str,
         user_id: str,
         status: StudyCardsStatus,
+        reason: str | None = None,
     ) -> StudyCardsModel | None:
         async with self.session_factory() as session:
             row = await session.execute(
@@ -184,6 +188,7 @@ class StudyCardsRepository:
                 return None
 
             db_row.status = status
+            db_row.reason = reason
             db_row.updated_at = datetime.now(timezone.utc)
             await session.commit()
             await session.refresh(db_row)

@@ -20,6 +20,7 @@ class SaveNode:
             state["document_id"],
             state["user_id"],
             state["final_result"].model_dump(),
+            reason="Study cards generated successfully",
         )
 
         self.logger.info(

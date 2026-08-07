@@ -18,6 +18,7 @@ class StudyCardsModel(BaseModel):
     document_id: str = Field(min_length=36, max_length=36)
     status: StudyCardsStatus = "pending"
     result: Optional[dict[str, Any]] = None
+    reason: Optional[str] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -36,6 +37,7 @@ class StudyCardsModel(BaseModel):
             "document_id": self.document_id,
             "status": self.status,
             "result": self.result,
+            "reason": self.reason,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -50,6 +52,7 @@ class StudyCardsModel(BaseModel):
             document_name=document_name,
             status=self.status,
             result=self.result,
+            reason=self.reason,
             created_at=self.created_at.isoformat(),
             updated_at=self.updated_at.isoformat(),
         )
@@ -90,6 +93,10 @@ class StudyCardsDBModel(Base):
         JSONB,
         nullable=True,
     )
+    reason: Mapped[Optional[str]] = mapped_column(
+        sa.String(255),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         nullable=False,
@@ -109,6 +116,7 @@ class StudyCardsDBModel(Base):
             "document_id": str(self.document_id),
             "status": self.status,
             "result": self.result,
+            "reason": self.reason,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }

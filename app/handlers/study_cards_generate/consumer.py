@@ -5,6 +5,7 @@ from aio_pika.abc import AbstractIncomingMessage
 from app.core.redis import RedisClient
 from app.handlers.study_cards_generate.utils import notify_study_cards_status
 from app.system.notification.service import NotificationService
+from app.utils.llm import is_rate_limit_error
 from pydantic import ValidationError
 
 from app.agent.study_cards_agent.graph import StudyCardsGraph
@@ -93,9 +94,19 @@ async def handle_study_cards_generate(
                 document_id = payload.get("document_id")
                 user_id = payload.get("user_id")
                 name = payload.get("name") or document_id
+                
                 if document_id and user_id:
                     try:
-                        await study_cards_service.mark_failed(document_id, user_id)
+                        if is_rate_limit_error(e):
+                            reason="Study card generation failed because of rate limiting errors across multiple retries."
+                        else:
+                            reason="Study card generation failed after exhausting multiple retries."
+                            
+                        await study_cards_service.mark_failed(
+                            document_id,
+                            user_id,
+                            reason=reason,
+                        )
                     except Exception:
                         logger.exception(
                             "Failed to mark study cards failed "
@@ -103,6 +114,7 @@ async def handle_study_cards_generate(
                             document_id,
                             user_id,
                         )
+
                 logger.error(
                     "Exhausted study cards generate retries document_id=%s "
                     "user_id=%s attempts=%s → DLQ",
@@ -110,6 +122,7 @@ async def handle_study_cards_generate(
                     user_id,
                     retry_count,
                 )
+
                 await notify_study_cards_status(
                     redis,
                     logger,
@@ -123,6 +136,7 @@ async def handle_study_cards_generate(
                         "failed after all retries."
                     ),
                 )
+
                 await message.reject(requeue=False)
                 return
 
