@@ -2,11 +2,7 @@ from app.agent.chat_agent.nodes.response.end_discussion import EndDiscussionNode
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
-from app.agent.chat_agent.edges import (
-    decide_retrieval_router,
-    update_summary_router,
-    update_title_router,
-)
+from app.agent.chat_agent.edges import decide_retrieval_router
 from app.agent.chat_agent.nodes import (
     CleanupNode,
     GenerateResponseNode,
@@ -141,30 +137,18 @@ class AgentGraph:
             "generate_response",
         )
         graph.add_edge("generate_response", "save_chat")
-        graph.add_conditional_edges(
-            "generate_response",
-            update_title_router,
-            {
-                "update_title": "update_conversation_title",
-                "cleanup": "cleanup",
-            },
-        )
         graph.add_edge("end_discussion", "save_chat")
-        graph.add_conditional_edges(
-            "save_chat",
-            update_summary_router,
-            {
-                "update_summary": "update_conversation_summary",
-                "store_memory": "store_memory",
-                "cleanup": "cleanup",
-            },
-        )
+        graph.add_edge("save_chat", "update_conversation_title")
+        graph.add_edge("save_chat", "update_conversation_summary")
+        graph.add_edge("save_chat", "store_memory")
         graph.add_edge(
-            ["update_conversation_summary", "store_memory"],
+            [
+                "update_conversation_title",
+                "update_conversation_summary",
+                "store_memory",
+            ],
             "cleanup",
         )
-        graph.add_edge("store_memory", "cleanup")
-        graph.add_edge("update_conversation_title", "cleanup")
         graph.add_edge("cleanup", END)
 
         self.graph = graph.compile(checkpointer=self.checkpointer)

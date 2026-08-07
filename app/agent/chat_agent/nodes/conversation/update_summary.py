@@ -21,7 +21,26 @@ class UpdateConversationSummaryNode:
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
-        conversation_history = state["conversation_history"]
+        if not state.get("is_academic_discussion", True):
+            self.logger.info(
+                "Update summary node skipped id=%s user_id=%s reason=non_academic",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            return {}
+
+        conversation_history = state.get("conversation_history") or []
+        history_count = len(conversation_history)
+        if history_count == 0 or history_count % SUMMARY_EVERY != 0:
+            self.logger.info(
+                "Update summary node skipped id=%s user_id=%s reason=not_due "
+                "history_count=%s",
+                state["conversation_id"],
+                state["user_id"],
+                history_count,
+            )
+            return {}
+
         recent_exchanges = [
             f"User: {chat.query}\nAssistant: {chat.response[:200]}"
             for chat in conversation_history[-SUMMARY_EVERY:]

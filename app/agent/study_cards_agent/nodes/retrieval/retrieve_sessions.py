@@ -11,6 +11,21 @@ class RetrieveSessionsNode:
         self.elasticsearch = elasticsearch
 
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
+        if state.get("document_sections") is not None:
+            self.logger.info(
+                "Retrieve sessions node skipped document_id=%s reason=already_loaded",
+                state["document_id"],
+            )
+            return {}
+
+        chapter_keys = state.get("chapter_keys") or []
+        if not chapter_keys:
+            self.logger.warning(
+                "Retrieve sessions node skipped document_id=%s reason=no_chapter_keys",
+                state["document_id"],
+            )
+            return {"document_sections": {}}
+
         self.logger.info(
             "Retrieve sessions node started document_id=%s user_id=%s",
             state["document_id"],
@@ -21,7 +36,7 @@ class RetrieveSessionsNode:
             state["user_id"],
             "documents",
             document_id=state["document_id"],
-            chapter_key=state["chapter_keys"],
+            chapter_key=chapter_keys,
         )
 
         sessions_by_chapter: dict[str, list[IndexedRecord]] = {}

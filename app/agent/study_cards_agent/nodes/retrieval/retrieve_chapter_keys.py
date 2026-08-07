@@ -10,6 +10,13 @@ class RetrieveChaptersNode:
         self.document_service = document_service
 
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
+        if state.get("chapter_keys") is not None:
+            self.logger.info(
+                "Retrieve chapters node skipped document_id=%s reason=already_loaded",
+                state["document_id"],
+            )
+            return {}
+
         self.logger.info(
             "Retrieve chapters node started document_id=%s user_id=%s",
             state["document_id"],

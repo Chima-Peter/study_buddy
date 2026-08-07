@@ -10,6 +10,13 @@ class RetrieveMemoriesNode:
         self.logger = logger
 
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
+        if state.get("memories") is not None:
+            self.logger.info(
+                "Retrieve memories node skipped document_id=%s reason=already_loaded",
+                state["document_id"],
+            )
+            return {}
+
         self.logger.info(
             "Retrieving memories for document_id=%s",
             state["document_id"],
@@ -22,13 +29,13 @@ class RetrieveMemoriesNode:
                 MemoryRetrievalQuery(content="The user's study preferences"),
             ],
         )
-        
+
         if not memories:
             self.logger.warning(
                 "No memories found for document_id=%s",
                 state["document_id"],
             )
-            return {}
+            return {"memories": []}
 
         self.logger.info(
             "Retrieved %d memories for document_id=%s",

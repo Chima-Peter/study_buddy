@@ -161,7 +161,9 @@ async def create_download_url(
         )
 
     return BasicResponse(
-        data=download_url,
+        data={
+            "download_url": download_url,
+        },
         message="Download URL created successfully",
     )
 

@@ -15,18 +15,20 @@ RouteTarget = Literal[
 ]
 
 
-def route_from_checkpoint(state: StudyCardsState) -> RouteTarget:
+def route_from_checkpoint(state: StudyCardsState) -> RouteTarget | list[str]:
     """Resume-aware router: pick the next step from current/checkpointed state."""
     if state.get("saved"):
         return "END"
     if state.get("final_result") is not None:
         return "save"
-    if not state.get("chapter_keys"):
-        return "retrieve_chapter_keys"
-    if not state.get("document_sections"):
-        return "retrieve_sessions"
-    if not state.get("memories"):
-        return "retrieve_memories"
+
+    if (
+        state.get("chapter_keys") is None
+        or state.get("document_sections") is None
+        or state.get("memories") is None
+    ):
+        return ["retrieve_memories", "retrieve_chapter_keys"]
+
     return decide_generation_or_critique(state)
 
 

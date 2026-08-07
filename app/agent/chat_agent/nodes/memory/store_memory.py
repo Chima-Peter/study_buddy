@@ -14,7 +14,15 @@ class StoreMemoryNode:
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
-        if not state["conversation_history"]:
+        if not state.get("is_academic_discussion", True):
+            self.logger.info(
+                "Store memory node skipped id=%s user_id=%s reason=non_academic",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            return {}
+
+        if not state.get("conversation_history"):
             self.logger.info(
                 "Store memory node skipped id=%s user_id=%s reason=no_conversation_history",
                 state["conversation_id"],

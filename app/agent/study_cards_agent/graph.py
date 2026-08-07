@@ -92,9 +92,12 @@ class StudyCardsGraph:
                 "END": END,
             },
         )
-        graph.add_edge("retrieve_memories", "retrieve_chapter_keys")
+      
         graph.add_edge("retrieve_chapter_keys", "retrieve_sessions")
-        graph.add_edge("retrieve_sessions", "checkpointer")
+        graph.add_edge(
+            ["retrieve_memories", "retrieve_sessions"],
+            "checkpointer",
+        )
         graph.add_edge("generate", "checkpointer")
         graph.add_edge("critique", "checkpointer")
         graph.add_edge("consolidate", "save")
