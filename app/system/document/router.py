@@ -428,6 +428,44 @@ async def update_document(
         message="Document updated successfully",
     )
 
+@document_router.patch(
+    "/{document_id}/ingest/cancel",
+    response_model=DocumentApiResponse,
+    summary="Cancel document ingestion",
+    description=(
+        "Cancel the document ingestion process."
+    ),
+)
+@inject
+async def cancel_ingestion(
+    document_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: DocumentService = Depends(Provide[Container.document_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        document = await service.cancel_ingestion(document_id, user.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error canceling document ingestion id=%s user_id=%s",
+            document_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=document.model_dump(mode="json"),
+        message="Document ingestion cancellation initiated successfully",
+    )
+
 @document_router.delete(
     "/{document_id}",
     response_model=ApiResponse,

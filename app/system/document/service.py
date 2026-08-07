@@ -177,6 +177,26 @@ class DocumentService:
         result = await self.repository.update(document)
         return result.to_response()
 
+    async def cancel_ingestion(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> DocumentResponse:
+        document = await self._get_owned_document(document_id, user_id)
+        if document.status not in ["pending", "processing"]:
+            raise ValueError(
+                f"Document is not in a cancellable state: {document_id}. Current status: {document.status}"
+            )
+        document.status = "cancelled"
+        document.comment = DOCUMENT_STATUS_COMMENTS["cancelled"]
+        result = await self.repository.update(document)
+        if result is None:
+            raise ValueError(
+                f"Failed to cancel document ingestion: {document_id}. Current status: {document.status}"
+            )
+
+        return document.to_response()
+
     async def delete_document(self, document_id: str, user_id: str) -> bool:
         document = await self._get_owned_document(document_id, user_id)
 
