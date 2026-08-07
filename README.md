@@ -181,7 +181,7 @@ Also emitted: `study_cards_generated`, `study_cards_failed`.
 
 `WS /api/chat?token=<jwt>`
 
-- Max **5** concurrent connections per user; query payload ≤ **64 KB**
+- Only one connection per user separated by ``conversation_id``; query payload ≤ **64 KB**
 - Auth via query `?token=` (not a header)
 - Server greets with a heartbeat `Ping`
 

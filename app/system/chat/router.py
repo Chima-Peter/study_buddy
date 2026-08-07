@@ -121,7 +121,11 @@ async def websocket_endpoint(
                     if isinstance(document_ids, str):
                         document_ids = [document_ids]
                     if not document_ids:
-                        document_ids = None
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "At least one document is required for chat.",
+                        })
+                        continue
 
                     if query == "ping":
                         await websocket.send_json({
