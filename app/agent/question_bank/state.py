@@ -1,4 +1,5 @@
-from typing import TypedDict
+import operator
+from typing import Annotated, TypedDict
 
 from app.agent.question_bank.schema import ChapterQuestionBank, QuestionBankCritique, QuestionBankResult
 from app.core.elasticsearch_schema import IndexedRecord
@@ -10,8 +11,7 @@ class QuestionBankState(TypedDict):
     chapter_keys: list[str]
     chapter_records: dict[str, list[IndexedRecord]]
     generated_chapters: dict[str, ChapterQuestionBank]
-    approved_chapters: list[str]
-    skipped_generated_chapters: list[str]
+    approved_chapters: Annotated[list[str], operator.add]
     skipped_critique_chapters: list[str]
     critique: dict[str, QuestionBankCritique]
     final_question_bank: QuestionBankResult

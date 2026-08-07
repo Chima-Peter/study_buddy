@@ -42,7 +42,7 @@ class CritiqueNode:
                 "missing_chapters=%s for quiz bank agent",
                 state["document_id"],
                 state["user_id"],
-                missing_chapters,
+                len(missing_chapters),
             )
 
         if not generated_chapters:
