@@ -49,6 +49,14 @@ class QuestionBankResultResponse(BaseModel):
     updated_at: str
 
 
+class QuestionBankListItem(BaseModel):
+    id: str
+    document_id: str
+    document_name: str | None = None
+    status: QuestionBankStatus
+    created_at: str
+
+
 class QuestionBankGenerateApiResponse(BaseModel):
     data: QuestionBankGenerateAccepted | None = None
     success: bool = True
@@ -64,7 +72,7 @@ class QuestionBankGetApiResponse(BaseModel):
 
 
 class QuestionBankListResponseData(BaseModel):
-    items: list[QuestionBankResultResponse]
+    items: list[QuestionBankListItem]
     next_cursor: Optional[str] = None
     has_more: bool = False
     limit: int

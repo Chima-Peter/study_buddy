@@ -10,6 +10,7 @@ from app.system.question_bank.model import QuestionBankDBModel, QuestionBankMode
 from app.system.question_bank.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    QuestionBankListItem,
     QuestionBankStatus,
 )
 
@@ -69,7 +70,7 @@ class QuestionBankRepository:
         limit: int = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
         status: QuestionBankStatus | None = None,
-    ) -> tuple[list[tuple[QuestionBankModel, str | None]], str | None, bool]:
+    ) -> tuple[list[QuestionBankListItem], str | None, bool]:
         limit = min(max(limit, 1), MAX_LIST_LIMIT)
 
         async with self.session_factory() as session:
@@ -80,7 +81,13 @@ class QuestionBankRepository:
                 filters.append(QuestionBankDBModel.id < cursor)
 
             result = await session.execute(
-                select(QuestionBankDBModel, DocumentDBModel.name)
+                select(
+                    QuestionBankDBModel.id,
+                    QuestionBankDBModel.document_id,
+                    QuestionBankDBModel.status,
+                    QuestionBankDBModel.created_at,
+                    DocumentDBModel.name,
+                )
                 .outerjoin(
                     DocumentDBModel,
                     QuestionBankDBModel.document_id == DocumentDBModel.id,
@@ -93,7 +100,7 @@ class QuestionBankRepository:
 
             has_more = len(db_rows) > limit
             page = db_rows[:limit]
-            next_cursor = page[-1][0].id if has_more and page else None
+            next_cursor = page[-1][0] if has_more and page else None
 
             self.logger.info(
                 "Question banks listed user_id=%s count=%s has_more=%s",
@@ -103,8 +110,24 @@ class QuestionBankRepository:
             )
             return (
                 [
-                    (QuestionBankModel(**row.model_dump()), document_name)
-                    for row, document_name in page
+                    QuestionBankListItem(
+                        id=str(row_id),
+                        document_id=str(document_id),
+                        document_name=document_name,
+                        status=row_status,
+                        created_at=(
+                            created_at.isoformat()
+                            if hasattr(created_at, "isoformat")
+                            else str(created_at)
+                        ),
+                    )
+                    for (
+                        row_id,
+                        document_id,
+                        row_status,
+                        created_at,
+                        document_name,
+                    ) in page
                 ],
                 str(next_cursor) if next_cursor is not None else None,
                 has_more,

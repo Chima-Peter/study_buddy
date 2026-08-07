@@ -49,6 +49,14 @@ class StudyCardsResultResponse(BaseModel):
     updated_at: str
 
 
+class StudyCardsListItem(BaseModel):
+    id: str
+    document_id: str
+    document_name: str | None = None
+    status: StudyCardsStatus
+    created_at: str
+
+
 class StudyCardsGenerateApiResponse(BaseModel):
     data: StudyCardsGenerateAccepted | None = None
     success: bool = True
@@ -64,7 +72,7 @@ class StudyCardsGetApiResponse(BaseModel):
 
 
 class StudyCardsListResponseData(BaseModel):
-    items: list[StudyCardsResultResponse]
+    items: list[StudyCardsListItem]
     next_cursor: Optional[str] = None
     has_more: bool = False
     limit: int

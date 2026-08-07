@@ -179,10 +179,7 @@ class QuestionBankService:
             has_more,
         )
         return QuestionBankListResponseData(
-            items=[
-                item.to_response(document_name=document_name)
-                for item, document_name in items
-            ],
+            items=items,
             next_cursor=next_cursor,
             has_more=has_more,
             limit=min(max(limit, 1), MAX_LIST_LIMIT),
