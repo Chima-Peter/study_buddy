@@ -93,10 +93,12 @@ class QuestionBankService:
             document_id,
             user_id,
         )
+        question_count = len(result)
         question_bank = await self.repository.update_result(
             document_id,
             user_id,
             result,
+            question_count,
             status="success",
             reason=reason,
         )

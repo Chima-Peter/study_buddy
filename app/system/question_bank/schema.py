@@ -43,7 +43,8 @@ class QuestionBankResultResponse(BaseModel):
     document_id: str
     document_name: str | None = None
     status: QuestionBankStatus
-    result: Any | None
+    result: list | None
+    question_count: int
     reason: Optional[str] = None
     created_at: str
     updated_at: str
@@ -54,6 +55,7 @@ class QuestionBankListItem(BaseModel):
     document_id: str
     document_name: str | None = None
     status: QuestionBankStatus
+    question_count: int
     created_at: str
 
 

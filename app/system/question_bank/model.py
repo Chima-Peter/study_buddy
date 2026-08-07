@@ -21,6 +21,7 @@ class QuestionBankModel(BaseModel):
     document_id: str = Field(min_length=36, max_length=36)
     status: QuestionBankStatus = "pending"
     result: Optional[Any] = None
+    question_count: int = 0
     reason: Optional[str] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -40,6 +41,7 @@ class QuestionBankModel(BaseModel):
             "document_id": self.document_id,
             "status": self.status,
             "result": self.result,
+            "question_count": self.question_count,
             "reason": self.reason,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -55,6 +57,7 @@ class QuestionBankModel(BaseModel):
             document_name=document_name,
             status=self.status,
             result=self.result,
+            question_count=self.question_count,
             reason=self.reason,
             created_at=self.created_at.isoformat(),
             updated_at=self.updated_at.isoformat(),
@@ -66,6 +69,7 @@ class QuestionBankModel(BaseModel):
             document_id=document_id,
             user_id=user_id,
             status="pending",
+            question_count=0,
             result=None,
         )
 
@@ -85,6 +89,12 @@ class QuestionBankDBModel(Base):
         nullable=False,
         unique=True,
     )
+    question_count: Mapped[int] = mapped_column(
+        sa.Integer(),
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     status: Mapped[str] = mapped_column(
         sa.String(32),
         nullable=False,
@@ -92,7 +102,7 @@ class QuestionBankDBModel(Base):
         server_default="pending",
         index=True,
     )
-    result: Mapped[Optional[dict[str, Any]]] = mapped_column(
+    result: Mapped[Optional[Any]] = mapped_column(
         JSONB,
         nullable=True,
     )
@@ -119,6 +129,7 @@ class QuestionBankDBModel(Base):
             "document_id": str(self.document_id),
             "status": self.status,
             "result": self.result,
+            "question_count": self.question_count,
             "reason": self.reason,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

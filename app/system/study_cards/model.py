@@ -18,6 +18,8 @@ class StudyCardsModel(BaseModel):
     document_id: str = Field(min_length=36, max_length=36)
     status: StudyCardsStatus = "pending"
     result: Optional[dict[str, Any]] = None
+    question_count: int = 0
+    chapter_count: int = 0
     reason: Optional[str] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -37,6 +39,8 @@ class StudyCardsModel(BaseModel):
             "document_id": self.document_id,
             "status": self.status,
             "result": self.result,
+            "question_count": self.question_count,
+            "chapter_count": self.chapter_count,
             "reason": self.reason,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -52,6 +56,8 @@ class StudyCardsModel(BaseModel):
             document_name=document_name,
             status=self.status,
             result=self.result,
+            question_count=self.question_count,
+            chapter_count=self.chapter_count,
             reason=self.reason,
             created_at=self.created_at.isoformat(),
             updated_at=self.updated_at.isoformat(),
@@ -63,6 +69,8 @@ class StudyCardsModel(BaseModel):
             document_id=document_id,
             user_id=user_id,
             status="pending",
+            question_count=0,
+            chapter_count=0,
             result=None,
         )
 
@@ -93,6 +101,18 @@ class StudyCardsDBModel(Base):
         JSONB,
         nullable=True,
     )
+    question_count: Mapped[int] = mapped_column(
+        sa.Integer(),
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    chapter_count: Mapped[int] = mapped_column(
+        sa.Integer(),
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     reason: Mapped[Optional[str]] = mapped_column(
         sa.String(255),
         nullable=True,
@@ -115,6 +135,8 @@ class StudyCardsDBModel(Base):
             "user_id": str(self.user_id),
             "document_id": str(self.document_id),
             "status": self.status,
+            "question_count": self.question_count,
+            "chapter_count": self.chapter_count,
             "result": self.result,
             "reason": self.reason,
             "created_at": self.created_at.isoformat(),

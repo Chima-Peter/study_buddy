@@ -87,6 +87,7 @@ class QuestionBankRepository:
                     QuestionBankDBModel.status,
                     QuestionBankDBModel.created_at,
                     DocumentDBModel.name,
+                    QuestionBankDBModel.question_count,
                 )
                 .outerjoin(
                     DocumentDBModel,
@@ -114,6 +115,7 @@ class QuestionBankRepository:
                         id=str(row_id),
                         document_id=str(document_id),
                         document_name=document_name,
+                        question_count=question_count,
                         status=row_status,
                         created_at=(
                             created_at.isoformat()
@@ -127,6 +129,7 @@ class QuestionBankRepository:
                         row_status,
                         created_at,
                         document_name,
+                        question_count,
                     ) in page
                 ],
                 str(next_cursor) if next_cursor is not None else None,
@@ -169,6 +172,7 @@ class QuestionBankRepository:
         document_id: str,
         user_id: str,
         result: list,
+        question_count: int,
         status: QuestionBankStatus = "success",
         reason: str | None = None,
     ) -> QuestionBankModel | None:
@@ -184,6 +188,7 @@ class QuestionBankRepository:
                 return None
 
             db_row.result = result
+            db_row.question_count = question_count
             db_row.status = status
             db_row.reason = reason
             db_row.updated_at = datetime.now(timezone.utc)

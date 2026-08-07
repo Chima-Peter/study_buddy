@@ -90,10 +90,15 @@ class StudyCardsService:
             document_id,
             user_id,
         )
+        chapters = result.get("chapters") or []
+        chapter_count = len(chapters)
+        question_count = sum(len(chapter.get("quiz") or []) for chapter in chapters)
         study_card = await self.repository.update_result(
             document_id,
             user_id,
             result,
+            question_count,
+            chapter_count,
             status="success",
             reason=reason,
         )

@@ -44,6 +44,8 @@ class StudyCardsResultResponse(BaseModel):
     document_name: str | None = None
     status: StudyCardsStatus
     result: dict | None
+    question_count: int
+    chapter_count: int
     reason: Optional[str] = None
     created_at: str
     updated_at: str
@@ -54,6 +56,8 @@ class StudyCardsListItem(BaseModel):
     document_id: str
     document_name: str | None = None
     status: StudyCardsStatus
+    question_count: int
+    chapter_count: int
     created_at: str
 
 

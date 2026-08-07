@@ -81,6 +81,8 @@ class StudyCardsRepository:
                     StudyCardsDBModel.document_id,
                     StudyCardsDBModel.status,
                     StudyCardsDBModel.created_at,
+                    StudyCardsDBModel.question_count,
+                    StudyCardsDBModel.chapter_count,
                     DocumentDBModel.name,
                 )
                 .outerjoin(
@@ -110,6 +112,8 @@ class StudyCardsRepository:
                         document_id=str(document_id),
                         document_name=document_name,
                         status=row_status,
+                        question_count=question_count,
+                        chapter_count=chapter_count,
                         created_at=(
                             created_at.isoformat()
                             if hasattr(created_at, "isoformat")
@@ -121,6 +125,8 @@ class StudyCardsRepository:
                         document_id,
                         row_status,
                         created_at,
+                        question_count,
+                        chapter_count,
                         document_name,
                     ) in page
                 ],
@@ -164,6 +170,8 @@ class StudyCardsRepository:
         document_id: str,
         user_id: str,
         result: dict,
+        question_count: int,
+        chapter_count: int,
         status: StudyCardsStatus = "success",
         reason: str | None = None,
     ) -> StudyCardsModel | None:
@@ -179,6 +187,8 @@ class StudyCardsRepository:
                 return None
 
             db_row.result = result
+            db_row.question_count = question_count
+            db_row.chapter_count = chapter_count
             db_row.status = status
             db_row.reason = reason
             db_row.updated_at = datetime.now(timezone.utc)
