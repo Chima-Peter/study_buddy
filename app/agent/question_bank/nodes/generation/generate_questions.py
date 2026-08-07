@@ -1,6 +1,7 @@
 from asyncio import TaskGroup
 from logging import Logger
 
+from app.agent.question_bank.edges import chapters_needing_generation
 from app.agent.question_bank.prompts import generate_chapter_questions_prompt
 from app.agent.question_bank.schema import ChapterQuestionBank, QuestionBankCritique
 from app.agent.question_bank.state import QuestionBankState
@@ -17,18 +18,15 @@ class GenerateQuestionsNode:
     async def __call__(self, state: QuestionBankState) -> dict:
         chapter_records = state.get("chapter_records") or {}
         generated_chapters = dict(state.get("generated_chapters") or {})
-        approved = set(state.get("approved_chapters") or [])
-        skipped_critique_chapters = set(state.get("skipped_critique_chapters") or [])
+        skipped_critique = set(state.get("skipped_critique_chapters") or [])
         critique = state.get("critique") or {}
+        retry_count = state.get("retry_count") or {"generate": 0, "critique": 0}
 
         chapter_keys_to_generate = [
             chapter_key
-            for chapter_key in chapter_records
-            if self._needs_generation(
-                chapter_key,
-                approved,
-                skipped_critique_chapters,
-            )
+            for chapter_key in chapters_needing_generation(state)
+            if chapter_key not in skipped_critique
+            and chapter_key in chapter_records
         ]
 
         if not chapter_keys_to_generate:
@@ -42,10 +40,11 @@ class GenerateQuestionsNode:
 
         self.logger.info(
             "Generate questions node started document_id=%s user_id=%s "
-            "chapters=%s for question agent",
+            "chapters=%s retry_count=%s for question agent",
             state["document_id"],
             state["user_id"],
             len(chapter_keys_to_generate),
+            retry_count["generate"],
         )
 
         async with TaskGroup() as tg:
@@ -61,21 +60,30 @@ class GenerateQuestionsNode:
                 for chapter_key in chapter_keys_to_generate
             }
 
-        for task in tasks.values():
+        newly_skipped: list[str] = []
+        for chapter_key, task in tasks.items():
             result = task.result()
-            if result is not None:
+            if result is None:
+                newly_skipped.append(chapter_key)
+            else:
                 generated_chapters[result.chapter_key] = result
 
         self.logger.info(
             "Generate questions node completed document_id=%s user_id=%s "
-            "generated_chapters=%s for question agent",
+            "generated_chapters=%s skipped=%s for question agent",
             state["document_id"],
             state["user_id"],
             len(generated_chapters),
+            len(newly_skipped),
         )
 
         return {
             "generated_chapters": generated_chapters,
+            "skipped_generated_chapters": newly_skipped,
+            "retry_count": {
+                "generate": retry_count["generate"] + 1,
+                "critique": retry_count["critique"],
+            },
         }
 
     async def generate_questions(
@@ -126,16 +134,6 @@ class GenerateQuestionsNode:
                 chapter_key,
             )
             return None
-
-    @staticmethod
-    def _needs_generation(
-        chapter_key: str,
-        approved: set[str],
-        skipped_critique_chapters: set[str],
-    ) -> bool:
-        if chapter_key in approved or chapter_key in skipped_critique_chapters:
-            return False
-        return True
 
     @staticmethod
     def _critique_comment(

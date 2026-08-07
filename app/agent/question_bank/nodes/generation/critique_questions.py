@@ -19,6 +19,7 @@ class CritiqueQuestionsNode:
         chapter_records = state.get("chapter_records") or {}
         approved = set(state.get("approved_chapters") or [])
         critique = dict(state.get("critique") or {})
+        retry_count = state.get("retry_count") or {"generate": 0, "critique": 0}
 
         chapter_keys_to_critique = [
             chapter_key
@@ -33,7 +34,13 @@ class CritiqueQuestionsNode:
                 state["document_id"],
                 state["user_id"],
             )
-            return {}
+            return {
+                "skipped_critique_chapters": [],
+                "retry_count": {
+                    "critique": retry_count["critique"] + 1,
+                    "generate": retry_count["generate"],
+                },
+            }
 
         if not chapter_keys_to_critique:
             self.logger.info(
@@ -42,14 +49,21 @@ class CritiqueQuestionsNode:
                 state["document_id"],
                 state["user_id"],
             )
-            return {}
+            return {
+                "skipped_critique_chapters": [],
+                "retry_count": {
+                    "critique": retry_count["critique"] + 1,
+                    "generate": retry_count["generate"],
+                },
+            }
 
         self.logger.info(
             "Critique questions node started document_id=%s user_id=%s "
-            "chapters=%s for question agent",
+            "chapters=%s retry_count=%s for question agent",
             state["document_id"],
             state["user_id"],
             len(chapter_keys_to_critique),
+            retry_count["critique"],
         )
 
         async with TaskGroup() as tg:
@@ -86,8 +100,12 @@ class CritiqueQuestionsNode:
 
         return {
             "critique": critique,
-            "approved_chapters": [newly_approved],
+            "approved_chapters": newly_approved,
             "skipped_critique_chapters": newly_skipped,
+            "retry_count": {
+                "critique": retry_count["critique"] + 1,
+                "generate": retry_count["generate"],
+            },
         }
 
     async def critique_questions(
@@ -113,6 +131,14 @@ class CritiqueQuestionsNode:
                     generated_chapter,
                     source_content,
                 )
+            )
+            approved = self._is_approved(result)
+            self.logger.info(
+                "Critiqued questions chapter_key=%s approved=%s "
+                "questions=%s for question agent",
+                chapter_key,
+                approved,
+                len(result.questions),
             )
             return result
         except Exception as e:

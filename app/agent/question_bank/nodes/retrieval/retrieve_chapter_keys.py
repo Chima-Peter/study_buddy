@@ -32,7 +32,12 @@ class RetrieveChapterKeysNode:
             "chapter_keys": document.sections.split(","),
             "generated_chapters": {},
             "approved_chapters": [],
+            "skipped_generated_chapters": [],
             "skipped_critique_chapters": [],
+            "retry_count": {
+                "generate": 0,
+                "critique": 0,
+            },
             "critique": {},
             "final_question_bank": None,
             "saved": False,
