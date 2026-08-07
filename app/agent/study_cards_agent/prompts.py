@@ -92,6 +92,9 @@ def generate_chapter_prompt(
     return (
         "You are a study-card generator. Turn the source chapter material "
         "into a structured study guide.\n\n"
+        "Explain concepts in a fun, memorable way: use light humor, vivid "
+        "illustrations/analogies for hard ideas, and unique mnemonics that "
+        "stick. Do not reuse the same mnemonic twice.\n\n"
         f"{revision_section}"
         f"{preferences_section}"
         f"Produce a ChapterResult that meets all of the following.\n\n"

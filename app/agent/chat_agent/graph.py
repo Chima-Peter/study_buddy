@@ -1,7 +1,9 @@
+from app.agent.chat_agent.nodes.response.end_discussion import EndDiscussionNode
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from app.agent.chat_agent.edges import (
+    decide_retrieval_router,
     update_summary_router,
     update_title_router,
 )
@@ -66,6 +68,9 @@ class AgentGraph:
                 model=self.query_model,
                 logger=self.logger,
             ),
+            "end_discussion": EndDiscussionNode(
+                logger=self.logger,
+            ),
             "rewrite_query": RewriteQueryNode(
                 model=self.query_model,
                 logger=self.logger,
@@ -116,8 +121,15 @@ class AgentGraph:
             self._add_node(node_name, node)
 
         graph.add_edge(START, "retrieval_decider")
-        graph.add_edge("retrieval_decider", "rewrite_query")
-        graph.add_edge("retrieval_decider", "retrieve_conversation_history")
+        graph.add_conditional_edges(
+            "retrieval_decider",
+            decide_retrieval_router,
+            {
+                "rewrite_query": "rewrite_query",
+                "retrieve_conversation_history": "retrieve_conversation_history",
+                "end_discussion": "end_discussion",
+            },
+        )
         graph.add_edge("rewrite_query", "retrieve_documents")
         graph.add_edge("rewrite_query", "retrieve_memory")
         graph.add_edge(
@@ -137,12 +149,14 @@ class AgentGraph:
                 "cleanup": "cleanup",
             },
         )
+        graph.add_edge("end_discussion", "save_chat")
         graph.add_conditional_edges(
             "save_chat",
             update_summary_router,
             {
                 "update_summary": "update_conversation_summary",
                 "store_memory": "store_memory",
+                "cleanup": "cleanup",
             },
         )
         graph.add_edge(

@@ -20,11 +20,19 @@ class RetrievalDeciderNode:
             state["user_id"],
             state["first_message"],
         )
-        prompt = retrieval_decider_prompt(state["query"])
+        history = state.get("conversation_history") or []
+        context = "\n".join(
+            f"User: {message.query}, Assistant: {message.response}"
+            for message in history[-3:]
+        )
+
+        prompt = retrieval_decider_prompt(state["query"], context)
+        
         try:
             decision = await self.model.ainvoke(prompt)
             result = decision.decision
             retrieve_memory = decision.retrieve_memory
+            is_academic_discussion = decision.is_academic_discussion
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
@@ -40,6 +48,7 @@ class RetrievalDeciderNode:
                 )
             result = "both" if not state["first_message"] else "rag"
             retrieve_memory = False
+            is_academic_discussion = True
 
         mapping = {
             "rag": (True, False),
@@ -48,19 +57,20 @@ class RetrievalDeciderNode:
             "none": (False, False),
         }
         retrieve_rag, retrieve_history = mapping.get(result, (False, False))
-        # First turn has no history worth loading.
         if state["first_message"]:
             retrieve_history = False
 
         self.logger.info(
             "Retrieval decider completed id=%s user_id=%s decision=%s "
-            "retrieve_rag=%s retrieve_history=%s retrieve_memory=%s",
+            "retrieve_rag=%s retrieve_history=%s retrieve_memory=%s "
+            "is_academic_discussion=%s",
             state["conversation_id"],
             state["user_id"],
             result,
             retrieve_rag,
             retrieve_history,
             retrieve_memory,
+            is_academic_discussion,
         )
 
         if not state.get("document_ids"):
@@ -70,4 +80,5 @@ class RetrievalDeciderNode:
             "retrieve_rag": retrieve_rag,
             "retrieve_conversation_history": retrieve_history,
             "retrieve_memory": retrieve_memory,
-        }
+            "is_academic_discussion": is_academic_discussion,
+            }

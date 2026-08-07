@@ -19,6 +19,7 @@ class ChapterResult(BaseModel):
     chapter_key: str
     introduction: str
     sections: list[Sections]
+    mnemonics: dict[str, str]
     quiz: list[Quiz]
 
 class StudyCardsResult(BaseModel):

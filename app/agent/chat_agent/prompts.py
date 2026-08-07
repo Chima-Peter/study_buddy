@@ -1,7 +1,7 @@
 """Centralized prompts for the study buddy agent."""
 
 
-def retrieval_decider_prompt(query: str) -> str:
+def retrieval_decider_prompt(query: str, context: str) -> str:
     return (
         "Decide what context is needed to answer the user's question.\n\n"
         "Choose exactly one for decision:\n"
@@ -14,7 +14,16 @@ def retrieval_decider_prompt(query: str) -> str:
         "- false: greetings/small talk (hi, hello, thanks), document-only lookup, "
         "general knowledge, or chat that does not need stored student facts\n"
         "Note: Name and gender come from user profile automatically, not from memory.\n\n"
+        "Set is_academic_discussion:\n"
+        "- true: study/academic content (concepts, homework, exams, documents, "
+        "courses, study plans) OR brief allowed interaction "
+        "(greetings, thanks, short clarifying replies, light small talk that "
+        "keeps a study session going)\n"
+        "- false: clearly off-topic or non-academic requests with no study "
+        "purpose (unrelated entertainment, general life advice, tasks outside "
+        "learning). Prefer true when unsure if the query could support studying\n\n"
         f"Question: {query}\n"
+        f"Context: {context}\n"
     )
 
 

@@ -63,6 +63,7 @@ class CleanupNode:
             "retrieve_rag": False,
             "retrieve_conversation_history": False,
             "retrieve_memory": False,
+            "is_academic_discussion": True,
             "memory_query": None,
             "memories": [],
             "response": "",

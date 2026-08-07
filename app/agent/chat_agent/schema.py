@@ -24,6 +24,14 @@ class DeciderResponse(BaseModel):
             "Name and gender come from the user profile automatically."
         ),
     )
+    is_academic_discussion: bool = Field(
+        description=(
+            "True for study/academic queries, or brief allowed interaction "
+            "(greetings, thanks, short clarifications, light small talk in a "
+            "study session). False for clearly off-topic, non-academic "
+            "requests with no learning purpose. Prefer true when unsure."
+        ),
+    )
 
 
 class RewriteQueryResponse(BaseModel):

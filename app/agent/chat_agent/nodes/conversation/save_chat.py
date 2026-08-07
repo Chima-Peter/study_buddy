@@ -16,7 +16,7 @@ class SaveChatNode:
                 "metadata": r.document.metadata,
                 "rrf_score": r.score,
             }
-            for r in state["rag_documents"]
+            for r in (state.get("rag_documents") or [])
         ]
         self.logger.info(
             "Save chat node started id=%s user_id=%s sources=%s",

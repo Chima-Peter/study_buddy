@@ -25,6 +25,7 @@ class AgentState(TypedDict):
     retrieve_rag: bool
     retrieve_conversation_history: bool
     retrieve_memory: bool
+    is_academic_discussion: bool
 
     memory_query: str | None
     memories: list[Memory]
