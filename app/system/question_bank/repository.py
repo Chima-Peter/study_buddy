@@ -168,7 +168,7 @@ class QuestionBankRepository:
         self,
         document_id: str,
         user_id: str,
-        result: dict,
+        result: list,
         status: QuestionBankStatus = "success",
         reason: str | None = None,
     ) -> QuestionBankModel | None:

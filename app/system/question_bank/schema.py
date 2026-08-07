@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -43,7 +43,7 @@ class QuestionBankResultResponse(BaseModel):
     document_id: str
     document_name: str | None = None
     status: QuestionBankStatus
-    result: dict | None
+    result: Any | None
     reason: Optional[str] = None
     created_at: str
     updated_at: str

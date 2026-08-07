@@ -1,4 +1,5 @@
 from logging import Logger
+import random
 
 from sqlalchemy.exc import IntegrityError
 
@@ -84,7 +85,7 @@ class QuestionBankService:
         self,
         document_id: str,
         user_id: str,
-        result: dict,
+        result: list,
         reason: str | None = None,
     ) -> QuestionBankModel:
         self.logger.info(
@@ -142,6 +143,12 @@ class QuestionBankService:
         )
         if question_bank is None:
             raise ValueError("Question bank not found")
+
+        if isinstance(question_bank.result, list):
+            shuffled = list(question_bank.result)
+            random.shuffle(shuffled)
+            question_bank = question_bank.model_copy(update={"result": shuffled})
+
         self.logger.info(
             "Question bank found id=%s status=%s user_id=%s",
             question_bank.id,

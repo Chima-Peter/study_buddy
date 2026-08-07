@@ -20,7 +20,7 @@ class QuestionBankModel(BaseModel):
     user_id: str = Field(min_length=36, max_length=36)
     document_id: str = Field(min_length=36, max_length=36)
     status: QuestionBankStatus = "pending"
-    result: Optional[dict[str, Any]] = None
+    result: Optional[Any] = None
     reason: Optional[str] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
