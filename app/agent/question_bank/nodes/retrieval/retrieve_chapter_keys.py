@@ -4,7 +4,7 @@ from app.agent.question_bank.state import QuestionBankState
 from app.system.document.service import DocumentService
 
 
-class RetrieveChaptersNode:
+class RetrieveChapterKeysNode:
     def __init__(self, logger: Logger, document_service: DocumentService):
         self.logger = logger
         self.document_service = document_service
@@ -12,15 +12,15 @@ class RetrieveChaptersNode:
     async def __call__(self, state: QuestionBankState) -> QuestionBankState:
         if state.get("chapter_keys") is not None:
             self.logger.info(
-                "Retrieve chapters node skipped document_id=%s "
-                "reason=already_loaded for question bank agent",
+                "Retrieve chapter keys node skipped document_id=%s "
+                "reason=already_loaded for question agent",
                 state["document_id"],
             )
             return {}
 
         self.logger.info(
-            "Retrieve chapters node started document_id=%s user_id=%s "
-            "for question bank agent",
+            "Retrieve chapter keys node started document_id=%s user_id=%s "
+            "for question agent",
             state["document_id"],
             state["user_id"],
         )
@@ -30,10 +30,8 @@ class RetrieveChaptersNode:
         )
         return {
             "chapter_keys": document.sections.split(","),
-            "chapter_records": {},
             "generated_chapters": {},
             "approved_chapters": [],
-            "skipped_generated_chapters": [],
             "skipped_critique_chapters": [],
             "critique": {},
             "final_question_bank": None,
