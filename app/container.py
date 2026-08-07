@@ -542,7 +542,7 @@ class Container(containers.DeclarativeContainer):
     study_cards_model = providers.Singleton(
         ChatGoogleGenerativeAI,
         model=settings.provided.study_cards_model_name,
-        temperature=0.5,
+        temperature=0.7,
         max_tokens=8192,
         max_retries=3,
         google_api_key=settings.provided.google_api_key,

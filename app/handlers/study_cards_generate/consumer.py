@@ -3,12 +3,12 @@ from logging import Logger
 
 from aio_pika.abc import AbstractIncomingMessage
 from app.core.redis import RedisClient
-from app.system.notification.schema import EventPayload
+from app.handlers.study_cards_generate.utils import notify_study_cards_status
+from app.system.notification.service import NotificationService
 from pydantic import ValidationError
 
 from app.agent.study_cards_agent.graph import StudyCardsGraph
 from app.core.rabbitmq import RabbitMQ, read_retry_count
-from app.system.study_cards.schema import StudyCardsGenerateRequest
 from app.system.study_cards.service import StudyCardsService
 
 
@@ -19,57 +19,61 @@ async def handle_study_cards_generate(
     study_cards_graph: StudyCardsGraph,
     study_cards_service: StudyCardsService,
     redis: RedisClient,
+    notification_service: NotificationService,
 ) -> None:
     payload: dict | None = None
+    name: str | None = None
+    document_id: str | None = None
+    user_id: str | None = None
 
     async with message.process(requeue=False, ignore_processed=True):
         try:
             payload = json.loads(message.body)
-            request = StudyCardsGenerateRequest(**payload)
             retry_count = read_retry_count(message.headers)
+            name = payload.get("name")
+            document_id = payload.get("document_id")
+            user_id = payload.get("user_id")
 
             logger.info(
                 "Received study cards generate message document_id=%s "
                 "user_id=%s retry=%s",
-                request.document_id,
-                request.user_id,
+                document_id,
+                user_id,
                 retry_count,
             )
 
             graph = study_cards_graph.start()
             await graph.ainvoke(
                 {
-                    "document_id": request.document_id,
-                    "user_id": request.user_id,
+                    "document_id": document_id,
+                    "user_id": user_id,
                 },
                 config={
                     "configurable": {
                         "thread_id": (
-                            f"study-cards:{request.user_id}:{request.document_id}"
+                            f"study-cards:{user_id}:{document_id}"
                         ),
                     }
                 },
             )
 
-            await redis.publish_to_user(
-                request.user_id,
-                EventPayload(
-                    type="study_cards_generated",
-                    data={
-                        "document_id": request.document_id,
-                        "name": request.name,
-                        "status": "success",
-                        "comment": (
-                            f'Study cards for "{request.name}" are ready.'
-                        ),
-                    },
-                )
+            await notify_study_cards_status(
+                redis,
+                logger,
+                user_id,
+                notification_service,
+                document_id=document_id,
+                name=name,
+                status="success",
+                comment=(
+                    f'Study cards for "{name}" are ready.'
+                ),
             )
 
             logger.info(
                 "Study cards generate completed document_id=%s user_id=%s",
-                request.document_id,
-                request.user_id,
+                document_id,
+                user_id,
             )
         except (json.JSONDecodeError, ValidationError, TypeError) as e:
             logger.warning(
@@ -106,20 +110,18 @@ async def handle_study_cards_generate(
                     user_id,
                     retry_count,
                 )
-                await redis.publish_to_user(
+                await notify_study_cards_status(
+                    redis,
+                    logger,
                     user_id,
-                    EventPayload(
-                        type="study_cards_failed",
-                        data={
-                            "document_id": document_id,
-                            "name": name,
-                            "status": "failed",
-                            "comment": (
-                                f'Study cards generation for "{name}" '
-                                "failed after all retries."
-                            ),
-                        },
-                    )
+                    notification_service,
+                    name=name,
+                    document_id=document_id,
+                    status="failed",
+                    comment=(
+                        f'Study cards generation for "{name}" '
+                        "failed after all retries."
+                    ),
                 )
                 await message.reject(requeue=False)
                 return

@@ -136,6 +136,7 @@ class Handlers:
                 study_cards_graph=self._study_cards_graph,
                 study_cards_service=self._study_cards_service,
                 redis=self._redis,
+                notification_service=self._notification_service,
             ),
             label="handle_study_cards_generate",
         )
