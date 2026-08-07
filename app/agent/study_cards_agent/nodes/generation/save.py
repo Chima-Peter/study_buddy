@@ -11,7 +11,7 @@ class SaveNode:
 
     async def __call__(self, state: StudyCardsState) -> dict:
         self.logger.info(
-            "Save node started document_id=%s user_id=%s",
+            "Save node started document_id=%s user_id=%s for quiz bank agent",
             state["document_id"],
             state["user_id"],
         )
@@ -24,7 +24,7 @@ class SaveNode:
         )
 
         self.logger.info(
-            "Save node completed document_id=%s user_id=%s",
+            "Save node completed document_id=%s user_id=%s for quiz bank agent",
             state["document_id"],
             state["user_id"],
         )

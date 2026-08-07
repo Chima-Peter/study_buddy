@@ -10,7 +10,7 @@ class ConsolidateNode:
 
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         self.logger.info(
-            "Consolidate node started document_id=%s user_id=%s",
+            "Consolidate node started document_id=%s user_id=%s for quiz bank agent",
             state["document_id"],
             state["user_id"],
         )
@@ -21,7 +21,7 @@ class ConsolidateNode:
         ]
 
         self.logger.info(
-            "Consolidate node completed document_id=%s user_id=%s",
+            "Consolidate node completed document_id=%s user_id=%s for quiz bank agent",
             state["document_id"],
             state["user_id"],
         )

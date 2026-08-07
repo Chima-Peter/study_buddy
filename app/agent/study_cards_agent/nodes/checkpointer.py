@@ -11,7 +11,7 @@ class CheckpointerNode:
 
     async def __call__(self, state: StudyCardsState) -> dict:
         self.logger.info(
-            "Checkpointer called document_id=%s user_id=%s",
+            "Checkpointer called document_id=%s user_id=%s for quiz bank agent",
             state["document_id"],
             state["user_id"],
         )

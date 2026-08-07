@@ -12,13 +12,15 @@ class RetrieveChaptersNode:
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         if state.get("chapter_keys") is not None:
             self.logger.info(
-                "Retrieve chapters node skipped document_id=%s reason=already_loaded",
+                "Retrieve chapters node skipped document_id=%s "
+                "reason=already_loaded for quiz bank agent",
                 state["document_id"],
             )
             return {}
 
         self.logger.info(
-            "Retrieve chapters node started document_id=%s user_id=%s",
+            "Retrieve chapters node started document_id=%s user_id=%s "
+            "for quiz bank agent",
             state["document_id"],
             state["user_id"],
         )

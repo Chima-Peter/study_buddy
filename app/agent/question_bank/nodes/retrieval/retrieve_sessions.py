@@ -13,7 +13,8 @@ class RetrieveSessionsNode:
     async def __call__(self, state: QuestionBankState) -> QuestionBankState:
         if state.get("document_sections") is not None:
             self.logger.info(
-                "Retrieve sessions node skipped document_id=%s reason=already_loaded",
+                "Retrieve sessions node skipped document_id=%s "
+                "reason=already_loaded for question bank agent",
                 state["document_id"],
             )
             return {}
@@ -21,13 +22,15 @@ class RetrieveSessionsNode:
         chapter_keys = state.get("chapter_keys") or []
         if not chapter_keys:
             self.logger.warning(
-                "Retrieve sessions node skipped document_id=%s reason=no_chapter_keys",
+                "Retrieve sessions node skipped document_id=%s "
+                "reason=no_chapter_keys for question bank agent",
                 state["document_id"],
             )
             return {"document_sections": {}}
 
         self.logger.info(
-            "Retrieve sessions node started document_id=%s user_id=%s",
+            "Retrieve sessions node started document_id=%s user_id=%s "
+            "for question bank agent",
             state["document_id"],
             state["user_id"],
         )
@@ -47,7 +50,7 @@ class RetrieveSessionsNode:
 
         self.logger.info(
             "Retrieve sessions node completed document_id=%s user_id=%s "
-            "sessions_by_chapter=%s",
+            "sessions_by_chapter=%s for question bank agent",
             state["document_id"],
             state["user_id"],
             len(sessions_by_chapter),

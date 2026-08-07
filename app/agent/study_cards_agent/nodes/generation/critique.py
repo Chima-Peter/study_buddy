@@ -39,7 +39,7 @@ class CritiqueNode:
         if missing_chapters:
             self.logger.info(
                 "Missing chapters before critique document_id=%s user_id=%s "
-                "missing_chapters=%s",
+                "missing_chapters=%s for quiz bank agent",
                 state["document_id"],
                 state["user_id"],
                 missing_chapters,
@@ -47,7 +47,8 @@ class CritiqueNode:
 
         if not generated_chapters:
             self.logger.info(
-                "No generated chapters to critique document_id=%s user_id=%s",
+                "No generated chapters to critique document_id=%s user_id=%s "
+                "for quiz bank agent",
                 state["document_id"],
                 state["user_id"],
             )
@@ -65,7 +66,7 @@ class CritiqueNode:
 
         self.logger.info(
             "Critique node started document_id=%s user_id=%s "
-            "chapters=%s retry_count=%s",
+            "chapters=%s retry_count=%s for quiz bank agent",
             state["document_id"],
             state["user_id"],
             len(generated_chapters),
@@ -106,7 +107,7 @@ class CritiqueNode:
 
         self.logger.info(
             "Critique node completed document_id=%s user_id=%s "
-            "approved=%s pending=%s missing=%s",
+            "approved=%s pending=%s missing=%s for quiz bank agent",
             state["document_id"],
             state["user_id"],
             len(newly_approved_chapters),
@@ -135,7 +136,8 @@ class CritiqueNode:
         generated_chapter = chapter.model_dump_json()
         source_content = "\n".join(record.content for record in source_records)
         self.logger.info(
-            "Critiquing chapter chapter_key=%s generated_len=%s source_len=%s",
+            "Critiquing chapter chapter_key=%s generated_len=%s source_len=%s "
+            "for quiz bank agent",
             chapter_key,
             len(generated_chapter),
             len(source_content),
@@ -151,7 +153,7 @@ class CritiqueNode:
             )
             result = response.model_copy(update={"chapter_key": chapter_key})
             self.logger.info(
-                "Critiqued chapter chapter_key=%s status=%s",
+                "Critiqued chapter chapter_key=%s status=%s for quiz bank agent",
                 chapter_key,
                 result.status,
             )
@@ -159,12 +161,13 @@ class CritiqueNode:
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
-                    "Rate limit error critiquing chapter chapter_key=%s",
+                    "Rate limit error critiquing chapter chapter_key=%s "
+                    "for quiz bank agent",
                     chapter_key,
                 )
                 raise e
             self.logger.exception(
-                "Error critiquing chapter chapter_key=%s",
+                "Error critiquing chapter chapter_key=%s for quiz bank agent",
                 chapter_key,
             )
             return None

@@ -12,13 +12,14 @@ class RetrieveMemoriesNode:
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         if state.get("memories") is not None:
             self.logger.info(
-                "Retrieve memories node skipped document_id=%s reason=already_loaded",
+                "Retrieve memories node skipped document_id=%s "
+                "reason=already_loaded for quiz bank agent",
                 state["document_id"],
             )
             return {}
 
         self.logger.info(
-            "Retrieving memories for document_id=%s",
+            "Retrieving memories for document_id=%s for quiz bank agent",
             state["document_id"],
         )
 
@@ -32,13 +33,13 @@ class RetrieveMemoriesNode:
 
         if not memories:
             self.logger.warning(
-                "No memories found for document_id=%s",
+                "No memories found for document_id=%s for quiz bank agent",
                 state["document_id"],
             )
             return {"memories": []}
 
         self.logger.info(
-            "Retrieved %d memories for document_id=%s",
+            "Retrieved %d memories for document_id=%s for quiz bank agent",
             len(memories),
             state["document_id"],
         )
