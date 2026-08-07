@@ -16,12 +16,24 @@ class SaveNode:
             state["user_id"],
         )
 
-        await self.question_bank_service.update_result(
-            state["document_id"],
-            state["user_id"],
-            state["final_question_bank"].model_dump(),
-            reason="Question bank generated successfully",
-        )
+        payload = [
+            question.model_dump() for chapter in state["final_question_bank"].chapters
+            for question in chapter.questions
+        ]
+
+        try:
+            await self.question_bank_service.update_result(
+                state["document_id"],
+                state["user_id"],
+                payload,
+            )
+        except Exception:
+            self.logger.exception(
+                "Error saving question bank document_id=%s user_id=%s",
+                state["document_id"],
+                state["user_id"],
+            )
+            raise
 
         self.logger.info(
             "Save node completed document_id=%s user_id=%s for question agent",

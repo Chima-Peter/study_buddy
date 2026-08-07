@@ -16,12 +16,20 @@ class SaveNode:
             state["user_id"],
         )
 
-        await self.study_card_service.update_result(
-            state["document_id"],
-            state["user_id"],
-            state["final_result"].model_dump(),
-            reason="Study cards generated successfully",
-        )
+        try:
+            await self.study_card_service.update_result(
+                state["document_id"],
+                state["user_id"],
+                state["final_result"].model_dump(),
+                reason="Study cards generated successfully",
+            )
+        except Exception:
+            self.logger.exception(
+                "Error saving study cards document_id=%s user_id=%s",
+                state["document_id"],
+                state["user_id"],
+            )
+            raise
 
         self.logger.info(
             "Save node completed document_id=%s user_id=%s for quiz bank agent",
