@@ -5,6 +5,7 @@ from logging import Logger
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.utils.errors.rabbitmq import NonRetryableIngestError
 from langchain_core.documents import Document
 
 from app.core.redis import RedisClient
@@ -133,7 +134,7 @@ async def process_with_chapters(
 ) -> ProcessWithChaptersResult:
     """
     Split into chapters when possible, then chunk each section.
-    Falls back to whole-file processing if no chapters are found.
+    Throws NonRetryableIngestError if no chapters are found.
     """
     sections = await asyncio.to_thread(
         chapter_splitter.initiate_chapter_split, file_path
@@ -144,11 +145,7 @@ async def process_with_chapters(
             payload.file_name,
             payload.document_id,
         )
-        chunks = await asyncio.to_thread(
-            ingest_pipeline.process_file, payload, file_path
-        )
-
-        return ProcessWithChaptersResult(chunks, [])
+        raise NonRetryableIngestError("Document has no chapters.")
 
     logger.info(
         "Processing %s chapters for file=%s document_id=%s",

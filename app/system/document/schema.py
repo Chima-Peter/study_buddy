@@ -140,6 +140,12 @@ def _classify_ingest_failure(reason: str) -> tuple[str, str]:
             "Please try again, or contact support if the problem continues.",
         )
 
+    if "no chapters" in lowered:
+        return (
+            "the document has no chapters",
+            "Please check the document and try again.",
+        )
+
     return (
         "processing could not be completed",
         "Please try again, or contact support if the problem continues.",
