@@ -7,7 +7,6 @@ from app.authentication.schema import (
     BLACKLIST_PREFIX,
     LoginRequest,
     LoginResponse,
-    RefreshTokenRequest,
     RegisterRequest,
 )
 from app.config import Settings
@@ -78,27 +77,27 @@ class AuthService:
             token=token,
         )
 
-    async def refresh_token(self, request: RefreshTokenRequest) -> LoginResponse:
+    async def refresh_token(self, token: str) -> LoginResponse:
         self._logger.info("Refresh token attempt")
-        if await self.is_blacklisted(request.token):
+        if await self.is_blacklisted(token):
             self._logger.warning("Refresh token failed - blacklisted token")
-            raise InvalidCredentialsError("token")
+            raise InvalidCredentialsError("Token blacklisted")
 
         try:
             payload = jwt.decode(
-                request.token,
+                token,
                 self.settings.jwt_secret,
                 algorithms=[self.settings.jwt_algorithm],
                 options={"verify_exp": False},
             )
         except jwt.InvalidTokenError:
             self._logger.warning("Refresh token failed - invalid token")
-            raise InvalidCredentialsError("token")
+            raise InvalidCredentialsError("Invalid token")
 
         exp = payload.get("exp")
         if exp is None:
             self._logger.warning("Refresh token failed - missing expiry")
-            raise InvalidCredentialsError("token")
+            raise InvalidCredentialsError("Invalid token")
 
         now = datetime.now(timezone.utc)
         expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
@@ -107,31 +106,35 @@ class AuthService:
 
         if seconds_since_expiry < 0:
             self._logger.warning("Refresh token failed - token not expired")
-            raise InvalidCredentialsError("token")
+            raise InvalidCredentialsError("Invalid token")
         if seconds_since_expiry > grace_seconds:
             self._logger.warning("Refresh token failed - refresh window expired")
-            raise InvalidCredentialsError("token")
+            raise InvalidCredentialsError("Invalid token")
 
         user_id = payload.get("sub")
         if not user_id:
             self._logger.warning("Refresh token failed - missing subject")
-            raise InvalidCredentialsError("token")
+            raise InvalidCredentialsError("Invalid token")
 
         user = await self.repository.get_by_id(user_id)
         if user is None:
             self._logger.warning("Refresh token failed - user not found: %s", user_id)
             raise UserNotFoundError(user_id)
 
-        await self._blacklist_token(request.token, payload)
+        await self._blacklist_token(token, payload)
 
-        token = self._issue_token(user)
-        
-        await self.redis.set(f"auth_{user_id}", user.id, ttl=self.settings.jwt_expire_minutes * 60)
-        
+        new_token = self._issue_token(user)
+
+        await self.redis.set(
+            f"auth_{user_id}",
+            user.id,
+            ttl=self.settings.jwt_expire_minutes * 60,
+        )
+
         self._logger.info("Refresh token success user_id=%s", user.id)
         return LoginResponse(
             user=self._to_response(user),
-            token=token,
+            token=new_token,
         )
 
     async def logout(self, token: str) -> None:
@@ -195,6 +198,16 @@ class AuthService:
             secret=self.settings.jwt_secret,
             algorithm=self.settings.jwt_algorithm,
             expire_minutes=self.settings.jwt_expire_minutes,
+            claims={
+                "name": user.name,
+                "email": user.email,
+                "gender": user.gender,
+                "university": user.university,
+                "bio": user.bio,
+                "timezone": user.timezone,
+                "created_at": user.created_at.isoformat(),
+                "updated_at": user.updated_at.isoformat(),
+            },
         )
 
     def _to_response(self, user: UserModel) -> UserResponse:

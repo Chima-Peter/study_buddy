@@ -19,7 +19,3 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     user: UserResponse
     token: str
-
-
-class RefreshTokenRequest(BaseModel):
-    token: str

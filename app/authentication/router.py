@@ -5,11 +5,7 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.authentication.schema import (
-    LoginRequest,
-    RefreshTokenRequest,
-    RegisterRequest,
-)
+from app.authentication.schema import LoginRequest, RegisterRequest
 from app.authentication.service import AuthService
 from app.container import Container
 from app.core.response import ApiResponse, BasicResponse
@@ -82,42 +78,6 @@ async def login(
     return BasicResponse(
         data=response.model_dump(mode="json"),
         message="Login successful",
-    )
-
-
-@authentication_router.post(
-    "/refresh",
-    response_model=ApiResponse,
-    summary="Refresh token",
-    description=(
-        "Exchange an expired JWT for a new access token. "
-        "Only tokens that expired within the last 10 minutes are accepted. "
-        "Blacklisted tokens are rejected."
-    ),
-)
-@inject
-async def refresh(
-    data: RefreshTokenRequest,
-    service: AuthService = Depends(Provide[Container.auth_service]),
-    logger: Logger = Depends(Provide[Container.logger]),
-) -> BasicResponse:
-    try:
-        response = await service.refresh_token(data)
-    except (InvalidCredentialsError, UserNotFoundError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-        )
-    except Exception:
-        logger.exception("Unexpected error during token refresh")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        )
-
-    return BasicResponse(
-        data=response.model_dump(mode="json"),
-        message="Token refreshed successfully",
     )
 
 

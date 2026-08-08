@@ -56,6 +56,14 @@ async def websocket_endpoint(
         await websocket.accept()
         await redis_service.incr_connection_count(user.id)
         connection_counted = True
+
+        refreshed_token = getattr(websocket.state, "refreshed_token", None)
+        if refreshed_token:
+            await websocket.send_json({
+                "type": "token_refresh",
+                "token": refreshed_token,
+            })
+
         await websocket.send_json({
             "type": "heartbeat",
             "message": "Ping",
