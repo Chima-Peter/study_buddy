@@ -1,5 +1,6 @@
 from logging import Logger
 
+from app.agent.question_bank.nodes.start import StartNode
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
@@ -42,6 +43,7 @@ class QuestionBankGraph:
         self._raw_graph = graph
 
         nodes = {
+            "start": StartNode(logger=self.logger),
             "checkpointer": CheckpointerNode(logger=self.logger),
             "retrieve_chapter_keys": RetrieveChapterKeysNode(
                 logger=self.logger,
@@ -69,7 +71,8 @@ class QuestionBankGraph:
         for node_name, node in nodes.items():
             self._add_node(node_name, node)
 
-        graph.add_edge(START, "checkpointer")
+        graph.add_edge(START, "start")
+        graph.add_edge("start", "checkpointer")
         graph.add_conditional_edges(
             "checkpointer",
             route_from_checkpoint,

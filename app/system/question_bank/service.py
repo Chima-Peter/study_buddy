@@ -10,11 +10,13 @@ from app.system.question_bank.repository import QuestionBankRepository
 from app.system.question_bank.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    QuestionBankAlreadyAttemptedAndFailedError,
     QuestionBankAlreadyExistsError,
     QuestionBankGenerateAccepted,
     QuestionBankGenerateRequest,
     QuestionBankInProgressError,
     QuestionBankListResponseData,
+    QuestionBankNotRetryableError,
     QuestionBankStatus,
 )
 
@@ -48,13 +50,7 @@ class QuestionBankService:
             if existing.status == "pending":
                 raise QuestionBankInProgressError(document_id)
             if existing.status == "failed":
-                await self.repository.delete_by_document(document_id, user_id)
-                self.logger.info(
-                    "Deleted failed question bank before regenerate "
-                    "document_id=%s user_id=%s",
-                    document_id,
-                    user_id,
-                )
+                raise QuestionBankAlreadyAttemptedAndFailedError(document_id)
 
         try:
             await self.repository.create(
@@ -76,6 +72,61 @@ class QuestionBankService:
         )
         self.logger.info(
             "Queued question bank generate document_id=%s user_id=%s",
+            document_id,
+            user_id,
+        )
+        return QuestionBankGenerateAccepted(document_id=document_id)
+
+    async def retry_generation(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> QuestionBankGenerateAccepted:
+        document = await self.document_service.get_document_by_id(
+            document_id, user_id
+        )
+
+        existing = await self.repository.get_by_document(document_id, user_id)
+        if existing is None:
+            raise ValueError("Question bank not found")
+
+        updated = await self.repository.transition_status(
+            document_id,
+            user_id,
+            "pending",
+            ("failed",),
+            reason="Regeneration requested",
+        )
+        if updated is None:
+            if existing is None:
+                raise ValueError("Question bank not found")
+            if existing.status == "pending":
+                raise QuestionBankInProgressError(document_id)
+            raise QuestionBankNotRetryableError(document_id, existing.status)
+
+        payload = QuestionBankGenerateRequest(
+            document_id=document_id,
+            user_id=user_id,
+            name=document.name,
+        )
+        try:
+            await self.rabbitmq.publish_message(
+                "question_bank_generate_queue",
+                payload.model_dump(),
+            )
+        except Exception:
+            await self.repository.transition_status(
+                document_id,
+                user_id,
+                "failed",
+                ("pending",),
+                reason=existing.reason
+                or "Failed to queue question bank regeneration",
+            )
+            raise
+
+        self.logger.info(
+            "Queued question bank for regeneration document_id=%s user_id=%s",
             document_id,
             user_id,
         )

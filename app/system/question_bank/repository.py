@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 from logging import Logger
+from typing import Sequence
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.sql import select
+from sqlalchemy.sql import select, update
 
 from app.system.document.model import DocumentDBModel
 from app.system.question_bank.model import QuestionBankDBModel, QuestionBankModel
@@ -228,5 +229,50 @@ class QuestionBankRepository:
                 "Question bank status updated document_id=%s status=%s",
                 document_id,
                 status,
+            )
+            return QuestionBankModel(**db_row.model_dump())
+
+    async def transition_status(
+        self,
+        document_id: str,
+        user_id: str,
+        to_status: QuestionBankStatus,
+        from_statuses: Sequence[QuestionBankStatus],
+        reason: str | None = None,
+    ) -> QuestionBankModel | None:
+        """Atomically move status only if current status is in from_statuses."""
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(QuestionBankDBModel)
+                .where(
+                    QuestionBankDBModel.document_id == document_id,
+                    QuestionBankDBModel.user_id == user_id,
+                    QuestionBankDBModel.status.in_(from_statuses),
+                )
+                .values(
+                    status=to_status,
+                    reason=reason,
+                    updated_at=datetime.now(timezone.utc),
+                )
+                .returning(QuestionBankDBModel)
+            )
+            db_row = result.scalar_one_or_none()
+            if db_row is None:
+                await session.rollback()
+                return None
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                self.logger.exception(
+                    "Error transitioning question bank document_id=%s to %s",
+                    document_id,
+                    to_status,
+                )
+                raise
+            self.logger.info(
+                "Question bank status transitioned document_id=%s to=%s",
+                document_id,
+                to_status,
             )
             return QuestionBankModel(**db_row.model_dump())

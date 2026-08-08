@@ -17,6 +17,7 @@ class StudyCardsState(TypedDict):
     pending_chapters: list[str]
     missing_chapters: list[str]
     undone_critique_chapters: list[str]
+    consumer_retry_count: int
     retry_count: dict[Literal["generate", "critique"], int]
     final_result: StudyCardsResult
     critique: dict[str, Critique]

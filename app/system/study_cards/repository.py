@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 from logging import Logger
+from typing import Sequence
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from sqlalchemy.sql import select
+from sqlalchemy.sql import select, update
 
 from app.system.document.model import DocumentDBModel
 from app.system.study_cards.model import StudyCardsDBModel, StudyCardsModel
@@ -229,5 +230,50 @@ class StudyCardsRepository:
                 "Study cards status updated document_id=%s status=%s",
                 document_id,
                 status,
+            )
+            return StudyCardsModel(**db_row.model_dump())
+
+    async def transition_status(
+        self,
+        document_id: str,
+        user_id: str,
+        to_status: StudyCardsStatus,
+        from_statuses: Sequence[StudyCardsStatus],
+        reason: str | None = None,
+    ) -> StudyCardsModel | None:
+        """Atomically move status only if current status is in from_statuses."""
+        async with self.session_factory() as session:
+            result = await session.execute(
+                update(StudyCardsDBModel)
+                .where(
+                    StudyCardsDBModel.document_id == document_id,
+                    StudyCardsDBModel.user_id == user_id,
+                    StudyCardsDBModel.status.in_(from_statuses),
+                )
+                .values(
+                    status=to_status,
+                    reason=reason,
+                    updated_at=datetime.now(timezone.utc),
+                )
+                .returning(StudyCardsDBModel)
+            )
+            db_row = result.scalar_one_or_none()
+            if db_row is None:
+                await session.rollback()
+                return None
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                self.logger.exception(
+                    "Error transitioning study cards document_id=%s to %s",
+                    document_id,
+                    to_status,
+                )
+                raise
+            self.logger.info(
+                "Study cards status transitioned document_id=%s to=%s",
+                document_id,
+                to_status,
             )
             return StudyCardsModel(**db_row.model_dump())

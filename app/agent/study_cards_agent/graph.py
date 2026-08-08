@@ -1,6 +1,7 @@
 from logging import Logger
 
 from app.agent.study_cards_agent.nodes.retrieval.retrieve_memories import RetrieveMemoriesNode
+from app.agent.study_cards_agent.nodes.start import StartNode
 from app.memory.service import MemoryService
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -46,6 +47,7 @@ class StudyCardsGraph:
         self._raw_graph = graph
 
         nodes = {
+            "start": StartNode(logger=self.logger),
             "checkpointer": CheckpointerNode(logger=self.logger),
             "retrieve_chapter_keys": RetrieveChaptersNode(
                 logger=self.logger,
@@ -77,7 +79,8 @@ class StudyCardsGraph:
         for node_name, node in nodes.items():
             self._add_node(node_name, node)
 
-        graph.add_edge(START, "checkpointer")
+        graph.add_edge(START, "start")
+        graph.add_edge("start", "checkpointer")
         graph.add_conditional_edges(
             "checkpointer",
             route_from_checkpoint,

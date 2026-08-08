@@ -11,11 +11,13 @@ from app.core.security import get_current_user
 from app.system.study_cards.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    StudyCardsAlreadyAttemptedAndFailedError,
     StudyCardsAlreadyExistsError,
     StudyCardsGenerateApiResponse,
     StudyCardsGetApiResponse,
     StudyCardsInProgressError,
     StudyCardsListApiResponse,
+    StudyCardsNotRetryableError,
     StudyCardsStatus,
 )
 from app.system.study_cards.service import StudyCardsService
@@ -85,12 +87,12 @@ async def list_study_cards(
     description=(
         "Queues study-card generation for an owned document. "
         "Results are written asynchronously to study_cards. "
-        "Failed cards can be regenerated; successful or in-progress cards cannot."
+        "Successful or in-progress cards cannot be regenerated."
     ),
     responses={
         409: {
             "description": (
-                "Study cards already exist (success) or generation is in progress"
+                "Study cards generation is already in progress or successful"
             )
         },
     },
@@ -114,6 +116,11 @@ async def generate_study_cards(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
+    except StudyCardsAlreadyAttemptedAndFailedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -128,12 +135,75 @@ async def generate_study_cards(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
+            detail="An error occurred while queuing study cards generation. Please try again later.",
         )
 
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Study cards generation started successfully",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+
+@study_cards_router.post(
+    "/{document_id}/retry",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=StudyCardsGenerateApiResponse,
+    summary="Retry study cards generation",
+    description=(
+        "Queues study-card generation for an owned document that has already been generated. "
+        "Results are written asynchronously to study_cards. "
+        "Successful or in-progress cards cannot be regenerated."
+    ),
+    responses={
+        409: {
+            "description": (
+                "Study cards generation is already in progress or successful"
+            )
+        },
+    },
+)
+@inject
+async def retry_study_cards_generation(
+    document_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        result = await service.retry_generation(document_id, user.id)
+    except StudyCardsNotRetryableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except StudyCardsInProgressError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Study cards not found. "
+                "You can only attempt to regenerate study cards that have already been generated."
+            )
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error queueing study cards retry "
+            "document_id=%s user_id=%s",
+            document_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while queuing study cards regeneration. Please try again later.",
+        )
+
+    return BasicResponse(
+        data=result.model_dump(mode="json"),
+        message="Study cards regeneration queued successfully",
         status_code=status.HTTP_202_ACCEPTED,
     )
 
@@ -167,7 +237,7 @@ async def get_study_cards(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
+            detail="An error occurred while getting study cards. Please try again later.",
         )
 
     return BasicResponse(

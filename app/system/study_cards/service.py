@@ -9,11 +9,13 @@ from app.system.study_cards.repository import StudyCardsRepository
 from app.system.study_cards.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    StudyCardsAlreadyAttemptedAndFailedError,
     StudyCardsAlreadyExistsError,
     StudyCardsGenerateAccepted,
     StudyCardsGenerateRequest,
     StudyCardsInProgressError,
     StudyCardsListResponseData,
+    StudyCardsNotRetryableError,
     StudyCardsStatus,
 )
 
@@ -47,13 +49,7 @@ class StudyCardsService:
             if existing.status == "pending":
                 raise StudyCardsInProgressError(document_id)
             if existing.status == "failed":
-                await self.repository.delete_by_document(document_id, user_id)
-                self.logger.info(
-                    "Deleted failed study cards before regenerate "
-                    "document_id=%s user_id=%s",
-                    document_id,
-                    user_id,
-                )
+                raise StudyCardsAlreadyAttemptedAndFailedError(document_id)
 
         try:
             await self.repository.create(
@@ -78,6 +74,61 @@ class StudyCardsService:
         )
         return StudyCardsGenerateAccepted(document_id=document_id)
 
+    async def retry_generation(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> StudyCardsGenerateAccepted:
+        document = await self.document_service.get_document_by_id(
+            document_id, user_id
+        )
+
+        existing = await self.repository.get_by_document(document_id, user_id)
+        if existing is None:
+            raise ValueError("Study cards not found")
+
+        updated = await self.repository.transition_status(
+            document_id,
+            user_id,
+            "pending",
+            ("failed",),
+            reason="Regeneration requested",
+        )
+        if updated is None:
+            if existing is None:
+                raise ValueError("Study cards not found")
+            if existing.status == "pending":
+                raise StudyCardsInProgressError(document_id)
+            raise StudyCardsNotRetryableError(document_id, existing.status)
+
+        payload = StudyCardsGenerateRequest(
+            document_id=document_id,
+            user_id=user_id,
+            name=document.name,
+        )
+        try:
+            await self.rabbitmq.publish_message(
+                "study_cards_generate_queue",
+                payload.model_dump(),
+            )
+        except Exception:
+            await self.repository.transition_status(
+                document_id,
+                user_id,
+                "failed",
+                ("pending",),
+                reason=existing.reason
+                or "Failed to queue study cards regeneration",
+            )
+            raise
+
+        self.logger.info(
+            "Queued study cards for regeneration document_id=%s user_id=%s",
+            document_id,
+            user_id,
+        )
+        return StudyCardsGenerateAccepted(document_id=document_id)
+    
     async def update_result(
         self,
         document_id: str,

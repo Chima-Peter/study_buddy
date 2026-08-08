@@ -16,6 +16,24 @@ class StudyCardsAlreadyExistsError(Exception):
             "Retrieve the existing study cards instead of generating again."
         )
 
+class StudyCardsNotRetryableError(Exception):
+    def __init__(self, document_id: str, status: StudyCardsStatus):
+        self.document_id = document_id
+        self.status = status
+        super().__init__(
+            "Study cards not retryable for this document. "
+            f"This study cards generation was {status}. "
+            "Please delete the study cards and regenerate them."
+        )
+
+class StudyCardsAlreadyAttemptedAndFailedError(Exception):
+    def __init__(self, document_id: str):
+        self.document_id = document_id
+        super().__init__(
+            "Study cards already attempted and failed generation for this document. "
+            "Please use the retry endpoint to regenerate the study cards."
+        )
+
 
 class StudyCardsInProgressError(Exception):
     def __init__(self, document_id: str):

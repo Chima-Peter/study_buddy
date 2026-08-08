@@ -10,11 +10,13 @@ from app.core.security import get_current_user
 from app.system.question_bank.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    QuestionBankAlreadyAttemptedAndFailedError,
     QuestionBankAlreadyExistsError,
     QuestionBankGenerateApiResponse,
     QuestionBankGetApiResponse,
     QuestionBankInProgressError,
     QuestionBankListApiResponse,
+    QuestionBankNotRetryableError,
     QuestionBankStatus,
 )
 from app.system.question_bank.service import QuestionBankService
@@ -74,7 +76,7 @@ async def list_question_banks(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
+            detail="An error occurred while listing question banks. Please try again later.",
         )
 
     return BasicResponse(
@@ -91,12 +93,12 @@ async def list_question_banks(
     description=(
         "Queues question-bank generation for an owned document. "
         "Results are written asynchronously to question_banks. "
-        "Failed banks can be regenerated; successful or in-progress cannot."
+        "Successful or in-progress banks cannot be regenerated."
     ),
     responses={
         409: {
             "description": (
-                "Question bank already exists (success) or generation "
+                "Question bank generation is already in progress or successful"
                 "is in progress"
             )
         },
@@ -114,6 +116,11 @@ async def generate_question_bank(
     try:
         result = await service.enqueue_generate(document_id, user.id)
     except QuestionBankAlreadyExistsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except QuestionBankAlreadyAttemptedAndFailedError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
@@ -137,12 +144,79 @@ async def generate_question_bank(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
+            detail="An error occurred while queuing question bank generation. Please try again later.",
         )
 
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Question bank generation started successfully",
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+
+
+@question_bank_router.post(
+    "/{document_id}/retry",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=QuestionBankGenerateApiResponse,
+    summary="Retry question bank generation",
+    description=(
+        "Queues question-bank generation for an owned document that has already been generated. "
+        "Results are written asynchronously to question_banks. "
+        "Successful or in-progress banks cannot be regenerated."
+    ),
+    responses={
+        409: {
+            "description": (
+                "Question bank generation is already in progress or successful"
+                "is in progress"
+            )
+        },
+    },
+)
+@inject
+async def retry_question_bank_generation(
+    document_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: QuestionBankService = Depends(
+        Provide[Container.question_bank_service]
+    ),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        result = await service.retry_generation(document_id, user.id)
+    except QuestionBankNotRetryableError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except QuestionBankInProgressError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                "Question bank not found. "
+                "You can only attempt to regenerate question banks that have already been generated."
+            )
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error queueing question bank retry "
+            "document_id=%s user_id=%s",
+            document_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while queuing question bank regeneration. Please try again later.",
+        )
+
+    return BasicResponse(
+        data=result.model_dump(mode="json"),
+        message="Question bank regeneration queued successfully",
         status_code=status.HTTP_202_ACCEPTED,
     )
 
@@ -181,7 +255,7 @@ async def get_question_bank(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
+            detail="An error occurred while getting question bank. Please try again later.",
         )
 
     return BasicResponse(

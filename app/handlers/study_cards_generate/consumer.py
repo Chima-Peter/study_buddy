@@ -48,6 +48,7 @@ async def handle_study_cards_generate(
                 {
                     "document_id": document_id,
                     "user_id": user_id,
+                    "consumer_retry_count": retry_count,
                 },
                 config={
                     "configurable": {

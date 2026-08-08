@@ -17,12 +17,30 @@ class QuestionBankAlreadyExistsError(Exception):
         )
 
 
+class QuestionBankNotRetryableError(Exception):
+    def __init__(self, document_id: str, status: QuestionBankStatus):
+        self.document_id = document_id
+        self.status = status
+        super().__init__(
+            "Question bank not retryable for this document. "
+            f"This question bank generation was {status}. "
+            "Please delete the question bank and regenerate them."
+        )
+
 class QuestionBankInProgressError(Exception):
     def __init__(self, document_id: str):
         self.document_id = document_id
         super().__init__(
             "Question bank generation is already in progress for this document. "
             "Please wait for it to finish."
+        )
+
+class QuestionBankAlreadyAttemptedAndFailedError(Exception):
+    def __init__(self, document_id: str):
+        self.document_id = document_id
+        super().__init__(
+            "Question bank already attempted and failed generation for this document. "
+            "Please use the retry endpoint to regenerate the question bank."
         )
 
 
