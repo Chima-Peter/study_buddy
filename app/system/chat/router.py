@@ -62,6 +62,17 @@ async def websocket_endpoint(
         })
 
         while True:
+            if not await redis_service.exists(f"auth_{user.id}"):
+                logger.info(
+                    "WebSocket client not authenticated user_id=%s",
+                    user.id,
+                )
+                await websocket.close(
+                    code=status.WS_1008_POLICY_VIOLATION,
+                    reason="Not authenticated",
+                )
+                return
+
             chat_task = asyncio.create_task(websocket.receive_json())
 
 

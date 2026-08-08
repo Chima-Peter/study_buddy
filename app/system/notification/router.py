@@ -218,6 +218,14 @@ async def live_stream(
                     )
                     break
 
+                if not await redis_service.exists(f"auth_{user.id}"):
+                    logger.info(
+                        "SSE client not authenticated user_id=%s stream=%s",
+                        user.id,
+                        stream_name,
+                    )
+                    break
+
                 messages = await redis_service.read_stream(stream_name, cursor)
                 if await request.is_disconnected():
                     logger.info(

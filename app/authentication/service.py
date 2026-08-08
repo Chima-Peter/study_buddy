@@ -69,6 +69,9 @@ class AuthService:
             raise InvalidCredentialsError(request.email)
 
         token = self._issue_token(user)
+        
+        await self.redis.set(f"auth_{user.id}", user.id, ttl=self.settings.jwt_expire_minutes * 60)
+
         self._logger.info("Login success user_id=%s email=%s", user.id, user.email)
         return LoginResponse(
             user=self._to_response(user),
@@ -122,6 +125,9 @@ class AuthService:
         await self._blacklist_token(request.token, payload)
 
         token = self._issue_token(user)
+        
+        await self.redis.set(f"auth_{user_id}", user.id, ttl=self.settings.jwt_expire_minutes * 60)
+        
         self._logger.info("Refresh token success user_id=%s", user.id)
         return LoginResponse(
             user=self._to_response(user),
@@ -159,6 +165,8 @@ class AuthService:
         ttl = remaining + self.settings.jwt_refresh_grace_minutes * 60
         if ttl > 0:
             await self.redis.set(f"{BLACKLIST_PREFIX}{token}", "1", ttl)
+
+        self.redis.delete(f"auth_{user_id}")
 
         self._logger.info("Logout success user_id=%s", user_id)
 
