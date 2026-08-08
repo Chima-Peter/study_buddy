@@ -170,7 +170,6 @@ class AuthService:
         if ttl > 0:
             await self.redis.set(f"{BLACKLIST_PREFIX}{token}", "1", ttl)
 
-        await self.redis.delete(f"auth_{user_id}")
         await self._close_connections(user_id)
 
         self._logger.info("Logout success user_id=%s", user_id)
@@ -226,6 +225,7 @@ class AuthService:
         )
 
     async def _close_connections(self, user_id: str) -> None:
+        await self.redis.delete(f"auth_{user_id}")
         await self.redis.publish_to_user(
             user_id,
             EventPayload(
