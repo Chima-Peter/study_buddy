@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from logging import Logger
 
+from app.system.notification.schema import EventPayload
 import jwt
 
 from app.authentication.schema import (
@@ -169,7 +170,8 @@ class AuthService:
         if ttl > 0:
             await self.redis.set(f"{BLACKLIST_PREFIX}{token}", "1", ttl)
 
-        self.redis.delete(f"auth_{user_id}")
+        await self.redis.delete(f"auth_{user_id}")
+        await self._close_connections(user_id)
 
         self._logger.info("Logout success user_id=%s", user_id)
 
@@ -221,4 +223,16 @@ class AuthService:
             timezone=user.timezone,
             created_at=user.created_at,
             updated_at=user.updated_at,
+        )
+
+    async def _close_connections(self, user_id: str) -> None:
+        await self.redis.publish_to_user(
+            user_id,
+            EventPayload(
+                type="auth.logout",
+                data={
+                    "user_id": user_id,
+                    "message": "User has logged out",
+                },
+            ),
         )

@@ -218,14 +218,6 @@ async def live_stream(
                     )
                     break
 
-                if not await redis_service.exists(f"auth_{user.id}"):
-                    logger.info(
-                        "SSE client not authenticated user_id=%s stream=%s",
-                        user.id,
-                        stream_name,
-                    )
-                    break
-
                 messages = await redis_service.read_stream(stream_name, cursor)
                 if await request.is_disconnected():
                     logger.info(
@@ -241,6 +233,42 @@ async def live_stream(
                         f"data: {json.dumps({})}\n\n"
                     )
                     continue
+
+                logout = next(
+                    (
+                        (message_id, fields)
+                        for message_id, fields in messages
+                        if fields.get("type") == "auth.logout"
+                    ),
+                    None,
+                )
+                if logout is not None:
+                    message_id, fields = logout
+                    cursor = message_id
+                    raw_data = fields.get("data", "{}")
+                    try:
+                        payload_data = json.loads(raw_data)
+                    except (TypeError, json.JSONDecodeError):
+                        payload_data = raw_data
+
+                    logger.info(
+                        "SSE client logged out user_id=%s stream=%s",
+                        user.id,
+                        stream_name,
+                    )
+                    payload = json.dumps(
+                        {"type": "auth.logout", "data": payload_data}
+                    )
+                    yield (
+                        f"id: {message_id}\n"
+                        f"event: auth.logout\n"
+                        f"data: {payload}\n\n"
+                    )
+                    for mid, _ in messages:
+                        await redis_service.delete_message_from_stream(
+                            stream_name, mid
+                        )
+                    return
 
                 for message_id, fields in messages:
                     cursor = message_id
