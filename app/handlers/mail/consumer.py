@@ -9,7 +9,11 @@ from pydantic import ValidationError
 from app.core.rabbitmq import RabbitMQ, read_retry_count
 from app.core.smtp import SMTPPool
 from app.mail.schema import AuthEmailRequest
-from app.mail.templates import signup_email
+from app.mail.templates import (
+    password_changed_email,
+    password_reset_email,
+    signup_email,
+)
 
 
 def _build_email(
@@ -20,6 +24,17 @@ def _build_email(
 ) -> EmailMessage:
     if request.type == "signup":
         subject, text, html = signup_email(name=request.name, app_name=app_name)
+    elif request.type == "password_reset":
+        subject, text, html = password_reset_email(
+            name=request.name,
+            app_name=app_name,
+            code=request.code or "",
+        )
+    elif request.type == "password_changed":
+        subject, text, html = password_changed_email(
+            name=request.name,
+            app_name=app_name,
+        )
     else:
         raise ValueError(f"Unsupported auth email type: {request.type}")
 

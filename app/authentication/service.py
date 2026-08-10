@@ -1,14 +1,19 @@
 from datetime import datetime, timezone
 from logging import Logger
+import secrets
 
 from app.system.notification.schema import EventPayload
 import jwt
 
 from app.authentication.schema import (
     BLACKLIST_PREFIX,
+    PASSWORD_RESET_PREFIX,
+    PASSWORD_RESET_TTL_SECONDS,
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
+    ResetPasswordRequest,
 )
 from app.config import Settings
 from app.core.rabbitmq import RabbitMQ
@@ -19,7 +24,7 @@ from app.system.user.repository import UserRepository
 from app.system.user.schema import UserResponse
 from app.utils.bcrypt import hash_password, verify_password
 from app.utils.errors import DuplicateEmailError, EmailAlreadyExistsError, UserNotFoundError
-from app.utils.errors.auth import InvalidCredentialsError
+from app.utils.errors.auth import InvalidCredentialsError, InvalidResetCodeError
 from app.utils.jwt import generate_token
 
 
@@ -62,6 +67,62 @@ class AuthService:
             self._logger.warning("Register failed - email exists: %s", request.email)
             raise EmailAlreadyExistsError(request.email) from e
 
+    async def forgot_password(self, request: ForgotPasswordRequest) -> None:
+        """Generate a reset code, store it in Redis, and email it."""
+        self._logger.info("Forgot password attempt email=%s", request.email)
+        user = await self.repository.get_by_email(request.email)
+        if user is None:
+            self._logger.info(
+                "Forgot password ignored - user not found email=%s", request.email
+            )
+            raise UserNotFoundError(request.email)
+
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        await self.redis.set(
+            f"{PASSWORD_RESET_PREFIX}{user.email.lower()}",
+            code,
+            ttl=PASSWORD_RESET_TTL_SECONDS,
+        )
+        await self._enqueue_password_reset_email(user, code)
+        self._logger.info(
+            "Forgot password code issued user_id=%s email=%s",
+            user.id,
+            user.email,
+        )
+
+    async def reset_password(self, request: ResetPasswordRequest) -> None:
+        """Verify the Redis reset code and update the password."""
+        self._logger.info("Reset password attempt email=%s", request.email)
+        key = f"{PASSWORD_RESET_PREFIX}{request.email.lower()}"
+        stored = await self.redis.get(key)
+        if stored is None or stored != request.code:
+            self._logger.warning(
+                "Reset password failed - invalid or expired code email=%s",
+                request.email,
+            )
+            raise InvalidResetCodeError(request.email)
+
+        user = await self.repository.get_by_email(request.email)
+        if user is None:
+            await self.redis.delete(key)
+            self._logger.warning(
+                "Reset password failed - user not found email=%s", request.email
+            )
+            raise UserNotFoundError(request.email)
+
+        await self.repository.update_password(
+            user.id,
+            hash_password(request.password),
+        )
+        await self.redis.delete(key)
+        await self._close_connections(user.id)
+        await self._enqueue_password_changed_email(user)
+        self._logger.info(
+            "Reset password success user_id=%s email=%s",
+            user.id,
+            user.email,
+        )
+
     async def _enqueue_signup_email(self, user: UserModel) -> None:
         try:
             payload = AuthEmailRequest(
@@ -80,6 +141,46 @@ class AuthService:
                 user.id,
                 user.email,
             )
+
+    async def _enqueue_password_reset_email(self, user: UserModel, code: str) -> None:
+        try:
+            payload = AuthEmailRequest(
+                type="password_reset",
+                to=user.email,
+                name=user.name,
+                user_id=str(user.id),
+                code=code,
+            )
+            await self.rabbitmq.publish_message(
+                "auth_email_queue",
+                payload.model_dump(mode="json"),
+            )
+        except Exception:
+            self._logger.exception(
+                "Failed to enqueue password reset email user_id=%s email=%s",
+                user.id,
+                user.email,
+            )
+
+    async def _enqueue_password_changed_email(self, user: UserModel) -> None:
+        try:
+            payload = AuthEmailRequest(
+                type="password_changed",
+                to=user.email,
+                name=user.name,
+                user_id=str(user.id),
+            )
+            await self.rabbitmq.publish_message(
+                "auth_email_queue",
+                payload.model_dump(mode="json"),
+            )
+        except Exception:
+            self._logger.exception(
+                "Failed to enqueue password changed email user_id=%s email=%s",
+                user.id,
+                user.email,
+            )
+
     async def login(self, request: LoginRequest) -> LoginResponse:
         self._logger.info("Login attempt email=%s", request.email)
         user = await self.repository.get_by_email(request.email)
@@ -92,7 +193,7 @@ class AuthService:
             raise InvalidCredentialsError(request.email)
 
         token = self._issue_token(user)
-        
+
         await self.redis.set(f"auth_{user.id}", user.id, ttl=self.settings.jwt_expire_minutes * 60)
 
         self._logger.info("Login success user_id=%s email=%s", user.id, user.email)

@@ -5,14 +5,19 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials
 
-from app.authentication.schema import LoginRequest, RegisterRequest
+from app.authentication.schema import (
+    ForgotPasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    ResetPasswordRequest,
+)
 from app.authentication.service import AuthService
 from app.container import Container
 from app.core.response import ApiResponse, BasicResponse
 from app.core.security import bearer_scheme, get_current_user
 from app.system.user.schema import UserResponse
 from app.utils.errors import EmailAlreadyExistsError, UserNotFoundError
-from app.utils.errors.auth import InvalidCredentialsError
+from app.utils.errors.auth import InvalidCredentialsError, InvalidResetCodeError
 
 authentication_router = APIRouter(prefix="/authentication", tags=["authentication"])
 
@@ -79,6 +84,78 @@ async def login(
         data=response.model_dump(mode="json"),
         message="Login successful",
     )
+
+
+@authentication_router.post(
+    "/forgot-password",
+    response_model=ApiResponse,
+    summary="Forgot password",
+    description=(
+        "Sends a 6-digit reset code to the email if an account exists. "
+        "The code is stored in Redis for 10 minutes."
+    ),
+)
+@inject
+async def forgot_password(
+    data: ForgotPasswordRequest,
+    service: AuthService = Depends(Provide[Container.auth_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        await service.forgot_password(data)
+    except UserNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User not found",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error during forgot password email=%s", data.email
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        message="If an account exists for that email, a reset code has been sent",
+    )
+
+
+@authentication_router.post(
+    "/reset-password",
+    response_model=ApiResponse,
+    summary="Reset password",
+    description="Verifies the email reset code and sets a new password.",
+)
+@inject
+async def reset_password(
+    data: ResetPasswordRequest,
+    service: AuthService = Depends(Provide[Container.auth_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        await service.reset_password(data)
+    except InvalidResetCodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code",
+        )
+    except UserNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error during reset password email=%s", data.email
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(message="Password reset successfully")
 
 
 @authentication_router.post(

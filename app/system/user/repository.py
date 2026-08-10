@@ -3,6 +3,7 @@ from logging import Logger
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from datetime import datetime, timezone
 
 from app.system.user.model import UserDBModel, UserModel
 from app.system.chat.model import ChatDBModel
@@ -86,6 +87,27 @@ class UserRepository:
 
             await session.refresh(db_user)
             self._logger.info("User updated id=%s", db_user.id)
+            return UserModel(**db_user.model_dump())
+
+    async def update_password(self, user_id: str, hashed_password: str) -> UserModel:
+        self._logger.debug("Updating password for user id=%s", user_id)
+        async with self.session_factory() as session:
+            db_user = await session.get(UserDBModel, user_id)
+            if db_user is None:
+                raise ValueError(f"User not found: {user_id}")
+
+            db_user.hashed_password = hashed_password
+            db_user.updated_at = datetime.now(timezone.utc)
+
+            try:
+                await session.commit()
+            except IntegrityError as e:
+                await session.rollback()
+                self._logger.error("Password update failed: %s", e)
+                raise UserCreateError(str(e)) from e
+
+            await session.refresh(db_user)
+            self._logger.info("Password updated id=%s", db_user.id)
             return UserModel(**db_user.model_dump())
 
     async def list_document_paths(self, user_id: str) -> list[str]:
