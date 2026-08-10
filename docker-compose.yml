@@ -2,14 +2,48 @@
 # Start: docker compose up -d
 # Stop:  docker compose down
 # Reset: docker compose down -v
-#
-# Host ports (offset from defaults to avoid conflicts):
-#   Postgres 54322 | Kong 54323 | Studio 54324 | Redis 16379
-#   RabbitMQ 25672 (mgmt 25673) | ES 19200 | Unstructured 18001
+
 
 name: study_buddy
 
 services:
+  # api:
+  #   build: .
+  #   container_name: studybuddy-api
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"
+  #   env_file:
+  #     - .env.docker
+  #   environment:
+  #     HOST: ${HOST:-0.0.0.0}
+  #     PORT: ${PORT:-8080}
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -fsS localhost:8080/api/health || exit 1"]
+  #     interval: 180s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 30s
+  #   depends_on:
+  #     supabase-db:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
+  #     elasticsearch:
+  #       condition: service_healthy
+  #     unstructured:
+  #       condition: service_healthy
+  #     supabase-kong:
+  #       condition: service_started
+  #     supabase-meta:
+  #       condition: service_started
+  #     supabase-studio:
+  #       condition: service_started
+  #   networks:
+  #     - studybuddy-network
+
   # --- Supabase (Postgres + Storage) ---
   supabase-db:
     image: supabase/postgres:15.8.1.060
@@ -35,7 +69,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-
+    # networks:
+    #   - studybuddy-network
+  
   supabase-rest:
     image: postgrest/postgrest:v12.2.3
     container_name: studybuddy-supabase-rest
@@ -49,6 +85,8 @@ services:
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
       PGRST_DB_USE_LEGACY_GUCS: "false"
+    # networks:
+    #   - studybuddy-network
 
   supabase-storage:
     image: supabase/storage-api:v1.14.5
@@ -80,7 +118,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-
+    # networks:
+    #   - studybuddy-network
+  
   supabase-kong:
     image: kong:2.8.1
     container_name: studybuddy-supabase-kong
@@ -97,7 +137,9 @@ services:
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
     volumes:
       - ./docker/supabase/kong.yml:/var/lib/kong/kong.yml:ro
-
+    # networks:
+    #   - studybuddy-network
+  
   supabase-meta:
     image: supabase/postgres-meta:v0.89.3
     container_name: studybuddy-supabase-meta
@@ -113,7 +155,9 @@ services:
       PG_META_DB_USER: postgres
       PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       CRYPTO_KEY: local-studybuddy-pg-meta-crypto-key-32b
-
+    # networks:
+    #   - studybuddy-network
+  
   supabase-studio:
     image: supabase/studio:2026.07.07-sha-a6a04f2
     container_name: studybuddy-supabase-studio
@@ -150,7 +194,9 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
-
+    # networks:
+    #   - studybuddy-network
+  
   supabase-init:
     image: curlimages/curl:8.12.1
     container_name: studybuddy-supabase-init
@@ -175,7 +221,9 @@ services:
           -H "Content-Type: application/json" \
           -d '{"id":"documents","name":"documents","public":false}' || true
         echo "Supabase init done"
-
+    # networks:
+    #   - studybuddy-network
+  
   # --- App Infrastructure ---
   redis:
     image: redis:7-alpine
@@ -191,7 +239,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-
+    # networks:
+    #   - studybuddy-network
+  
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: studybuddy-rabbitmq
@@ -209,7 +259,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
+    # networks:
+    #   - studybuddy-network
+  
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
     container_name: studybuddy-elasticsearch
@@ -230,7 +282,9 @@ services:
       start_period: 30s
     ulimits:
       memlock: { soft: -1, hard: -1 }
-
+    # networks:
+    #   - studybuddy-network
+  
   unstructured:
     image: downloads.unstructured.io/unstructured-io/unstructured-api:latest
     container_name: studybuddy-unstructured
@@ -243,10 +297,16 @@ services:
       timeout: 10s
       retries: 10
       start_period: 60s
-
+    # networks:
+    #   - studybuddy-network
+  
 volumes:
   supabase_db_data:
   supabase_storage_data:
   redis_data:
   rabbitmq_data:
   elasticsearch_data:
+
+# networks:
+#   studybuddy-network:
+#     driver: bridge

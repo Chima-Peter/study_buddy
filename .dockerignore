@@ -1,0 +1,30 @@
+# VCS / local env
+.git
+.venv
+.vscode
+.python-version
+.gitignore
+
+# Secrets (injected via compose env_file)
+.env
+.env.*
+
+# Caches / bytecode
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Not needed in the API image
+docs
+scripts
+docker
+docker-compose.yml
+*.md
+
+# Build metadata (Dockerfile is read from disk, not context)
+Dockerfile
+.dockerignore
