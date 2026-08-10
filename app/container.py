@@ -221,6 +221,29 @@ async def init_retry_queues(
     return queues
 
 
+async def init_mail_queue(
+    mail_channel: aio_pika.Channel,
+    queue_name: str,
+    *,
+    delay_tiers_ms: list[int],
+    retry_queues: dict[str, dict[int, aio_pika.Queue]],
+    logger: Logger,
+) -> tuple[aio_pika.Queue, aio_pika.Queue]:
+    """Declare a mail queue + DLQ and register its TTL retry queues on mail_channel."""
+    queue, dlq = await init_async_rabbitmq_queue(mail_channel, queue_name)
+    retry_queues[queue_name] = await init_retry_queues(
+        mail_channel,
+        target_queue=queue_name,
+        delay_tiers_ms=delay_tiers_ms,
+    )
+    logger.info(
+        "Declared mail queue=%s with retry TTL delays_ms=%s",
+        queue_name,
+        delay_tiers_ms,
+    )
+    return queue, dlq
+
+
 async def init_async_rabbitmq(
     rabbitmq_url: str,
     logger: Logger,
@@ -256,9 +279,17 @@ async def init_async_rabbitmq(
     await study_cards_channel.set_qos(prefetch_count=10)
     await mail_channel.set_qos(prefetch_count=20)
 
-    auth_email_queue, auth_email_dlq_queue = await init_async_rabbitmq_queue(
-        mail_channel, "auth_email_queue"
+    tiers = retry_delay_tiers_ms(retry_base_ms, retry_max_ms, max_retries)
+    retry_queues: dict[str, dict[int, aio_pika.Queue]] = {}
+
+    auth_email_queue, auth_email_dlq_queue = await init_mail_queue(
+        mail_channel,
+        "auth_email_queue",
+        delay_tiers_ms=tiers,
+        retry_queues=retry_queues,
+        logger=logger,
     )
+
     document_queue, document_dlq_queue = await init_async_rabbitmq_queue(
         channel, "document_queue"
     )
@@ -276,19 +307,14 @@ async def init_async_rabbitmq(
         )
     )
 
-    tiers = retry_delay_tiers_ms(retry_base_ms, retry_max_ms, max_retries)
     retry_targets = (
-        "auth_email_queue",
         "document_queue",
         "memory_extract_queue",
         "study_cards_generate_queue",
         "question_bank_generate_queue",
     )
-    retry_queues: dict[str, dict[int, aio_pika.Queue]] = {}
     for target in retry_targets:
-        if target.startswith("auth_email_queue"):
-            retry_channel = mail_channel
-        elif target.startswith("memory_extract_queue"):
+        if target.startswith("memory_extract_queue"):
             retry_channel = llm_channel
         elif target.startswith(
             ("study_cards_generate_queue", "question_bank_generate_queue")

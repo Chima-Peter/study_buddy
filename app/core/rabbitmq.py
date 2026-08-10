@@ -60,6 +60,11 @@ def retry_queue_name(target_queue: str, delay_ms: int) -> str:
     return f"{target_queue}_retry_{delay_ms}ms"
 
 
+def is_mail_queue(queue_name: str) -> bool:
+    """Mail channel queues use the ``*_email_queue*`` naming convention."""
+    return "_email_queue" in queue_name
+
+
 @dataclass
 class RabbitMQ:
     channel: Channel
@@ -93,7 +98,7 @@ class RabbitMQ:
             )
 
     def _channel_for_queue(self, queue_name: str) -> Channel:
-        if queue_name.startswith("auth_email_queue"):
+        if is_mail_queue(queue_name):
             return self.mail_channel
         if queue_name.startswith("memory_extract_queue"):
             return self.llm_channel
