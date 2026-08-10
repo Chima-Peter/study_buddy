@@ -9,7 +9,7 @@ async def handle_mail_dead_letter_queue(
 ) -> None:
     async with message.process():
         logger.error(
-            "Mail DLQ message id=%s routing_key=%s body=%s headers=%s",
+            "Auth email DLQ message id=%s routing_key=%s body=%s headers=%s",
             message.message_id,
             message.routing_key,
             message.body.decode(),

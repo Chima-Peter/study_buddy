@@ -11,7 +11,9 @@ from app.authentication.schema import (
     RegisterRequest,
 )
 from app.config import Settings
+from app.core.rabbitmq import RabbitMQ
 from app.core.redis import RedisClient
+from app.mail.schema import AuthEmailRequest
 from app.system.user.model import UserModel
 from app.system.user.repository import UserRepository
 from app.system.user.schema import UserResponse
@@ -29,11 +31,13 @@ class AuthService:
         repository: UserRepository,
         redis: RedisClient,
         settings: Settings,
+        rabbitmq: RabbitMQ,
         logger: Logger,
     ):
         self.repository = repository
         self.redis = redis
         self.settings = settings
+        self.rabbitmq = rabbitmq
         self._logger = logger
 
     async def register(self, request: RegisterRequest) -> LoginResponse:
@@ -48,6 +52,7 @@ class AuthService:
             )
             user = await self.repository.create(user)
             token = self._issue_token(user)
+            await self._enqueue_signup_email(user)
             self._logger.info("Register success user_id=%s email=%s", user.id, user.email)
             return LoginResponse(
                 user=self._to_response(user),
@@ -57,6 +62,24 @@ class AuthService:
             self._logger.warning("Register failed - email exists: %s", request.email)
             raise EmailAlreadyExistsError(request.email) from e
 
+    async def _enqueue_signup_email(self, user: UserModel) -> None:
+        try:
+            payload = AuthEmailRequest(
+                type="signup",
+                to=user.email,
+                name=user.name,
+                user_id=str(user.id),
+            )
+            await self.rabbitmq.publish_message(
+                "auth_email_queue",
+                payload.model_dump(mode="json"),
+            )
+        except Exception:
+            self._logger.exception(
+                "Failed to enqueue signup email user_id=%s email=%s",
+                user.id,
+                user.email,
+            )
     async def login(self, request: LoginRequest) -> LoginResponse:
         self._logger.info("Login attempt email=%s", request.email)
         user = await self.repository.get_by_email(request.email)

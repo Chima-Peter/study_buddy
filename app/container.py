@@ -2,9 +2,6 @@ import asyncio
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from logging import Logger
-from queue import Queue
-import smtplib
-import ssl
 
 import aio_pika
 from app.core.mappings import DOCUMENTS_INDEX_MAPPINGS, USER_MEMORIES_INDEX_MAPPINGS
@@ -158,8 +155,9 @@ class RabbitMQResources:
     channel: aio_pika.Channel
     llm_channel: aio_pika.Channel
     study_cards_channel: aio_pika.Channel
-    email_queue: aio_pika.Queue
-    email_dlq_queue: aio_pika.Queue
+    mail_channel: aio_pika.Channel
+    auth_email_queue: aio_pika.Queue
+    auth_email_dlq_queue: aio_pika.Queue
     document_queue: aio_pika.Queue
     document_dlq_queue: aio_pika.Queue
     memory_extract_queue: aio_pika.Queue
@@ -246,16 +244,21 @@ async def init_async_rabbitmq(
             publisher_confirms=True,
             on_return_raises=True,
         )
+        mail_channel = await connection.channel(
+            publisher_confirms=True,
+            on_return_raises=True,
+        )
     except Exception as e:
         logger.exception("Error connecting to RabbitMQ")
         raise e
     await channel.set_qos(prefetch_count=5)
     await llm_channel.set_qos(prefetch_count=20)
     await study_cards_channel.set_qos(prefetch_count=10)
+    await mail_channel.set_qos(prefetch_count=20)
 
-    email_queue, email_dlq_queue = await init_async_rabbitmq_queue(
-        channel, "mail_queue"
-        )
+    auth_email_queue, auth_email_dlq_queue = await init_async_rabbitmq_queue(
+        mail_channel, "auth_email_queue"
+    )
     document_queue, document_dlq_queue = await init_async_rabbitmq_queue(
         channel, "document_queue"
     )
@@ -275,6 +278,7 @@ async def init_async_rabbitmq(
 
     tiers = retry_delay_tiers_ms(retry_base_ms, retry_max_ms, max_retries)
     retry_targets = (
+        "auth_email_queue",
         "document_queue",
         "memory_extract_queue",
         "study_cards_generate_queue",
@@ -282,7 +286,9 @@ async def init_async_rabbitmq(
     )
     retry_queues: dict[str, dict[int, aio_pika.Queue]] = {}
     for target in retry_targets:
-        if target.startswith("memory_extract_queue"):
+        if target.startswith("auth_email_queue"):
+            retry_channel = mail_channel
+        elif target.startswith("memory_extract_queue"):
             retry_channel = llm_channel
         elif target.startswith(
             ("study_cards_generate_queue", "question_bank_generate_queue")
@@ -306,8 +312,9 @@ async def init_async_rabbitmq(
             channel=channel,
             llm_channel=llm_channel,
             study_cards_channel=study_cards_channel,
-            email_queue=email_queue,
-            email_dlq_queue=email_dlq_queue,
+            mail_channel=mail_channel,
+            auth_email_queue=auth_email_queue,
+            auth_email_dlq_queue=auth_email_dlq_queue,
             document_queue=document_queue,
             document_dlq_queue=document_dlq_queue,
             memory_extract_queue=memory_extract_queue,
@@ -319,7 +326,7 @@ async def init_async_rabbitmq(
             retry_queues=retry_queues,
         )
     finally:
-        for ch in (study_cards_channel, llm_channel, channel):
+        for ch in (study_cards_channel, llm_channel, mail_channel, channel):
             try:
                 await asyncio.wait_for(ch.close(), timeout=2.0)
             except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
@@ -335,12 +342,12 @@ async def init_rabbitmq_consumers(
     handlers: Handlers,
 ) -> AsyncIterator[list[RabbitMQConsumer]]:
     active_consumers = await rabbitmq.start_consumers(
-        email_callback=handlers.handle_mail,
+        auth_email_callback=handlers.handle_mail,
         document_callback=handlers.handle_document,
         memory_extract_callback=handlers.handle_memory_extract,
         study_cards_generate_callback=handlers.handle_study_cards_generate,
         question_bank_generate_callback=handlers.handle_question_bank_generate,
-        mail_dlq_callback=handlers.handle_mail_dead_letter_queue,
+        auth_email_dlq_callback=handlers.handle_mail_dead_letter_queue,
         document_dlq_callback=handlers.handle_document_dead_letter_queue,
         memory_extract_dlq_callback=handlers.handle_memory_extract_dead_letter_queue,
         study_cards_generate_dlq_callback=handlers.handle_study_cards_generate_dead_letter_queue,
@@ -365,34 +372,28 @@ async def init_async_supabase(supabase_url: str, supabase_key: str) -> AsyncClie
         supabase_key=supabase_key,
     )
 
-async def init_smtp_pool(smtp_host: str, smtp_port: int, smtp_username: str, smtp_password: str, max_connections: int, logger: Logger) -> SMTPPool:
-    pool = Queue[smtplib.SMTP_SSL](maxsize=max_connections)
+async def init_smtp_pool(
+    smtp_host: str,
+    smtp_port: int,
+    smtp_username: str,
+    smtp_password: str,
+    max_connections: int,
+    logger: Logger,
+    timeout: int = 10,
+) -> AsyncIterator[SMTPPool]:
+    pool = SMTPPool(
+        max_connections=max_connections,
+        timeout=timeout,
+        host=smtp_host,
+        port=smtp_port,
+        username=smtp_username,
+        password=smtp_password,
+        logger=logger,
+    )
     try:
-        for _ in range(max_connections):
-            connection = smtplib.SMTP_SSL(
-                host=smtp_host,
-                port=smtp_port,
-                context=ssl.create_default_context(),
-            )
-            connection.login(smtp_username, smtp_password)
-            pool.put(connection)
-        yield SMTPPool(
-            pool=pool,
-            logger=logger,
-            max_connections=max_connections,
-            timeout=10,
-            host=smtp_host,
-            port=smtp_port,
-            username=smtp_username,
-            password=smtp_password,
-        )
+        yield pool
     finally:
-        while not pool.empty():
-            connection = pool.get()
-            try:
-                connection.quit()
-            except Exception as e:
-                logger.error(f"Error closing connection: {e}")
+        pool.close()
 
 
 async def init_async_elasticsearch(
@@ -516,8 +517,9 @@ class Container(containers.DeclarativeContainer):
         channel=rabbitmq_resources.provided.channel,
         llm_channel=rabbitmq_resources.provided.llm_channel,
         study_cards_channel=rabbitmq_resources.provided.study_cards_channel,
-        email_queue=rabbitmq_resources.provided.email_queue,
-        email_dlq_queue=rabbitmq_resources.provided.email_dlq_queue,
+        mail_channel=rabbitmq_resources.provided.mail_channel,
+        auth_email_queue=rabbitmq_resources.provided.auth_email_queue,
+        auth_email_dlq_queue=rabbitmq_resources.provided.auth_email_dlq_queue,
         document_queue=rabbitmq_resources.provided.document_queue,
         document_dlq_queue=rabbitmq_resources.provided.document_dlq_queue,
         memory_extract_queue=rabbitmq_resources.provided.memory_extract_queue,
@@ -548,6 +550,7 @@ class Container(containers.DeclarativeContainer):
         repository=user_repository,
         redis=redis_client,
         settings=settings,
+        rabbitmq=rabbitmq,
         logger=logger,
     )
 
@@ -777,6 +780,8 @@ class Container(containers.DeclarativeContainer):
         study_cards_service=study_cards_service,
         question_bank_graph=question_bank_graph,
         question_bank_service=question_bank_service,
+        smtp_pool=smtp_pool,
+        settings=settings,
     )
 
     rabbitmq_consumers = providers.Resource(

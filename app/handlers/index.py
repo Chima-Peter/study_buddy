@@ -7,10 +7,12 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.agent.question_bank.graph import QuestionBankGraph
 from app.agent.study_cards_agent.graph import StudyCardsGraph
+from app.config import Settings
 from app.core.elasticsearch import Elasticsearch
 from app.core.embedding import EmbeddingManager
 from app.core.rabbitmq import RabbitMQ
 from app.core.redis import RedisClient
+from app.core.smtp import SMTPPool
 from app.core.supabase import Supabase
 from app.handlers.document import (
     handle_document,
@@ -56,6 +58,8 @@ class Handlers:
         study_cards_service: StudyCardsService,
         question_bank_graph: QuestionBankGraph,
         question_bank_service: QuestionBankService,
+        smtp_pool: SMTPPool,
+        settings: Settings,
     ):
         self._logger = logger
         self._ingest_pipeline = ingest_pipeline
@@ -72,6 +76,8 @@ class Handlers:
         self._study_cards_service = study_cards_service
         self._question_bank_graph = question_bank_graph
         self._question_bank_service = question_bank_service
+        self._smtp_pool = smtp_pool
+        self._settings = settings
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _fire_and_forget(
@@ -102,7 +108,17 @@ class Handlers:
         task.add_done_callback(_on_done)
 
     async def handle_mail(self, message: AbstractIncomingMessage) -> None:
-        self._fire_and_forget(handle_mail(message), label="handle_mail")
+        self._fire_and_forget(
+            handle_mail(
+                message,
+                smtp_pool=self._smtp_pool,
+                logger=self._logger,
+                rabbitmq=self._rabbitmq,
+                from_address=self._settings.smtp_username,
+                app_name=self._settings.app_name,
+            ),
+            label="handle_mail",
+        )
 
     async def handle_document(self, message: AbstractIncomingMessage) -> None:
         self._fire_and_forget(

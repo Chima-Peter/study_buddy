@@ -65,8 +65,9 @@ class RabbitMQ:
     channel: Channel
     llm_channel: Channel
     study_cards_channel: Channel
-    email_queue: Queue
-    email_dlq_queue: Queue
+    mail_channel: Channel
+    auth_email_queue: Queue
+    auth_email_dlq_queue: Queue
     document_queue: Queue
     document_dlq_queue: Queue
     memory_extract_queue: Queue
@@ -92,6 +93,8 @@ class RabbitMQ:
             )
 
     def _channel_for_queue(self, queue_name: str) -> Channel:
+        if queue_name.startswith("auth_email_queue"):
+            return self.mail_channel
         if queue_name.startswith("memory_extract_queue"):
             return self.llm_channel
         if queue_name.startswith("study_cards_generate_queue"):
@@ -186,13 +189,15 @@ class RabbitMQ:
             routing_key,
             payload.get("document_id")
             or payload.get("conversation_id")
+            or payload.get("user_id")
+            or payload.get("to")
             or payload.get("id"),
         )
         return delay_ms
 
     async def start_consumers(
         self,
-        email_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
+        auth_email_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
         document_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
         memory_extract_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
@@ -203,7 +208,9 @@ class RabbitMQ:
         question_bank_generate_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
         ],
-        mail_dlq_callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
+        auth_email_dlq_callback: Callable[
+            [AbstractIncomingMessage], Awaitable[Any]
+        ],
         document_dlq_callback: Callable[
             [AbstractIncomingMessage], Awaitable[Any]
         ],
@@ -217,7 +224,9 @@ class RabbitMQ:
             [AbstractIncomingMessage], Awaitable[Any]
         ],
     ) -> list[RabbitMQConsumer]:
-        mail_consumer = await self._start_consumer("mail_queue", email_callback)
+        auth_email_consumer = await self._start_consumer(
+            "auth_email_queue", auth_email_callback
+        )
         document_consumer = await self._start_consumer(
             "document_queue", document_callback
         )
@@ -230,8 +239,8 @@ class RabbitMQ:
         question_bank_generate_consumer = await self._start_consumer(
             "question_bank_generate_queue", question_bank_generate_callback
         )
-        mail_dlq_consumer = await self._start_consumer(
-            "mail_queue_dlq", mail_dlq_callback
+        auth_email_dlq_consumer = await self._start_consumer(
+            "auth_email_queue_dlq", auth_email_dlq_callback
         )
         document_dlq_consumer = await self._start_consumer(
             "document_queue_dlq", document_dlq_callback
@@ -248,12 +257,12 @@ class RabbitMQ:
         )
         self.logger.info("Started RabbitMQ consumers")
         return [
-            mail_consumer,
+            auth_email_consumer,
             document_consumer,
             memory_extract_consumer,
             study_cards_generate_consumer,
             question_bank_generate_consumer,
-            mail_dlq_consumer,
+            auth_email_dlq_consumer,
             document_dlq_consumer,
             memory_extract_dlq_consumer,
             study_cards_generate_dlq_consumer,
@@ -278,10 +287,10 @@ class RabbitMQ:
         callback: Callable[[AbstractIncomingMessage], Awaitable[Any]],
     ) -> RabbitMQConsumer:
         match queue_name:
-            case "mail_queue":
-                queue = self.email_queue
-            case "mail_queue_dlq":
-                queue = self.email_dlq_queue
+            case "auth_email_queue":
+                queue = self.auth_email_queue
+            case "auth_email_queue_dlq":
+                queue = self.auth_email_dlq_queue
             case "document_queue":
                 queue = self.document_queue
             case "document_queue_dlq":

@@ -43,11 +43,11 @@ class SMTPPool:
             self.logger.error(f"Error sending email: {e}")
             if connection is not None:
                 self._discard_connection(connection)
-            try:
-                connection = self._create_connection()
-            except Exception:
-                connection = None
-                raise
+                try:
+                    connection = self._create_connection()
+                except Exception:
+                    connection = None
+                    raise
             raise
         finally:
             if connection is not None:
