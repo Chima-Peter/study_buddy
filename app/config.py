@@ -47,3 +47,9 @@ class Settings(BaseSettings):
     rabbitmq_max_retries: int = 3
     rabbitmq_retry_base_ms: int = 5_000
     rabbitmq_retry_max_ms: int = 300_000
+
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 465
+    smtp_username: str = "your@email.com"
+    smtp_password: str = "your-password"
+    smtp_max_connections: int = 10

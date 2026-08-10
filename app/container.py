@@ -2,9 +2,13 @@ import asyncio
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from logging import Logger
+from queue import Queue
+import smtplib
+import ssl
 
 import aio_pika
 from app.core.mappings import DOCUMENTS_INDEX_MAPPINGS, USER_MEMORIES_INDEX_MAPPINGS
+from app.core.smtp import SMTPPool
 from langchain_google_genai import ChatGoogleGenerativeAI
 import redis
 from dependency_injector import containers, providers
@@ -361,6 +365,35 @@ async def init_async_supabase(supabase_url: str, supabase_key: str) -> AsyncClie
         supabase_key=supabase_key,
     )
 
+async def init_smtp_pool(smtp_host: str, smtp_port: int, smtp_username: str, smtp_password: str, max_connections: int, logger: Logger) -> SMTPPool:
+    pool = Queue[smtplib.SMTP_SSL](maxsize=max_connections)
+    try:
+        for _ in range(max_connections):
+            connection = smtplib.SMTP_SSL(
+                host=smtp_host,
+                port=smtp_port,
+                context=ssl.create_default_context(),
+            )
+            connection.login(smtp_username, smtp_password)
+            pool.put(connection)
+        yield SMTPPool(
+            pool=pool,
+            logger=logger,
+            max_connections=max_connections,
+            timeout=10,
+            host=smtp_host,
+            port=smtp_port,
+            username=smtp_username,
+            password=smtp_password,
+        )
+    finally:
+        while not pool.empty():
+            connection = pool.get()
+            try:
+                connection.quit()
+            except Exception as e:
+                logger.error(f"Error closing connection: {e}")
+
 
 async def init_async_elasticsearch(
     elasticsearch_url: str,
@@ -497,6 +530,16 @@ class Container(containers.DeclarativeContainer):
         max_retries=settings.provided.rabbitmq_max_retries,
         retry_base_ms=settings.provided.rabbitmq_retry_base_ms,
         retry_max_ms=settings.provided.rabbitmq_retry_max_ms,
+        logger=logger,
+    )
+
+    smtp_pool = providers.Resource(
+        init_smtp_pool,
+        smtp_host=settings.provided.smtp_host,
+        smtp_port=settings.provided.smtp_port,
+        smtp_username=settings.provided.smtp_username,
+        smtp_password=settings.provided.smtp_password,
+        max_connections=settings.provided.smtp_max_connections,
         logger=logger,
     )
 
