@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
@@ -18,7 +19,7 @@ from app.system.router import system_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await app.container.init_resources()
-    app.container.embedding_manager()
+    await asyncio.to_thread(app.container.embedding_manager().ensure_loaded)
     try:
         yield
     finally:

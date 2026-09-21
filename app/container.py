@@ -134,12 +134,11 @@ def init_sync_redis(redis_url: str) -> Iterator[redis.Redis]:
         client.close()
 
 
-async def init_async_redis() -> AsyncIterator[Redis]:
+async def init_async_redis(redis_url: str) -> AsyncIterator[Redis]:
     """Create the async Redis client and close it on shutdown."""
     socket_timeout_s = (SSE_PING_INTERVAL_MS / 1000) + 10
-    client = Redis(
-        host="localhost",
-        port=6379,
+    client = Redis.from_url(
+        redis_url,
         socket_timeout=socket_timeout_s,
         socket_connect_timeout=10,
         decode_responses=True,
@@ -407,7 +406,8 @@ async def init_smtp_pool(
     logger: Logger,
     timeout: int = 10,
 ) -> AsyncIterator[SMTPPool]:
-    pool = SMTPPool(
+    pool = await asyncio.to_thread(
+        SMTPPool,
         max_connections=max_connections,
         timeout=timeout,
         host=smtp_host,
@@ -466,6 +466,7 @@ class Container(containers.DeclarativeContainer):
 
     async_redis = providers.Resource(
         init_async_redis,
+        redis_url=settings.provided.redis_url,
     )
 
     sync_engine = providers.Resource(

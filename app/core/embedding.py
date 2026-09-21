@@ -5,17 +5,19 @@ import numpy as np
 from langchain_core.documents import Document
 from sentence_transformers import SentenceTransformer
 
+
 class EmbeddingManager:
     def __init__(self, logger: Logger, model_name: str = "all-MiniLM-L6-v2"):
         self.model_name = model_name
         self.logger = logger
         self._model = None
-        self._load_model()
+
+    def ensure_loaded(self) -> None:
+        if self._model is None:
+            self._load_model()
 
     def embed_documents(self, documents: List[Document]) -> np.ndarray:
-        if not self.model:
-            raise ValueError("Model not loaded")
-
+        self.ensure_loaded()
         texts = [doc.page_content for doc in documents]
         embeddings = self._model.encode(texts, show_progress_bar=False)
         self.logger.debug(
@@ -26,6 +28,7 @@ class EmbeddingManager:
         return embeddings
 
     def embed_query(self, query: str) -> np.ndarray:
+        self.ensure_loaded()
         return self._model.encode(query, show_progress_bar=False)
 
     def _load_model(self):
@@ -38,6 +41,5 @@ class EmbeddingManager:
 
     @property
     def model(self) -> SentenceTransformer:
-        if self._model is None:
-            raise ValueError("Model not loaded")
+        self.ensure_loaded()
         return self._model

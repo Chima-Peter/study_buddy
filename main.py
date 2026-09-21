@@ -8,6 +8,7 @@ def main() -> None:
     uvicorn.run(
         "app.main:app",
         host=settings.host,
+        env_file=".env",
         port=settings.port,
         reload=settings.debug,
         ws_ping_interval=20,
