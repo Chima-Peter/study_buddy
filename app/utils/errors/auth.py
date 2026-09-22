@@ -12,3 +12,7 @@ class InvalidCredentialsError(Exception):
 
 class InvalidResetCodeError(Exception):
     """Password reset code is invalid or expired."""
+
+
+class InvalidResetTokenError(Exception):
+    """Password reset token is invalid or expired."""

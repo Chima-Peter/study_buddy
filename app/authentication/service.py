@@ -8,12 +8,15 @@ import jwt
 from app.authentication.schema import (
     BLACKLIST_PREFIX,
     PASSWORD_RESET_PREFIX,
+    PASSWORD_RESET_TOKEN_PREFIX,
     PASSWORD_RESET_TTL_SECONDS,
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
     ResetPasswordRequest,
+    VerifyResetCodeRequest,
+    VerifyResetCodeResponse,
 )
 from app.config import Settings
 from app.core.rabbitmq import RabbitMQ
@@ -24,7 +27,11 @@ from app.system.user.repository import UserRepository
 from app.system.user.schema import UserResponse
 from app.utils.bcrypt import hash_password, verify_password
 from app.utils.errors import DuplicateEmailError, EmailAlreadyExistsError, UserNotFoundError
-from app.utils.errors.auth import InvalidCredentialsError, InvalidResetCodeError
+from app.utils.errors.auth import (
+    InvalidCredentialsError,
+    InvalidResetCodeError,
+    InvalidResetTokenError,
+)
 from app.utils.jwt import generate_token
 
 
@@ -90,31 +97,55 @@ class AuthService:
             user.email,
         )
 
-    async def reset_password(self, request: ResetPasswordRequest) -> None:
-        """Verify the Redis reset code and update the password."""
-        self._logger.info("Reset password attempt email=%s", request.email)
-        key = f"{PASSWORD_RESET_PREFIX}{request.email.lower()}"
-        stored = await self.redis.get(key)
+    async def verify_reset_code(
+        self, request: VerifyResetCodeRequest
+    ) -> VerifyResetCodeResponse:
+        """Verify the email reset code and issue a short-lived reset token."""
+        self._logger.info("Verify reset code attempt email=%s", request.email)
+        code_key = f"{PASSWORD_RESET_PREFIX}{request.email.lower()}"
+        stored = await self.redis.get(code_key)
         if stored is None or stored != request.code:
             self._logger.warning(
-                "Reset password failed - invalid or expired code email=%s",
+                "Verify reset code failed - invalid or expired code email=%s",
                 request.email,
             )
             raise InvalidResetCodeError(request.email)
 
-        user = await self.repository.get_by_email(request.email)
+        token = secrets.token_urlsafe(32)
+        await self.redis.set(
+            f"{PASSWORD_RESET_TOKEN_PREFIX}{token}",
+            request.email.lower(),
+            ttl=PASSWORD_RESET_TTL_SECONDS,
+        )
+        await self.redis.delete(code_key)
+        self._logger.info(
+            "Verify reset code success email=%s",
+            request.email,
+        )
+        return VerifyResetCodeResponse(token=token)
+
+    async def reset_password(self, request: ResetPasswordRequest) -> None:
+        """Verify the Redis reset token and update the password."""
+        self._logger.info("Reset password attempt")
+        token_key = f"{PASSWORD_RESET_TOKEN_PREFIX}{request.token}"
+        email = await self.redis.get(token_key)
+        if email is None:
+            self._logger.warning("Reset password failed - invalid or expired token")
+            raise InvalidResetTokenError()
+
+        user = await self.repository.get_by_email(email)
         if user is None:
-            await self.redis.delete(key)
+            await self.redis.delete(token_key)
             self._logger.warning(
-                "Reset password failed - user not found email=%s", request.email
+                "Reset password failed - user not found email=%s", email
             )
-            raise UserNotFoundError(request.email)
+            raise UserNotFoundError(email)
 
         await self.repository.update_password(
             user.id,
             hash_password(request.password),
         )
-        await self.redis.delete(key)
+        await self.redis.delete(token_key)
         await self._close_connections(user.id)
         await self._enqueue_password_changed_email(user)
         self._logger.info(

@@ -10,6 +10,7 @@ from app.authentication.schema import (
     LoginRequest,
     RegisterRequest,
     ResetPasswordRequest,
+    VerifyResetCodeRequest,
 )
 from app.authentication.service import AuthService
 from app.container import Container
@@ -17,7 +18,11 @@ from app.core.response import ApiResponse, BasicResponse
 from app.core.security import bearer_scheme, get_current_user
 from app.system.user.schema import UserResponse
 from app.utils.errors import EmailAlreadyExistsError, UserNotFoundError
-from app.utils.errors.auth import InvalidCredentialsError, InvalidResetCodeError
+from app.utils.errors.auth import (
+    InvalidCredentialsError,
+    InvalidResetCodeError,
+    InvalidResetTokenError,
+)
 
 authentication_router = APIRouter(prefix="/authentication", tags=["authentication"])
 
@@ -92,7 +97,7 @@ async def login(
     summary="Forgot password",
     description=(
         "Sends a 6-digit reset code to the email if an account exists. "
-        "The code is stored in Redis for 10 minutes."
+        "The code is stored in Redis for 5 minutes."
     ),
 )
 @inject
@@ -123,10 +128,47 @@ async def forgot_password(
 
 
 @authentication_router.post(
+    "/verify-reset-code",
+    response_model=ApiResponse,
+    summary="Verify password reset code",
+    description=(
+        "Verifies the email reset code and returns a short-lived token "
+        "to use with the reset-password endpoint. Token expires in 5 minutes."
+    ),
+)
+@inject
+async def verify_reset_code(
+    data: VerifyResetCodeRequest,
+    service: AuthService = Depends(Provide[Container.auth_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        response = await service.verify_reset_code(data)
+    except InvalidResetCodeError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error during verify reset code email=%s", data.email
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    return BasicResponse(
+        data=response.model_dump(mode="json"),
+        message="Reset code verified successfully",
+    )
+
+
+@authentication_router.post(
     "/reset-password",
     response_model=ApiResponse,
     summary="Reset password",
-    description="Verifies the email reset code and sets a new password.",
+    description="Verifies the reset token and sets a new password.",
 )
 @inject
 async def reset_password(
@@ -136,20 +178,13 @@ async def reset_password(
 ) -> BasicResponse:
     try:
         await service.reset_password(data)
-    except InvalidResetCodeError:
+    except (InvalidResetTokenError, UserNotFoundError):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired reset code",
-        )
-    except UserNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired reset code",
+            detail="Invalid or expired reset token",
         )
     except Exception:
-        logger.exception(
-            "Unexpected error during reset password email=%s", data.email
-        )
+        logger.exception("Unexpected error during reset password")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
