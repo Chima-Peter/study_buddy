@@ -3,7 +3,7 @@ from logging import Logger
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agent.chat_agent.prompts import retrieval_decider_prompt
-from app.agent.chat_agent.schema import DeciderResponse
+from app.agent.chat_agent.schema import NON_ACADEMIC_FALLBACK, DeciderResponse
 from app.agent.chat_agent.state import AgentState
 from app.utils.llm import is_rate_limit_error
 
@@ -23,16 +23,19 @@ class RetrievalDeciderNode:
         history = state.get("conversation_history") or []
         context = "\n".join(
             f"User: {message.query}, Assistant: {message.response}"
-            for message in history[-3:]
+            for message in history[-5:]
         )
+        summary = state.get("conversation_summary") or ""
 
-        prompt = retrieval_decider_prompt(state["query"], context)
-        
+        prompt = retrieval_decider_prompt(state["query"], context, summary)
+        response: str | None = None
+
         try:
             decision = await self.model.ainvoke(prompt)
             result = decision.decision
             retrieve_memory = decision.retrieve_memory
             is_academic_discussion = decision.is_academic_discussion
+            response = decision.response
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
@@ -49,6 +52,22 @@ class RetrievalDeciderNode:
             result = "both" if not state["first_message"] else "rag"
             retrieve_memory = False
             is_academic_discussion = True
+
+        if not is_academic_discussion:
+            reply = (response or "").strip() or NON_ACADEMIC_FALLBACK
+            self.logger.info(
+                "Retrieval decider ended discussion early id=%s user_id=%s",
+                state["conversation_id"],
+                state["user_id"],
+            )
+            return {
+                "retrieve_rag": False,
+                "retrieve_conversation_history": False,
+                "retrieve_memory": False,
+                "is_academic_discussion": False,
+                "response": reply,
+                "rag_documents": [],
+            }
 
         mapping = {
             "rag": (True, False),
@@ -81,4 +100,4 @@ class RetrievalDeciderNode:
             "retrieve_conversation_history": retrieve_history,
             "retrieve_memory": retrieve_memory,
             "is_academic_discussion": is_academic_discussion,
-            }
+        }

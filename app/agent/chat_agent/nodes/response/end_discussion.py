@@ -1,4 +1,5 @@
 from logging import Logger
+from app.agent.chat_agent.schema import NON_ACADEMIC_FALLBACK
 from app.agent.chat_agent.state import AgentState
 from langgraph.config import get_stream_writer
 
@@ -14,11 +15,7 @@ class EndDiscussionNode:
             state["user_id"],
         )
 
-        response = (
-            "I'm sorry, I can't help with that. This is a study buddy, "
-            "not a general purpose chatbot. Please ask me something related "
-            "to your studies!"
-        )
+        response = (state.get("response") or "").strip() or NON_ACADEMIC_FALLBACK
         writer = get_stream_writer()
         writer(
             {
