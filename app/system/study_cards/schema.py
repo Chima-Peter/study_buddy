@@ -54,6 +54,8 @@ class StudyCardsGenerateRequest(BaseModel):
 
 class StudyCardsGenerateAccepted(BaseModel):
     document_id: str
+    name: str
+    status: StudyCardsStatus
 
 
 class StudyCardsResultResponse(BaseModel):

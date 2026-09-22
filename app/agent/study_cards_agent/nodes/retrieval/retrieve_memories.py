@@ -13,13 +13,13 @@ class RetrieveMemoriesNode:
         if state.get("memories") is not None:
             self.logger.info(
                 "Retrieve memories node skipped document_id=%s "
-                "reason=already_loaded for quiz bank agent",
+                "reason=already_loaded for study cards agent",
                 state["document_id"],
             )
             return {}
 
         self.logger.info(
-            "Retrieving memories for document_id=%s for quiz bank agent",
+            "Retrieving memories for document_id=%s for study cards agent",
             state["document_id"],
         )
 
@@ -33,13 +33,13 @@ class RetrieveMemoriesNode:
 
         if not memories:
             self.logger.warning(
-                "No memories found for document_id=%s for quiz bank agent",
+                "No memories found for document_id=%s for study cards agent",
                 state["document_id"],
             )
             return {"memories": []}
 
         self.logger.info(
-            "Retrieved %d memories for document_id=%s for quiz bank agent",
+            "Retrieved %d memories for document_id=%s for study cards agent",
             len(memories),
             state["document_id"],
         )

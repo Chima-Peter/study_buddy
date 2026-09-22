@@ -82,6 +82,24 @@ async def handle_study_cards_generate(
                 "Non-retryable study cards generate payload error: %s",
                 e,
             )
+            await notify_study_cards_status(
+                    redis,
+                    logger,
+                    user_id,
+                    notification_service,
+                    name=name,
+                    document_id=document_id,
+                    status="failed",
+                    comment=(
+                        f'Study cards generation for "{name}" '
+                        "failed."
+                    ),
+                )
+            await study_cards_service.mark_failed(
+                document_id,
+                user_id,
+                reason="Study cards generation failed.",
+            )
             await message.reject(requeue=False)
             return
         except Exception as e:
@@ -138,6 +156,11 @@ async def handle_study_cards_generate(
                     ),
                 )
 
+                await study_cards_service.mark_failed(
+                    document_id,
+                    user_id,
+                    reason="Study cards generation failed.",
+                )
                 await message.reject(requeue=False)
                 return
 

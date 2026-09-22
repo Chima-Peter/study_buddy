@@ -13,14 +13,14 @@ class RetrieveChaptersNode:
         if state.get("chapter_keys") is not None:
             self.logger.info(
                 "Retrieve chapters node skipped document_id=%s "
-                "reason=already_loaded for quiz bank agent",
+                "reason=already_loaded for study cards agent",
                 state["document_id"],
             )
             return {}
 
         self.logger.info(
             "Retrieve chapters node started document_id=%s user_id=%s "
-            "for quiz bank agent",
+            "for study cards agent",
             state["document_id"],
             state["user_id"],
         )

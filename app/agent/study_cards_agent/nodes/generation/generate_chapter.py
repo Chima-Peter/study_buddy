@@ -25,7 +25,7 @@ class GenerateChapterNode:
         if not pending_chapters and not missing_chapters:
             self.logger.info(
                 "No pending or missing chapters to generate "
-                "for document_id=%s user_id=%s for quiz bank agent",
+                "for document_id=%s user_id=%s for study cards agent",
                 state["document_id"],
                 state["user_id"],
             )
@@ -34,7 +34,7 @@ class GenerateChapterNode:
         self.logger.info(
             "Generate chapter node started document_id=%s user_id=%s "
             "missing_chapters=%s pending_chapters=%s retry_count=%s "
-            "for quiz bank agent",
+            "for study cards agent",
             state["document_id"],
             state["user_id"],
             len(missing_chapters),
@@ -54,7 +54,7 @@ class GenerateChapterNode:
         if not chapter_keys_to_generate:
             self.logger.info(
                 "Nothing to generate after excluding undone critiques "
-                "document_id=%s user_id=%s undone=%s for quiz bank agent",
+                "document_id=%s user_id=%s undone=%s for study cards agent",
                 state["document_id"],
                 state["user_id"],
                 len(undone_critique_chapters),
@@ -85,7 +85,7 @@ class GenerateChapterNode:
 
         self.logger.info(
             "Generated chapters for document_id=%s user_id=%s "
-            "generated_chapters=%s for quiz bank agent",
+            "generated_chapters=%s for study cards agent",
             state["document_id"],
             state["user_id"],
             len(generated_chapters),
@@ -111,7 +111,7 @@ class GenerateChapterNode:
         self.logger.info(
             "Generating chapter for section chapter_key=%s content_len=%s "
             "has_critique=%s has_previous_draft=%s has_preferences=%s "
-            "for quiz bank agent",
+            "for study cards agent",
             chapter_key,
             len(content),
             bool(critique_comment),
@@ -132,7 +132,7 @@ class GenerateChapterNode:
             result = response.model_copy(update={"chapter_key": chapter_key})
 
             self.logger.info(
-                "Generated chapter for section chapter_key=%s for quiz bank agent",
+                "Generated chapter for section chapter_key=%s for study cards agent",
                 chapter_key,
             )
             return result
@@ -140,13 +140,13 @@ class GenerateChapterNode:
             if is_rate_limit_error(e):
                 self.logger.warning(
                     "Rate limit error generating chapter for section "
-                    "chapter_key=%s for quiz bank agent",
+                    "chapter_key=%s for study cards agent",
                     chapter_key,
                 )
                 raise
             self.logger.exception(
                 "Error generating chapter for section chapter_key=%s "
-                "for quiz bank agent",
+                "for study cards agent",
                 chapter_key,
             )
             return None

@@ -85,6 +85,7 @@ class AuthService:
             raise UserNotFoundError(request.email)
 
         code = f"{secrets.randbelow(1_000_000):06d}"
+        self._logger.info("Forgot password code generated: %s", code)
         await self.redis.set(
             f"{PASSWORD_RESET_PREFIX}{user.email.lower()}",
             code,
