@@ -81,6 +81,33 @@ async def handle_question_bank_generate(
                 "Non-retryable question bank generate payload error: %s",
                 e,
             )
+            await notify_question_bank_status(
+                redis,
+                logger,
+                user_id,
+                notification_service,
+                name=name,
+                document_id=document_id,
+                status="failed",
+                comment=(
+                    f'Question bank generation for "{name}" '
+                    "failed."
+                ),
+            )
+            if document_id and user_id:
+                try:
+                    await question_bank_service.mark_failed(
+                        document_id,
+                        user_id,
+                        reason="Question bank generation failed.",
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to mark question bank failed "
+                        "document_id=%s user_id=%s",
+                        document_id,
+                        user_id,
+                    )
             await message.reject(requeue=False)
             return
         except Exception as e:

@@ -6,6 +6,7 @@ from app.system.chat.schema import ChatResponse
 from app.system.conversation.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    BranchConversationRequest,
     ConversationDetailResponse,
     ConversationListResponseData,
     ConversationPatchRequest,
@@ -195,6 +196,35 @@ class ConversationService:
             id=conversation.id,
             title=conversation.title,
             status=conversation.status,
+        )
+
+    async def branch(
+        self,
+        conversation_id: str,
+        user_id: str,
+        request: BranchConversationRequest,
+    ) -> ConversationResponse:
+        self.logger.info(
+            "Branching conversation id=%s user_id=%s chat_count=%s",
+            conversation_id,
+            user_id,
+            request.chat_count,
+        )
+        result = await self.repository.branch(
+            source_conversation_id=conversation_id,
+            user_id=user_id,
+            chat_count=request.chat_count,
+        )
+        self.logger.info(
+            "Conversation branch completed source_id=%s new_id=%s user_id=%s",
+            conversation_id,
+            result.id,
+            user_id,
+        )
+        return ConversationResponse(
+            id=result.id,
+            title=result.title,
+            status=result.status,
         )
 
     async def verify_ownership(

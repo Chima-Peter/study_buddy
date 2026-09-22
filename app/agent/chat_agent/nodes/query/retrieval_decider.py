@@ -20,6 +20,22 @@ class RetrievalDeciderNode:
             state["user_id"],
             state["first_message"],
         )
+
+        if state.get("retry_count") > 3:
+            self.logger.warning(
+                "Retrieval decider failed id=%s user_id=%s retry_count=%s",
+                state["conversation_id"],
+                state["user_id"],
+                state.get("retry_count"),
+            )
+            return {
+                "retrieve_rag": False,
+                "retrieve_conversation_history": False,
+                "retrieve_memory": False,
+                "is_academic_discussion": False,
+                "rag_documents": [],
+            }
+
         history = state.get("conversation_history") or []
         context = "\n".join(
             f"User: {message.query}, Assistant: {message.response}"

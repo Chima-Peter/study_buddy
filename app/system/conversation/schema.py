@@ -37,6 +37,13 @@ class ConversationPatchRequest(BaseModel):
     title: str = Field(default=None, min_length=1, max_length=255)
     # status: Optional[STATUS_LITERAL] = None
 
+
+class BranchConversationRequest(BaseModel):
+    """Copy the first `chat_count` turns into a new conversation."""
+
+    chat_count: int = Field(ge=1, description="Number of chat turns to include")
+
+
 class ConversationListResponseData(BaseModel):
     items: list[ConversationResponse]
     next_cursor: Optional[str] = None

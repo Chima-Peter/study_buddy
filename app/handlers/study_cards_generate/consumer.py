@@ -95,11 +95,20 @@ async def handle_study_cards_generate(
                         "failed."
                     ),
                 )
-            await study_cards_service.mark_failed(
-                document_id,
-                user_id,
-                reason="Study cards generation failed.",
-            )
+            if document_id and user_id:
+                try:
+                    await study_cards_service.mark_failed(
+                        document_id,
+                        user_id,
+                        reason="Study cards generation failed.",
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to mark study cards as failed "
+                        "document_id=%s user_id=%s",
+                        document_id,
+                        user_id,
+                    )
             await message.reject(requeue=False)
             return
         except Exception as e:
@@ -128,7 +137,7 @@ async def handle_study_cards_generate(
                         )
                     except Exception:
                         logger.exception(
-                            "Failed to mark study cards failed "
+                            "Failed to mark study cards as failed "
                             "document_id=%s user_id=%s",
                             document_id,
                             user_id,

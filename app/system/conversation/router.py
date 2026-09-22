@@ -11,6 +11,7 @@ from app.core.security import get_current_user
 from app.system.conversation.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    BranchConversationRequest,
     ConversationApiResponse,
     ConversationHistoryApiResponse,
     ConversationHistoryResponse,
@@ -123,6 +124,70 @@ async def get_conversation(
     except Exception:
         logger.exception(
             "Unexpected error getting conversation id=%s user_id=%s",
+            conversation_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+
+@conversation_router.post(
+    "/{conversation_id}/branch",
+    response_model=ConversationApiResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@inject
+async def branch_conversation(
+    conversation_id: str,
+    request: BranchConversationRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: ConversationService = Depends(
+        Provide[Container.conversation_service]
+    ),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    logger.info(
+        "Branch conversation request id=%s user_id=%s chat_count=%s",
+        conversation_id,
+        user.id,
+        request.chat_count,
+    )
+    try:
+        conversation = await service.branch(
+            conversation_id=conversation_id,
+            user_id=user.id,
+            request=request,
+        )
+        logger.info(
+            "Branch conversation request completed source_id=%s new_id=%s "
+            "user_id=%s",
+            conversation_id,
+            conversation.id,
+            user.id,
+        )
+        return BasicResponse(
+            data=conversation.model_dump(mode="json"),
+            message="Conversation branched successfully",
+        )
+    except ValueError as error:
+        logger.warning(
+            "Branch conversation request failed id=%s user_id=%s error=%s",
+            conversation_id,
+            user.id,
+            error,
+        )
+        detail = str(error)
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if detail == "Conversation not found"
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=code, detail=detail) from error
+    except Exception:
+        logger.exception(
+            "Unexpected error branching conversation id=%s user_id=%s",
             conversation_id,
             user.id,
         )

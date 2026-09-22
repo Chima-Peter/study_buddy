@@ -34,3 +34,5 @@ class AgentState(TypedDict):
     student_gender: str | None
 
     response: str
+
+    retry_count: int = 1
