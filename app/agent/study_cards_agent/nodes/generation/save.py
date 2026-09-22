@@ -1,4 +1,5 @@
 from logging import Logger
+from pstats import Stats
 
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.system.study_cards import StudyCardsService
@@ -15,6 +16,14 @@ class SaveNode:
             state["document_id"],
             state["user_id"],
         )
+
+        if not state.get("final_result") or len(state.get("final_result").chapters) == 0:
+            self.logger.warning(
+                "No final result found for document_id=%s user_id=%s",
+                state["document_id"],
+                state["user_id"],
+            )
+            return {"saved": False}
 
         try:
             await self.study_card_service.update_result(
