@@ -49,7 +49,8 @@ class ChatService:
         continuation_key.
 
         Absence of ``continuation_key`` means a new request. When present, the
-        key is verified and its chat_id / thread_id / checkpointer_id are used.
+        key is verified and its chat_id / thread_id / checkpointer_id /
+        query_message_id / response_message_id are used.
         """
         if isinstance(message, str):
             self.logger.warning(
@@ -110,11 +111,11 @@ class ChatService:
         if not document_ids:
             return None, "At least one document is required for chat."
 
-        query_message_id = message.get("query_message_id")
-        response_message_id = message.get("response_message_id")
         continuation_key = message.get("continuation_key")
         chat_id = None
         checkpointer_id = None
+        query_message_id = None
+        response_message_id = None
 
         if continuation_key:
             verified = verify_continuation_key(
@@ -130,6 +131,8 @@ class ChatService:
 
             chat_id = verified["chat_id"]
             checkpointer_id = verified["checkpointer_id"]
+            query_message_id = verified["query_message_id"]
+            response_message_id = verified["response_message_id"]
             thread_id = verified["thread_id"]
             if conversation_id and conversation_id != thread_id:
                 self.logger.warning(
@@ -142,13 +145,22 @@ class ChatService:
                 return None, "continuation key does not match conversation"
             conversation_id = thread_id
 
-        if message_type == "edit" and not self._is_valid_message_id(query_message_id):
+        if message_type in ("edit", "retry") and not continuation_key:
+            self.logger.warning(
+                "Missing continuation_key for edit/retry user_id=%s",
+                user_id,
+            )
+            return None, "continuation_key is required for edit and retry"
+
+        if message_type == "edit" and not self._is_valid_message_id(
+            query_message_id
+        ):
             self.logger.warning(
                 "Invalid query_message_id for edit user_id=%s value=%r",
                 user_id,
                 query_message_id,
             )
-            return None, "query_message_id must be a valid message id"
+            return None, "continuation key missing query_message_id"
 
         if message_type == "retry" and not self._is_valid_message_id(
             response_message_id
@@ -158,14 +170,7 @@ class ChatService:
                 user_id,
                 response_message_id,
             )
-            return None, "response_message_id must be a valid message id"
-
-        if message_type in ("edit", "retry") and not continuation_key:
-            self.logger.warning(
-                "Missing continuation_key for edit/retry user_id=%s",
-                user_id,
-            )
-            return None, "continuation_key is required for edit and retry"
+            return None, "continuation key missing response_message_id"
 
         return {
             "type": message_type,
@@ -374,6 +379,10 @@ class ChatService:
                         chat_id=chat_id,
                         thread_id=thread_id,
                         user_id=user_id,
+                        query_message_id=pending_done.get("query_message_id"),
+                        response_message_id=pending_done.get(
+                            "response_message_id"
+                        ),
                     )
                 if continuation_key:
                     pending_done = {
@@ -402,8 +411,21 @@ class ChatService:
         chat_id: str,
         thread_id: str,
         user_id: str,
+        query_message_id: str | None,
+        response_message_id: str | None,
     ) -> str | None:
         try:
+            if not query_message_id or not response_message_id:
+                self.logger.warning(
+                    "Missing message ids for continuation_key chat_id=%s "
+                    "thread_id=%s query_message_id=%r response_message_id=%r",
+                    chat_id,
+                    thread_id,
+                    query_message_id,
+                    response_message_id,
+                )
+                return None
+
             snapshot = await graph.aget_state({
                 "configurable": {"thread_id": thread_id},
             })
@@ -415,10 +437,9 @@ class ChatService:
             if not checkpointer_id:
                 self.logger.warning(
                     "No checkpoint_id after graph done chat_id=%s "
-                    "thread_id=%s started_from=%s",
+                    "thread_id=%s",
                     chat_id,
                     thread_id,
-                    checkpointer_id,
                 )
                 return None
 
@@ -426,6 +447,8 @@ class ChatService:
                 chat_id=chat_id,
                 thread_id=thread_id,
                 checkpointer_id=checkpointer_id,
+                query_message_id=query_message_id,
+                response_message_id=response_message_id,
                 secret=self.continuation_secret,
             )
             asyncio.create_task(
@@ -437,11 +460,13 @@ class ChatService:
             )
             self.logger.info(
                 "Issued continuation_key chat_id=%s thread_id=%s "
-                "checkpointer_id=%s started_from=%s",
+                "checkpointer_id=%s query_message_id=%s "
+                "response_message_id=%s",
                 chat_id,
                 thread_id,
                 checkpointer_id,
-                checkpointer_id,
+                query_message_id,
+                response_message_id,
             )
             return continuation_key
         except Exception:

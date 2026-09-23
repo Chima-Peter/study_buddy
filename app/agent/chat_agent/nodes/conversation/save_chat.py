@@ -69,6 +69,8 @@ class SaveChatNode:
             "type": "chat.done",
             "chat_id": chat.id,
             "conversation_id": state["conversation_id"],
+            "query_message_id": query_message_id,
+            "response_message_id": response_message_id,
         })
 
         self.logger.info(

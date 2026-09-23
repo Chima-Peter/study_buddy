@@ -3,7 +3,7 @@
 Format: ``{base64url_payload}.{hmac_sha256_hex}``
 
 Payload (JSON, then base64url) contains ``chat_id``, ``thread_id``,
-and ``checkpointer_id``.
+``checkpointer_id``, ``query_message_id``, and ``response_message_id``.
 """
 
 from __future__ import annotations
@@ -20,12 +20,16 @@ def create_continuation_key(
     chat_id: str,
     thread_id: str,
     checkpointer_id: str,
+    query_message_id: str,
+    response_message_id: str,
     secret: str,
 ) -> str:
     payload = {
         "chat_id": chat_id,
         "thread_id": thread_id,
         "checkpointer_id": checkpointer_id,
+        "query_message_id": query_message_id,
+        "response_message_id": response_message_id,
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     payload_b64 = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
@@ -68,9 +72,17 @@ def verify_continuation_key(
     chat_id = data.get("chat_id")
     thread_id = data.get("thread_id")
     checkpointer_id = data.get("checkpointer_id")
+    query_message_id = data.get("query_message_id")
+    response_message_id = data.get("response_message_id")
     if not all(
         isinstance(value, str) and value
-        for value in (chat_id, thread_id, checkpointer_id)
+        for value in (
+            chat_id,
+            thread_id,
+            checkpointer_id,
+            query_message_id,
+            response_message_id,
+        )
     ):
         return None
 
@@ -78,4 +90,6 @@ def verify_continuation_key(
         "chat_id": chat_id,
         "thread_id": thread_id,
         "checkpointer_id": checkpointer_id,
+        "query_message_id": query_message_id,
+        "response_message_id": response_message_id,
     }
