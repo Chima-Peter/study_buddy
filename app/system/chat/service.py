@@ -25,11 +25,15 @@ class ChatService:
         query: str,
         response: str,
         source: list[dict[str, Any]],
+        query_message_id: str | None = None,
+        response_message_id: str | None = None,
     ) -> ChatResponse | None:
         record = ChatModel(
             conversation_id=conversation_id,
             query=query,
             chat=response,
+            query_message_id=query_message_id,
+            response_message_id=response_message_id,
             audit={
                 "source": source,
             },
@@ -49,6 +53,8 @@ class ChatService:
                     conversation_id=record.conversation_id,
                     query=record.query,
                     response=record.chat,
+                    query_message_id=record.query_message_id,
+                    response_message_id=record.response_message_id,
                     created_at=record.created_at,
                 )
 

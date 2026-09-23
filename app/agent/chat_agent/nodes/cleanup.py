@@ -58,7 +58,6 @@ class CleanupNode:
         return {
             "query": "",
             "rewritten_query": "",
-            "first_message": False,
             "rag_documents": [],
             "retrieve_rag": False,
             "retrieve_conversation_history": False,
@@ -67,7 +66,6 @@ class CleanupNode:
             "memory_query": None,
             "memories": [],
             "response": "",
-            "messages": [],
             "chapter_keys": None,
             "document_sections": document_sections,
         }

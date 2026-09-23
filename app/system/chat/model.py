@@ -16,6 +16,8 @@ class ChatModel(BaseModel):
     conversation_id: str = Field(min_length=36, max_length=36)
     query: str = Field(min_length=1)
     chat: str = Field(default="")
+    query_message_id: str | None = None
+    response_message_id: str | None = None
     audit: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
@@ -31,6 +33,8 @@ class ChatModel(BaseModel):
             "conversation_id": self.conversation_id,
             "query": self.query,
             "chat": self.chat,
+            "query_message_id": self.query_message_id,
+            "response_message_id": self.response_message_id,
             "audit": self.audit,
             "created_at": self.created_at,
         }
@@ -48,6 +52,14 @@ class ChatDBModel(Base):
     )
     query: Mapped[str] = mapped_column(sa.String(), nullable=False)
     chat: Mapped[str] = mapped_column(sa.String(), nullable=False)
+    query_message_id: Mapped[str | None] = mapped_column(
+        sa.String(),
+        nullable=True,
+    )
+    response_message_id: Mapped[str | None] = mapped_column(
+        sa.String(),
+        nullable=True,
+    )
     audit: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
@@ -66,6 +78,8 @@ class ChatDBModel(Base):
             "conversation_id": str(self.conversation_id),
             "query": self.query,
             "chat": self.chat,
+            "query_message_id": self.query_message_id,
+            "response_message_id": self.response_message_id,
             "audit": self.audit or {},
             "created_at": self.created_at.isoformat(),
         }

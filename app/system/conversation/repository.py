@@ -269,6 +269,8 @@ class ConversationRepository:
                     conversation_id=new_conversation.id,
                     query=chat.query,
                     chat=chat.chat,
+                    query_message_id=chat.query_message_id,
+                    response_message_id=chat.response_message_id,
                     audit=dict(chat.audit or {}),
                     created_at=chat.created_at,
                 )

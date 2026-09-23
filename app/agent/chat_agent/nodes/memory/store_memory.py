@@ -1,5 +1,6 @@
 from logging import Logger
 
+from app.agent.chat_agent.messages import format_history
 from app.agent.chat_agent.schema import SUMMARY_EVERY
 from app.agent.chat_agent.state import AgentState
 from app.core.rabbitmq import RabbitMQ
@@ -22,18 +23,16 @@ class StoreMemoryNode:
             )
             return {}
 
-        if not state.get("conversation_history"):
+        messages = state.get("messages") or []
+        if not messages:
             self.logger.info(
-                "Store memory node skipped id=%s user_id=%s reason=no_conversation_history",
+                "Store memory node skipped id=%s user_id=%s reason=no_messages",
                 state["conversation_id"],
                 state["user_id"],
             )
             return {}
 
-        context = "\n".join(
-            f"User: {chat.query}\nAssistant: {chat.response}"
-            for chat in state["conversation_history"][-SUMMARY_EVERY:]
-        )
+        context = format_history(messages, limit=SUMMARY_EVERY)
         known_memories = [
             memory.content for memory in (state.get("memories") or [])
         ]

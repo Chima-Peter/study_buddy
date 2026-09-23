@@ -7,7 +7,6 @@ from app.agent.chat_agent.nodes import (
     CleanupNode,
     GenerateResponseNode,
     RetrievalDeciderNode,
-    RetrieveConversationHistoryNode,
     RetrieveDocumentsNode,
     RetrieveMemoryNode,
     RewriteQueryNode,
@@ -81,10 +80,6 @@ class AgentGraph:
                 user_repository=self.user_repository,
                 logger=self.logger,
             ),
-            "retrieve_conversation_history": RetrieveConversationHistoryNode(
-                conversation_service=self.conversation_service,
-                logger=self.logger,
-            ),
             "generate_response": GenerateResponseNode(
                 model=self.chat_model,
                 logger=self.logger,
@@ -122,7 +117,6 @@ class AgentGraph:
             decide_retrieval_router,
             {
                 "rewrite_query": "rewrite_query",
-                "retrieve_conversation_history": "retrieve_conversation_history",
                 "end_discussion": "end_discussion",
             },
         )
@@ -131,7 +125,6 @@ class AgentGraph:
         graph.add_edge(
             [
                 "retrieve_documents",
-                "retrieve_conversation_history",
                 "retrieve_memory",
             ],
             "generate_response",
@@ -158,4 +151,3 @@ class AgentGraph:
 
     def _add_node(self, node_name: str, node):
         self._raw_graph.add_node(node_name, node)
-

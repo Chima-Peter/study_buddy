@@ -2,6 +2,7 @@ from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from app.agent.chat_agent.messages import format_history
 from app.agent.chat_agent.prompts import summary_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY, SUMMARY_MAX_CHARS
 from app.agent.chat_agent.state import AgentState
@@ -29,22 +30,24 @@ class UpdateConversationSummaryNode:
             )
             return {}
 
-        conversation_history = state.get("conversation_history") or []
-        history_count = len(conversation_history)
-        if history_count == 0 or history_count % SUMMARY_EVERY != 0:
+        messages = state.get("messages") or []
+        turn_count = sum(1 for m in messages if m.type == "ai")
+        if turn_count == 0 or turn_count % SUMMARY_EVERY != 0:
             self.logger.info(
                 "Update summary node skipped id=%s user_id=%s reason=not_due "
-                "history_count=%s",
+                "turn_count=%s",
                 state["conversation_id"],
                 state["user_id"],
-                history_count,
+                turn_count,
             )
             return {}
 
-        recent_exchanges = [
-            f"User: {chat.query}\nAssistant: {chat.response[:200]}"
-            for chat in conversation_history[-SUMMARY_EVERY:]
-        ]
+        history = format_history(
+            messages,
+            limit=SUMMARY_EVERY,
+            truncate_ai=400,
+        )
+        recent_exchanges = history.split("\n\n") if history else []
 
         self.logger.info(
             "Update summary node started id=%s user_id=%s",

@@ -1,7 +1,10 @@
 from logging import Logger
+
+from langchain_core.messages import AIMessage
+from langgraph.config import get_stream_writer
+
 from app.agent.chat_agent.schema import NON_ACADEMIC_FALLBACK
 from app.agent.chat_agent.state import AgentState
-from langgraph.config import get_stream_writer
 
 
 class EndDiscussionNode:
@@ -15,7 +18,7 @@ class EndDiscussionNode:
             state["user_id"],
         )
 
-        if state.get("retry_count") > 3:
+        if state.get("retry_count", 1) > 3:
             self.logger.warning(
                 "End discussion node failed id=%s user_id=%s retry_count=%s",
                 state["conversation_id"],
@@ -32,8 +35,10 @@ class EndDiscussionNode:
                 "response": response,
             }
         )
+
         return {
             "response": response,
+            "messages": [AIMessage(content=response)],
             "rag_documents": [],
             "retry_count": state.get("retry_count") + 1,
         }

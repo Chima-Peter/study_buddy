@@ -2,8 +2,9 @@ from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+from app.agent.chat_agent.messages import format_history
 from app.agent.chat_agent.prompts import retrieval_decider_prompt
-from app.agent.chat_agent.schema import NON_ACADEMIC_FALLBACK, DeciderResponse
+from app.agent.chat_agent.schema import NON_ACADEMIC_FALLBACK, SUMMARY_EVERY, DeciderResponse
 from app.agent.chat_agent.state import AgentState
 from app.utils.llm import is_rate_limit_error
 
@@ -14,14 +15,16 @@ class RetrievalDeciderNode:
         self.model = model.with_structured_output(DeciderResponse)
 
     async def __call__(self, state: AgentState) -> AgentState:
+        messages = state.get("messages") or []
+        is_first_message = len(messages) <= 1
         self.logger.info(
             "Retrieval decider started id=%s user_id=%s first_message=%s",
             state["conversation_id"],
             state["user_id"],
-            state["first_message"],
+            is_first_message,
         )
 
-        if state.get("retry_count") > 3:
+        if state.get("retry_count", 1) > 3:
             self.logger.warning(
                 "Retrieval decider failed id=%s user_id=%s retry_count=%s",
                 state["conversation_id"],
@@ -36,11 +39,7 @@ class RetrievalDeciderNode:
                 "rag_documents": [],
             }
 
-        history = state.get("conversation_history") or []
-        context = "\n".join(
-            f"User: {message.query}, Assistant: {message.response}"
-            for message in history[-5:]
-        )
+        context = format_history(messages, limit=SUMMARY_EVERY)
         summary = state.get("conversation_summary") or ""
 
         prompt = retrieval_decider_prompt(state["query"], context, summary)
@@ -65,7 +64,7 @@ class RetrievalDeciderNode:
                     state["conversation_id"],
                     state["user_id"],
                 )
-            result = "both" if not state["first_message"] else "rag"
+            result = "both" if not is_first_message else "rag"
             retrieve_memory = False
             is_academic_discussion = True
 
@@ -92,7 +91,7 @@ class RetrievalDeciderNode:
             "none": (False, False),
         }
         retrieve_rag, retrieve_history = mapping.get(result, (False, False))
-        if state["first_message"]:
+        if is_first_message:
             retrieve_history = False
 
         self.logger.info(

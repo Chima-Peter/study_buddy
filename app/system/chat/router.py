@@ -3,6 +3,7 @@ import json
 from logging import Logger
 from typing import Annotated, Any
 
+from langchain_core.messages import HumanMessage
 from app.agent.chat_agent.graph import AgentGraph
 from redis.exceptions import ConnectionError
 from dependency_injector.wiring import Provide, inject
@@ -49,7 +50,7 @@ async def websocket_endpoint(
             )
             await websocket.close(
               code=status.WS_1008_POLICY_VIOLATION,
-              reason="Too many connections. Max connections per user is 5."
+              reason="Too many connections. Max connections per user is 1."
               )
             return
 
@@ -96,7 +97,6 @@ async def websocket_endpoint(
 
             if chat_task in done:
                 try:
-                    first_message = False
                     message: dict[str, Any] = chat_task.result()
                     if isinstance(message, str):
                         logger.warning(
@@ -153,7 +153,6 @@ async def websocket_endpoint(
                         })
                     else:
                         if not conversation_id:
-                            first_message = True
                             conversation = await conversation_service.create(
                                 CreateConversationRequest(title="New Conversation"),
                                 user_id=user.id,
@@ -176,12 +175,12 @@ async def websocket_endpoint(
                             async for chunk in graph.astream(
                                 input={
                                     "user_id": user.id,
-                                    "first_message": first_message,
                                     "conversation_id": conversation_id,
                                     "query": query,
                                     "conversation_summary": "",
                                     "title": "",
                                     "document_ids": document_ids,
+                                    "messages": [HumanMessage(content=query)],
                                 },
                                 stream_mode="custom",
                                 config={
@@ -191,9 +190,7 @@ async def websocket_endpoint(
                                 }
                             ):
                                 await websocket.send_json({
-                                    "type": chunk["type"],
-                                    "response": chunk["response"],
-                                    "conversation_id": conversation_id,
+                                    **chunk,
                                 })
                         except WebSocketDisconnect:
                             raise
@@ -217,10 +214,6 @@ async def websocket_endpoint(
                                 "conversation_id": conversation_id,
                             })
                             continue
-                        await websocket.send_json({
-                            "type": "chat.done",
-                            "conversation_id": conversation_id,
-                        })
                 except json.JSONDecodeError:
                     logger.warning(
                         "Invalid JSON message user_id=%s", user.id,

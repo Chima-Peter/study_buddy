@@ -1,8 +1,10 @@
 from logging import Logger
 
+from langchain_core.messages import AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.config import get_stream_writer
 
+from app.agent.chat_agent.messages import format_history
 from app.agent.chat_agent.prompts import chat_response_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY
 from app.agent.chat_agent.state import AgentState
@@ -16,13 +18,14 @@ class GenerateResponseNode:
 
     async def __call__(self, state: AgentState) -> AgentState:
         memories = state.get("memories") or []
+        messages = state.get("messages") or []
         self.logger.info(
             "Generate response node started id=%s user_id=%s documents=%s "
-            "history=%s memories=%s",
+            "messages=%s memories=%s",
             state["conversation_id"],
             state["user_id"],
             len(state["rag_documents"]),
-            len(state["conversation_history"]),
+            len(messages),
             len(memories),
         )
 
@@ -44,18 +47,7 @@ class GenerateResponseNode:
             memories_text = ""
 
         if state["retrieve_conversation_history"]:
-            conversation_history = state["conversation_history"]
-            conversation_summary = state["conversation_summary"]
-            if conversation_summary:
-                unsummarized = len(conversation_history) % SUMMARY_EVERY
-                recent = conversation_history[-unsummarized:] if unsummarized else []
-            else:
-                recent = conversation_history[-SUMMARY_EVERY:]
-
-            history_text = "\n\n".join(
-                f"User: {chat.query}\nAssistant: {chat.response}"
-                for chat in recent
-            )
+            history_text = format_history(messages, limit=SUMMARY_EVERY)
         else:
             history_text = ""
 
@@ -106,4 +98,7 @@ class GenerateResponseNode:
             state["user_id"],
             len(answer),
         )
-        return {"response": answer}
+        return {
+            "response": answer,
+            "messages": [AIMessage(content=answer)],
+        }

@@ -1,13 +1,9 @@
-from typing import Annotated, TypedDict
+from langgraph.graph import MessagesState
 
-from langchain_core.messages import AnyMessage
 from app.core.elasticsearch_schema import FusedResult
 from app.memory.schema import Memory
-from app.system.chat.schema import ChatResponse
 
-import operator
-
-class AgentState(TypedDict):
+class AgentState(MessagesState):
     query: str
     rewritten_query: str
     conversation_id: str
@@ -15,12 +11,9 @@ class AgentState(TypedDict):
     document_ids: list[str] | None
     document_sections: dict[str, list[str]]
     chapter_keys: list[str] | None
-    first_message: bool
     title: str | None
-    conversation_history: Annotated[list[ChatResponse], operator.add]
     conversation_summary: str | None
     rag_documents: list[FusedResult]
-    messages: Annotated[list[AnyMessage], operator.add]
 
     retrieve_rag: bool
     retrieve_conversation_history: bool

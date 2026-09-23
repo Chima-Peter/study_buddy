@@ -1,6 +1,5 @@
 from app.agent.chat_agent.nodes.cleanup import CleanupNode
 from app.agent.chat_agent.nodes.conversation import (
-    RetrieveConversationHistoryNode,
     SaveChatNode,
     UpdateConversationSummaryNode,
     UpdateConversationTitleNode,
@@ -14,7 +13,6 @@ __all__ = [
     "CleanupNode",
     "GenerateResponseNode",
     "RetrievalDeciderNode",
-    "RetrieveConversationHistoryNode",
     "RetrieveDocumentsNode",
     "RetrieveMemoryNode",
     "RewriteQueryNode",

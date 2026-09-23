@@ -22,7 +22,7 @@ class UpdateConversationTitleNode:
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
-        if not state.get("first_message"):
+        if len(state.get("messages") or []) > 2:
             self.logger.info(
                 "Update title node skipped id=%s user_id=%s reason=not_first_message",
                 state["conversation_id"],

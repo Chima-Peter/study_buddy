@@ -1,5 +1,7 @@
 from logging import Logger
 
+from langgraph.config import get_stream_writer
+
 from app.agent.chat_agent.state import AgentState
 from app.system.chat.service import ChatService
 
@@ -18,11 +20,25 @@ class SaveChatNode:
             }
             for r in (state.get("rag_documents") or [])
         ]
+
+        query_message_id = None
+        response_message_id = None
+        for message in reversed(state.get("messages") or []):
+            if response_message_id is None and message.type == "ai":
+                response_message_id = message.id
+            elif query_message_id is None and message.type == "human":
+                query_message_id = message.id
+            if query_message_id and response_message_id:
+                break
+
         self.logger.info(
-            "Save chat node started id=%s user_id=%s sources=%s",
+            "Save chat node started id=%s user_id=%s sources=%s "
+            "query_message_id=%s response_message_id=%s",
             state["conversation_id"],
             state["user_id"],
             len(sources),
+            query_message_id,
+            response_message_id,
         )
         chat = await self.chat_service.save(
             user_id=state["user_id"],
@@ -30,7 +46,18 @@ class SaveChatNode:
             query=state["query"],
             response=state["response"],
             source=sources,
+            query_message_id=query_message_id,
+            response_message_id=response_message_id,
         )
+
+        writer = get_stream_writer()
+        writer({
+            "type": "chat.done",
+            "query_message_id": query_message_id,
+            "response_message_id": response_message_id,
+            "conversation_id": state["conversation_id"],
+        })
+
         if chat is None:
             self.logger.warning(
                 "Save chat node failed id=%s user_id=%s",
@@ -44,7 +71,4 @@ class SaveChatNode:
             state["conversation_id"],
             state["user_id"],
         )
-
-        return {
-            "conversation_history": [chat],
-        }
+        return {}
