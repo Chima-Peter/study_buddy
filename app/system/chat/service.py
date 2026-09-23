@@ -1,5 +1,6 @@
 import asyncio
 from asyncio import Queue
+from datetime import datetime, timezone
 from logging import Logger
 from typing import Any
 
@@ -7,7 +8,10 @@ from langchain_core.messages import HumanMessage, RemoveMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from app.system.chat.model import ChatModel
-from app.system.chat.repository import ChatRepository
+from app.system.chat.repository import (
+    DEFAULT_SUBSEQUENT_LIMIT,
+    ChatRepository,
+)
 from app.system.chat.schema import ChatResponse
 from app.utils.continuation_key import (
     create_continuation_key,
@@ -17,6 +21,7 @@ from app.utils.continuation_key import (
 SAVE_MAX_ATTEMPTS = 3
 MAX_PAYLOAD_SIZE = 64 * 1024
 MESSAGE_ID_LENGTH = 36
+MAX_DOCUMENT_IDS = 3
 WEBSOCKET_MESSAGE_TYPES = frozenset({"chat", "edit", "retry"})
 
 
@@ -110,6 +115,15 @@ class ChatService:
             document_ids = [document_ids]
         if not document_ids:
             return None, "At least one document is required for chat."
+        if not isinstance(document_ids, list):
+            return None, "document_ids must be a list"
+        if len(document_ids) > MAX_DOCUMENT_IDS:
+            self.logger.warning(
+                "Too many document_ids user_id=%s count=%s",
+                user_id,
+                len(document_ids),
+            )
+            return None, f"At most {MAX_DOCUMENT_IDS} documents are allowed"
 
         continuation_key = message.get("continuation_key")
         chat_id = None
@@ -152,25 +166,23 @@ class ChatService:
             )
             return None, "continuation_key is required for edit and retry"
 
-        if message_type == "edit" and not self._is_valid_message_id(
-            query_message_id
-        ):
-            self.logger.warning(
-                "Invalid query_message_id for edit user_id=%s value=%r",
-                user_id,
-                query_message_id,
-            )
-            return None, "continuation key missing query_message_id"
-
-        if message_type == "retry" and not self._is_valid_message_id(
-            response_message_id
-        ):
-            self.logger.warning(
-                "Invalid response_message_id for retry user_id=%s value=%r",
-                user_id,
-                response_message_id,
-            )
-            return None, "continuation key missing response_message_id"
+        if message_type in ("edit", "retry"):
+            if not self._is_valid_message_id(query_message_id):
+                self.logger.warning(
+                    "Invalid query_message_id for %s user_id=%s value=%r",
+                    message_type,
+                    user_id,
+                    query_message_id,
+                )
+                return None, "continuation key missing query_message_id"
+            if not self._is_valid_message_id(response_message_id):
+                self.logger.warning(
+                    "Invalid response_message_id for %s user_id=%s value=%r",
+                    message_type,
+                    user_id,
+                    response_message_id,
+                )
+                return None, "continuation key missing response_message_id"
 
         return {
             "type": message_type,
@@ -259,6 +271,73 @@ class ChatService:
                 user_id,
             )
 
+    async def delete_chats_after(
+        self,
+        *,
+        chat_id: str,
+        user_id: str,
+    ) -> None:
+        """Delete chats after ``chat_id`` (keeps ``chat_id`` itself)."""
+        for attempt in range(1, SAVE_MAX_ATTEMPTS + 1):
+            try:
+                anchor = await self.repository.get(chat_id, user_id)
+                if anchor is None:
+                    self.logger.warning(
+                        "delete_chats_after: chat not found "
+                        "chat_id=%s user_id=%s",
+                        chat_id,
+                        user_id,
+                    )
+                    return
+
+                started_at = datetime.now(timezone.utc)
+                cursor = chat_id
+                total_deleted = 0
+
+                while True:
+                    page, next_cursor, has_more = (
+                        await self.repository.list_subsequent(
+                            anchor.conversation_id,
+                            cursor=cursor,
+                            before_created_at=started_at,
+                            limit=DEFAULT_SUBSEQUENT_LIMIT,
+                        )
+                    )
+                    if page:
+                        total_deleted += await self.repository.delete_by_ids(
+                            [chat.id for chat in page]
+                        )
+
+                    if not has_more or next_cursor is None:
+                        break
+                    cursor = next_cursor
+
+                self.logger.info(
+                    "delete_chats_after completed chat_id=%s user_id=%s "
+                    "conversation_id=%s deleted=%s",
+                    chat_id,
+                    user_id,
+                    anchor.conversation_id,
+                    total_deleted,
+                )
+                return
+            except Exception:
+                self.logger.exception(
+                    "delete_chats_after failed chat_id=%s user_id=%s "
+                    "attempt=%s/%s",
+                    chat_id,
+                    user_id,
+                    attempt,
+                    SAVE_MAX_ATTEMPTS,
+                )
+        self.logger.error(
+            "delete_chats_after failed after %s attempts "
+            "chat_id=%s user_id=%s",
+            SAVE_MAX_ATTEMPTS,
+            chat_id,
+            user_id,
+        )
+
     async def apply_edit(
         self,
         graph: CompiledStateGraph,
@@ -267,9 +346,10 @@ class ChatService:
         query: str,
         document_ids: list[str],
         query_message_id: str,
+        response_message_id: str,
         checkpointer_id: str | None = None,
     ) -> tuple[str | None, str | None]:
-        """Update the human message by id and remove its following AI reply.
+        """Update the human message by id and remove its AI reply.
 
         Returns ``(error, new_checkpointer_id)``. On success ``error`` is None and
         ``new_checkpointer_id`` is the branch tip after the edit.
@@ -281,15 +361,15 @@ class ChatService:
         snapshot = await graph.aget_state(config)
         messages = list((snapshot.values or {}).get("messages") or [])
 
-        human_index = next(
+        human_message = next(
             (
-                i
-                for i, message in enumerate(messages)
+                message
+                for message in messages
                 if message.type == "human" and message.id == query_message_id
             ),
             None,
         )
-        if human_index is None:
+        if human_message is None:
             self.logger.warning(
                 "Edit failed: human message not found conversation_id=%s "
                 "query_message_id=%s",
@@ -298,29 +378,32 @@ class ChatService:
             )
             return "Human message not found", None
 
-        human_message = messages[human_index]
-        next_index = human_index + 1
-        ai_message = (
-            messages[next_index]
-            if next_index < len(messages) and messages[next_index].type == "ai"
-            else None
+        ai_message = next(
+            (
+                message
+                for message in messages
+                if message.type == "ai" and message.id == response_message_id
+            ),
+            None,
         )
         if ai_message is None:
-            self.logger.warning(
-                "Edit failed: no AI reply for human conversation_id=%s "
-                "query_message_id=%s",
+            self.logger.info(
+                "Edit: AI reply missing, continuing conversation_id=%s "
+                "response_message_id=%s",
                 conversation_id,
-                query_message_id,
+                response_message_id,
             )
-            return "AI reply not found for this message", None
+
+        message_updates: list[Any] = [
+            HumanMessage(content=query, id=human_message.id),
+        ]
+        if ai_message is not None:
+            message_updates.append(RemoveMessage(id=ai_message.id))
 
         new_config = await graph.aupdate_state(
             config,
             {
-                "messages": [
-                    HumanMessage(content=query, id=human_message.id),
-                    RemoveMessage(id=ai_message.id),
-                ],
+                "messages": message_updates,
                 "query": query,
                 "document_ids": document_ids,
             },
@@ -335,7 +418,86 @@ class ChatService:
             "removed_ai_id=%s checkpointer_id=%s",
             conversation_id,
             query_message_id,
-            ai_message.id,
+            ai_message.id if ai_message is not None else None,
+            new_checkpointer_id,
+        )
+        return None, new_checkpointer_id
+
+    async def apply_retry(
+        self,
+        graph: CompiledStateGraph,
+        *,
+        conversation_id: str,
+        query: str,
+        document_ids: list[str],
+        query_message_id: str,
+        response_message_id: str,
+        checkpointer_id: str | None = None,
+    ) -> tuple[str | None, str | None]:
+        """Remove the AI message by id so the graph can regenerate it.
+
+        Returns ``(error, new_checkpointer_id)``. On success ``error`` is None and
+        ``new_checkpointer_id`` is the branch tip after the retry fork.
+        """
+        configurable: dict[str, Any] = {"thread_id": conversation_id}
+        if checkpointer_id:
+            configurable["checkpoint_id"] = checkpointer_id
+        config = {"configurable": configurable}
+        snapshot = await graph.aget_state(config)
+        messages = list((snapshot.values or {}).get("messages") or [])
+
+        human_message = next(
+            (
+                message
+                for message in messages
+                if message.type == "human" and message.id == query_message_id
+            ),
+            None,
+        )
+        if human_message is None:
+            self.logger.warning(
+                "Retry failed: human message not found conversation_id=%s "
+                "query_message_id=%s",
+                conversation_id,
+                query_message_id,
+            )
+            return "Human message not found", None
+
+        ai_message = next(
+            (
+                message
+                for message in messages
+                if message.type == "ai" and message.id == response_message_id
+            ),
+            None,
+        )
+        if ai_message is None:
+            self.logger.info(
+                "Retry: AI reply missing, continuing conversation_id=%s "
+                "response_message_id=%s",
+                conversation_id,
+                response_message_id,
+            )
+
+        state_update: dict[str, Any] = {
+            "query": query,
+            "document_ids": document_ids,
+        }
+        if ai_message is not None:
+            state_update["messages"] = [RemoveMessage(id=ai_message.id)]
+
+        new_config = await graph.aupdate_state(config, state_update)
+        new_checkpointer_id = (
+            (new_config or {})
+            .get("configurable", {})
+            .get("checkpoint_id")
+        )
+        self.logger.info(
+            "Applied retry conversation_id=%s query_message_id=%s "
+            "response_message_id=%s checkpointer_id=%s",
+            conversation_id,
+            query_message_id,
+            response_message_id,
             new_checkpointer_id,
         )
         return None, new_checkpointer_id

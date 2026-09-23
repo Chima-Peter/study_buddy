@@ -31,8 +31,6 @@ class SaveChatNode:
             if query_message_id and response_message_id:
                 break
 
-        self.logger.info(state.get("messages")[-1])
-
         self.logger.info(
             "Save chat node started id=%s user_id=%s sources=%s "
             "query_message_id=%s response_message_id=%s",
@@ -62,6 +60,8 @@ class SaveChatNode:
             writer({
                 "type": "chat.done",
                 "conversation_id": state["conversation_id"],
+                "query_message_id": query_message_id,
+                "response_message_id": response_message_id,
             })
             return {}
 

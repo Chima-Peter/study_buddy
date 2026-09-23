@@ -1,11 +1,16 @@
+from datetime import datetime
 from logging import Logger
 
+from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import select
 
 from app.system.chat.model import ChatDBModel, ChatModel
 from app.system.conversation.model import ConversationDBModel
+
+DEFAULT_SUBSEQUENT_LIMIT = 20
+MAX_SUBSEQUENT_LIMIT = 50
 
 
 class ChatRepository:
@@ -16,6 +21,92 @@ class ChatRepository:
     ):
         self.session_factory = session_factory
         self.logger = logger
+
+    async def get(
+        self,
+        chat_id: str,
+        user_id: str,
+    ) -> ChatModel | None:
+        async with self.session_factory() as session:
+            db_chat = await session.scalar(
+                select(ChatDBModel)
+                .join(
+                    ConversationDBModel,
+                    ConversationDBModel.id == ChatDBModel.conversation_id,
+                )
+                .where(
+                    ChatDBModel.id == chat_id,
+                    ConversationDBModel.user_id == user_id,
+                )
+            )
+            if db_chat is None:
+                return None
+            return ChatModel(**db_chat.model_dump())
+
+    async def list_subsequent(
+        self,
+        conversation_id: str,
+        *,
+        cursor: str,
+        before_created_at: datetime | None = None,
+        limit: int = DEFAULT_SUBSEQUENT_LIMIT,
+    ) -> tuple[list[ChatModel], str | None, bool]:
+        """Page chats with ``id > cursor`` (uuid7 ≈ time order).
+
+        First cursor should be the given chat id so that chat is excluded.
+        Optional ``before_created_at`` caps the window (exclusive).
+        """
+        limit = min(max(limit, 1), MAX_SUBSEQUENT_LIMIT)
+        async with self.session_factory() as session:
+            filters = [
+                ChatDBModel.conversation_id == conversation_id,
+                ChatDBModel.id > cursor,
+            ]
+            if before_created_at is not None:
+                filters.append(ChatDBModel.created_at < before_created_at)
+
+            result = await session.execute(
+                select(ChatDBModel)
+                .where(*filters)
+                .order_by(ChatDBModel.id.asc())
+                .limit(limit + 1)
+            )
+            db_rows = list(result.scalars().all())
+
+            has_more = len(db_rows) > limit
+            page = db_rows[:limit]
+            next_cursor = str(page[-1].id) if has_more and page else None
+
+            chats = [ChatModel(**row.model_dump()) for row in page]
+            self.logger.info(
+                "Subsequent chats listed conversation_id=%s count=%s "
+                "has_more=%s cursor=%s",
+                conversation_id,
+                len(chats),
+                has_more,
+                cursor,
+            )
+            return chats, next_cursor, has_more
+
+    async def delete_by_ids(self, chat_ids: list[str]) -> int:
+        if not chat_ids:
+            return 0
+        async with self.session_factory() as session:
+            result = await session.execute(
+                delete(ChatDBModel).where(ChatDBModel.id.in_(chat_ids))
+            )
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                self.logger.exception(
+                    "Error deleting chats count=%s",
+                    len(chat_ids),
+                )
+                raise
+            deleted = result.rowcount or 0
+            self.logger.info("Chats deleted count=%s", deleted)
+            return deleted
 
     async def create(self, chat: ChatModel, user_id: str) -> ChatModel:
         async with self.session_factory() as session:
