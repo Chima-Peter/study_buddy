@@ -25,7 +25,6 @@ from app.system.conversation.service import ConversationService
 
 chat_router = APIRouter(prefix="/chat", tags=["chat"])
 
-MAX_PAYLOAD_SIZE = 64 * 1024
 MAX_CONNECTIONS_PER_USER = 1
 
 @chat_router.websocket("")
@@ -99,53 +98,21 @@ async def websocket_endpoint(
             if chat_task in done:
                 try:
                     message: dict[str, Any] = chat_task.result()
-                    if isinstance(message, str):
-                        logger.warning(
-                            "Message is not a JSON object user_id=%s",
-                            user.id,
-                        )
+                    payload, error = chat_service.validate_websocket_message(
+                        message,
+                        user_id=user.id,
+                    )
+                    if error or not payload:
                         await websocket.send_json({
                             "type": "error",
-                            "message": "Message is not a JSON object",
+                            "message": error or "Invalid message",
                         })
                         continue
 
-                    query = message.get("query")
-                    if not query:
-                        logger.warning(
-                            "No query in message user_id=%s",
-                            user.id,
-                        )
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "No query in message",
-                        })
-                        continue
-
-                    if len(query.encode("utf-8")) > MAX_PAYLOAD_SIZE:
-                        logger.warning(
-                            "Query too big user_id=%s size=%d",
-                            user.id,
-                            len(query),
-                        )
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "Query too big",
-                        })
-                        continue
-
-                    conversation_id = message.get("conversation_id")
-                    document_ids = message.get("document_ids")
-                    if document_ids is None and message.get("document_id"):
-                        document_ids = [message["document_id"]]
-                    if isinstance(document_ids, str):
-                        document_ids = [document_ids]
-                    if not document_ids:
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": "At least one document is required for chat.",
-                        })
-                        continue
+                    query = payload["query"]
+                    conversation_id = payload["conversation_id"]
+                    document_ids = payload["document_ids"]
+                    message_type = payload["type"]
 
                     if query == "ping":
                         await websocket.send_json({
@@ -166,9 +133,10 @@ async def websocket_endpoint(
                             )
                         logger.info(
                             "Received message user_id=%s conversation_id=%s "
-                            "document_ids=%s",
+                            "type=%s document_ids=%s",
                             user.id,
                             conversation_id,
+                            message_type,
                             document_ids,
                         )
 
