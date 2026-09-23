@@ -119,8 +119,7 @@ class ConversationService:
                     conversation_id=chat.conversation_id,
                     query=chat.query,
                     response=chat.chat,
-                    query_message_id=chat.query_message_id,
-                    response_message_id=chat.response_message_id,
+                    continuation_key=chat.continuation_key,
                     created_at=chat.created_at,
                 )
                 for chat in chats

@@ -48,3 +48,47 @@ class ChatRepository:
                 db_chat.conversation_id,
             )
             return ChatModel(**db_chat.model_dump())
+
+    async def update_continuation_key(
+        self,
+        chat_id: str,
+        continuation_key: str,
+        user_id: str,
+    ) -> bool:
+        async with self.session_factory() as session:
+            db_chat = await session.scalar(
+                select(ChatDBModel)
+                .join(
+                    ConversationDBModel,
+                    ConversationDBModel.id == ChatDBModel.conversation_id,
+                )
+                .where(
+                    ChatDBModel.id == chat_id,
+                    ConversationDBModel.user_id == user_id,
+                )
+            )
+            if db_chat is None:
+                self.logger.warning(
+                    "Chat not found for continuation_key update "
+                    "chat_id=%s user_id=%s",
+                    chat_id,
+                    user_id,
+                )
+                return False
+
+            db_chat.continuation_key = continuation_key
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                self.logger.exception(
+                    "Error updating continuation_key chat_id=%s",
+                    chat_id,
+                )
+                raise
+
+            self.logger.info(
+                "Continuation key updated chat_id=%s",
+                chat_id,
+            )
+            return True

@@ -144,21 +144,49 @@ async def websocket_endpoint(
                         if queue is None:
                             queue = asyncio.Queue()
                             queue_bucket[conversation_id] = queue
-                            asyncio.create_task(
-                                chat_service.run_graph(
-                                    agent_graph.start(),
-                                    queue,
-                                    {
-                                        "user_id": user.id,
-                                        "conversation_id": conversation_id,
-                                        "query": query,
-                                        "document_ids": document_ids,
-                                        "messages": [
-                                            HumanMessage(content=query)
-                                        ],
-                                    },
-                                )
+
+                        graph = agent_graph.start()
+                        checkpointer_id = payload.get("checkpointer_id")
+                        graph_input: dict[str, Any] = {
+                            "user_id": user.id,
+                            "conversation_id": conversation_id,
+                            "query": query,
+                            "document_ids": document_ids,
+                        }
+
+                        if message_type == "edit":
+                            edit_error, checkpointer_id = await chat_service.apply_edit(
+                                graph,
+                                conversation_id=conversation_id,
+                                query=query,
+                                document_ids=document_ids,
+                                query_message_id=payload["query_message_id"],
+                                checkpointer_id=checkpointer_id,
                             )
+                            if edit_error:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": edit_error,
+                                })
+                                continue
+                        else:
+                            graph_input["messages"] = [
+                                HumanMessage(content=query)
+                            ]
+
+                        config_dict: dict[str, Any] = {
+                            "conversation_id": conversation_id,
+                            "checkpointer_id": checkpointer_id,
+                        }
+
+                        asyncio.create_task(
+                            chat_service.run_graph(
+                                graph,
+                                config_dict,
+                                queue,
+                                graph_input,
+                            )
+                        )
 
                         while True:
                             event = await queue.get()

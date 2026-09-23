@@ -53,24 +53,28 @@ class SaveChatNode:
         )
 
         writer = get_stream_writer()
-        writer({
-            "type": "chat.done",
-            "query_message_id": query_message_id,
-            "response_message_id": response_message_id,
-            "conversation_id": state["conversation_id"],
-        })
-
         if chat is None:
             self.logger.warning(
                 "Save chat node failed id=%s user_id=%s",
                 state["conversation_id"],
                 state["user_id"],
             )
+            writer({
+                "type": "chat.done",
+                "conversation_id": state["conversation_id"],
+            })
             return {}
 
+        writer({
+            "type": "chat.done",
+            "chat_id": chat.id,
+            "conversation_id": state["conversation_id"],
+        })
+
         self.logger.info(
-            "Save chat node completed id=%s user_id=%s",
+            "Save chat node completed id=%s user_id=%s chat_id=%s",
             state["conversation_id"],
             state["user_id"],
+            chat.id,
         )
         return {}
