@@ -8,7 +8,15 @@ from app.system.notification.schema import EventPayload
 
 CONNECTION_TTL_SECONDS = 5 * 60
 CONNECTION_COUNT_TTL_SECONDS = 24 * 60 * 60
+CHAT_LOCK_TTL_SECONDS = 5 * 60
 SSE_PING_INTERVAL_MS = 120_000
+
+_RELEASE_CHAT_LOCK_LUA = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+  return redis.call("del", KEYS[1])
+end
+return 0
+"""
 
 
 class RedisClient:
@@ -27,6 +35,10 @@ class RedisClient:
         return f"connection_count:{user_id}"
 
     @staticmethod
+    def _chat_lock_key(user_id: str, conversation_id: str) -> str:
+        return f"chat_lock:{user_id}:{conversation_id}"
+
+    @staticmethod
     def _stream_key(stream_id: str) -> str:
         if stream_id.startswith("stream_"):
             return stream_id
@@ -35,6 +47,18 @@ class RedisClient:
     async def set(self, key: str, value: str, ttl: int | None = None) -> None:
         self._logger.debug("Redis SET key=%s ttl=%s", key, ttl)
         await self._redis.set(key, value, ex=ttl)
+
+    async def set_nx(
+        self,
+        key: str,
+        value: str,
+        *,
+        ttl: int,
+    ) -> bool:
+        """SET key only if it does not exist. Returns True if this caller owns it."""
+        self._logger.debug("Redis SET NX key=%s ttl=%s", key, ttl)
+        result = await self._redis.set(key, value, nx=True, ex=ttl)
+        return result is True
 
     async def get(self, key: str) -> str | None:
         self._logger.debug("Redis GET key=%s", key)
@@ -55,6 +79,51 @@ class RedisClient:
     async def remove_ttl(self, key: str) -> None:
         self._logger.debug("Redis REMOVE TTL key=%s", key)
         await self._redis.persist(key)
+
+    async def acquire_chat_lock(
+        self,
+        user_id: str,
+        conversation_id: str,
+    ) -> str | None:
+        """Acquire a per-conversation lock via SET NX. Returns token or None."""
+        token = str(uuid_utils.uuid7())
+        key = self._chat_lock_key(user_id, conversation_id)
+        acquired = await self.set_nx(key, token, ttl=CHAT_LOCK_TTL_SECONDS)
+        if not acquired:
+            self._logger.info(
+                "Chat lock busy user_id=%s conversation_id=%s",
+                user_id,
+                conversation_id,
+            )
+            return None
+        self._logger.debug(
+            "Chat lock acquired user_id=%s conversation_id=%s",
+            user_id,
+            conversation_id,
+        )
+        return token
+
+    async def release_chat_lock(
+        self,
+        user_id: str,
+        conversation_id: str,
+        token: str,
+    ) -> None:
+        """Release lock only if ``token`` still owns it."""
+        key = self._chat_lock_key(user_id, conversation_id)
+        try:
+            await self._redis.eval(_RELEASE_CHAT_LOCK_LUA, 1, key, token)
+            self._logger.debug(
+                "Chat lock released user_id=%s conversation_id=%s",
+                user_id,
+                conversation_id,
+            )
+        except Exception:
+            self._logger.exception(
+                "Chat lock release failed user_id=%s conversation_id=%s",
+                user_id,
+                conversation_id,
+            )
 
     async def create_stream(self, user_id: str) -> str:
         stream_id = str(uuid_utils.uuid7())[:8]
