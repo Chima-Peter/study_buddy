@@ -71,6 +71,7 @@ class GenerateResponseNode:
                 writer({
                     "type": "chat.response",
                     "response": text,
+                    "conversation_id": state["conversation_id"],
                 })
                 answer += text
         except Exception as e:
@@ -83,6 +84,7 @@ class GenerateResponseNode:
                 writer({
                     "type": "chat.response",
                     "response": "I'm sorry, I'm experiencing a technical issue. Please try again later.",
+                    "conversation_id": state["conversation_id"],
                 })
             else:
                 self.logger.exception(

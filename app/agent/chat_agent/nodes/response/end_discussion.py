@@ -33,6 +33,7 @@ class EndDiscussionNode:
             {
                 "type": "chat.response",
                 "response": response,
+                "conversation_id": state["conversation_id"],
             }
         )
 
@@ -40,5 +41,5 @@ class EndDiscussionNode:
             "response": response,
             "messages": [AIMessage(content=response)],
             "rag_documents": [],
-            "retry_count": state.get("retry_count") + 1,
+            "retry_count": state.get("retry_count", 1) + 1,
         }

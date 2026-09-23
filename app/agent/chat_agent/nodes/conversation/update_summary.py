@@ -45,7 +45,6 @@ class UpdateConversationSummaryNode:
         history = format_history(
             messages,
             limit=SUMMARY_EVERY,
-            truncate_ai=400,
         )
         recent_exchanges = history.split("\n\n") if history else []
 
