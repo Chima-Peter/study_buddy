@@ -1,5 +1,8 @@
+from asyncio import Queue
 from logging import Logger
 from typing import Any
+
+from langgraph.graph.state import CompiledStateGraph
 
 from app.system.chat.model import ChatModel
 from app.system.chat.repository import ChatRepository
@@ -42,7 +45,7 @@ class ChatService:
         for attempt in range(1, SAVE_MAX_ATTEMPTS + 1):
             try:
                 await self.repository.create(record, user_id)
-                
+
                 self.logger.info(
                     "Chat saved successfully user_id=%s",
                     user_id,
@@ -72,3 +75,34 @@ class ChatService:
             user_id,
         )
         return None
+
+    async def run_graph(
+        self,
+        graph: CompiledStateGraph,
+        queue: Queue,
+        input: dict[str, Any],
+    ) -> None:
+        try:
+            async for chunk in graph.astream(
+                input=input,
+                stream_mode="custom",
+                config={
+                    "configurable": {
+                        "thread_id": input["conversation_id"],
+                    }
+                },
+            ):
+                await queue.put(chunk)
+        except Exception:
+            self.logger.exception(
+                "Error running graph user_id=%s conversation_id=%s",
+                input["user_id"],
+                input["conversation_id"],
+            )
+            await queue.put({
+                "type": "chat.error",
+                "message": "Error processing your request. Please try again",
+                "conversation_id": input["conversation_id"],
+            })
+        finally:
+            await queue.put(None)

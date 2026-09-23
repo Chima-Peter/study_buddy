@@ -17,9 +17,9 @@ from fastapi import (
 
 from app.system.user.schema import UserResponse
 from app.container import Container
-from app.utils.llm import is_rate_limit_error
 from app.core.redis import RedisClient
 from app.core.security import get_current_user_websocket
+from app.system.chat.service import ChatService
 from app.system.conversation.schema import CreateConversationRequest
 from app.system.conversation.service import ConversationService
 
@@ -34,11 +34,13 @@ async def websocket_endpoint(
     websocket: WebSocket,
     user: Annotated[UserResponse, Depends(get_current_user_websocket)],
     agent_graph: AgentGraph = Depends(Provide[Container.agent_graph]),
+    chat_service: ChatService = Depends(Provide[Container.chat_service]),
     logger: Logger = Depends(Provide[Container.logger]),
     redis_service: RedisClient = Depends(Provide[Container.redis_client]),
     conversation_service: ConversationService = Depends(Provide[Container.conversation_service]),
 ) -> None:
     connection_counted = False
+    queue_bucket: dict[str, asyncio.Queue] = {}
 
     try:
         connection_count = await redis_service.get_connection_count(user.id)
@@ -83,7 +85,6 @@ async def websocket_endpoint(
                 return
 
             chat_task = asyncio.create_task(websocket.receive_json())
-
 
             done, pending = await asyncio.wait(
                 {chat_task},
@@ -170,50 +171,40 @@ async def websocket_endpoint(
                             conversation_id,
                             document_ids,
                         )
-                        graph = agent_graph.start()
-                        try:
-                            async for chunk in graph.astream(
-                                input={
-                                    "user_id": user.id,
-                                    "conversation_id": conversation_id,
-                                    "query": query,
-                                    "conversation_summary": "",
-                                    "title": "",
-                                    "document_ids": document_ids,
-                                    "messages": [HumanMessage(content=query)],
-                                },
-                                stream_mode="custom",
-                                config={
-                                    "configurable": {
-                                        "thread_id": conversation_id,
-                                    }
-                                }
-                            ):
-                                await websocket.send_json({
-                                    **chunk,
-                                })
-                        except WebSocketDisconnect:
-                            raise
-                        except Exception as e:
-                            if is_rate_limit_error(e):
-                                logger.warning(
-                                    "Agent graph rate limited user_id=%s",
+
+                        queue = queue_bucket.get(conversation_id)
+                        if queue is None:
+                            queue = asyncio.Queue()
+                            queue_bucket[conversation_id] = queue
+                            asyncio.create_task(
+                                chat_service.run_graph(
+                                    agent_graph.start(),
+                                    queue,
+                                    {
+                                        "user_id": user.id,
+                                        "conversation_id": conversation_id,
+                                        "query": query,
+                                        "document_ids": document_ids,
+                                        "messages": [
+                                            HumanMessage(content=query)
+                                        ],
+                                    },
+                                )
+                            )
+
+                        while True:
+                            event = await queue.get()
+                            if event is None:
+                                queue_bucket.pop(conversation_id, None)
+                                break
+                            if not await _safe_send_json(websocket, {**event}):
+                                logger.info(
+                                    "WebSocket disconnected during stream "
+                                    "user_id=%s conversation_id=%s",
                                     user.id,
+                                    conversation_id,
                                 )
-                                error_message = (
-                                    "Rate limit exceeded. Please try again shortly."
-                                )
-                            else:
-                                logger.exception(
-                                    "Error in agent graph user_id=%s", user.id
-                                )
-                                error_message = "Failed to generate response"
-                            await _safe_send_json(websocket, {
-                                "type": "chat.error",
-                                "message": error_message,
-                                "conversation_id": conversation_id,
-                            })
-                            continue
+                                return
                 except json.JSONDecodeError:
                     logger.warning(
                         "Invalid JSON message user_id=%s", user.id,
@@ -260,8 +251,8 @@ async def _safe_send_json(websocket: WebSocket, data: dict[str, Any]) -> bool:
     try:
         await websocket.send_json(data)
         return True
-    except WebSocketDisconnect:
-        raise
+    except (WebSocketDisconnect, RuntimeError):
+        return False
     except Exception:
         return False
 
