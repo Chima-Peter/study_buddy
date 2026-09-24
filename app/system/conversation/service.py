@@ -1,19 +1,23 @@
 from logging import Logger
 
+from langgraph.graph.state import CompiledStateGraph
+
+from app.system.chat.schema import ChatResponse
+from app.system.chat.service import ChatService
 from app.system.conversation.model import ConversationModel
 from app.system.conversation.repository import ConversationRepository
-from app.system.chat.schema import ChatResponse
 from app.system.conversation.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
     BranchConversationRequest,
+    BranchConversationResponse,
     ConversationDetailResponse,
     ConversationListResponseData,
     ConversationPatchRequest,
     ConversationResponse,
     CreateConversationRequest,
-    STATUS_LITERAL,
 )
+from app.utils.continuation_key import verify_continuation_key
 
 
 class ConversationService:
@@ -21,9 +25,13 @@ class ConversationService:
         self,
         repository: ConversationRepository,
         logger: Logger,
+        chat_service: ChatService,
+        continuation_secret: str,
     ):
         self.repository = repository
         self.logger = logger
+        self.chat_service = chat_service
+        self.continuation_secret = continuation_secret
 
     async def create(
         self,
@@ -201,31 +209,59 @@ class ConversationService:
 
     async def branch(
         self,
-        conversation_id: str,
+        graph: CompiledStateGraph,
         user_id: str,
         request: BranchConversationRequest,
-    ) -> ConversationResponse:
+    ) -> BranchConversationResponse:
+        verified = verify_continuation_key(
+            request.continuation_key,
+            self.continuation_secret,
+        )
+        if verified is None:
+            raise ValueError("Invalid continuation key")
+
+        source_thread_id = verified["thread_id"]
         self.logger.info(
-            "Branching conversation id=%s user_id=%s chat_count=%s",
-            conversation_id,
+            "Branching conversation id=%s user_id=%s",
+            source_thread_id,
             user_id,
-            request.chat_count,
         )
-        result = await self.repository.branch(
-            source_conversation_id=conversation_id,
+        source = await self.repository.get(source_thread_id, user_id)
+        if source is None:
+            raise ValueError("Conversation not found")
+
+        source_title = (source.title or "Conversation").strip() or "Conversation"
+        branch_title = (
+            source_title
+            if source_title.startswith("Branch · ")
+            else f"Branch · {source_title}"
+        )
+
+        conversation = await self.create(
+            CreateConversationRequest(title=branch_title),
             user_id=user_id,
-            chat_count=request.chat_count,
         )
+        chat = await self.chat_service.branch(
+            graph,
+            user_id=user_id,
+            payload=verified,
+            new_conversation_id=conversation.id,
+        )
+        if not chat.continuation_key:
+            raise ValueError("Failed to create branched chat")
+
         self.logger.info(
             "Conversation branch completed source_id=%s new_id=%s user_id=%s",
-            conversation_id,
-            result.id,
+            source_thread_id,
+            conversation.id,
             user_id,
         )
-        return ConversationResponse(
-            id=result.id,
-            title=result.title,
-            status=result.status,
+        return BranchConversationResponse(
+            id=conversation.id,
+            title=conversation.title,
+            status=conversation.status,
+            continuation_key=chat.continuation_key,
+            chat_id=chat.id,
         )
 
     async def verify_ownership(

@@ -707,6 +707,8 @@ class Container(containers.DeclarativeContainer):
         ConversationService,
         repository=conversation_repository,
         logger=logger,
+        chat_service=chat_service,
+        continuation_secret=settings.provided.jwt_secret,
     )
 
     notification_repository = providers.Factory(

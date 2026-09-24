@@ -4,6 +4,7 @@ from typing import Annotated
 from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.agent.chat_agent.graph import AgentGraph
 from app.system.user.schema import UserResponse
 from app.container import Container
 from app.core.response import BasicResponse
@@ -11,13 +12,13 @@ from app.core.security import get_current_user
 from app.system.conversation.schema import (
     DEFAULT_LIST_LIMIT,
     MAX_LIST_LIMIT,
+    BranchConversationApiResponse,
     BranchConversationRequest,
     ConversationApiResponse,
     ConversationHistoryApiResponse,
     ConversationHistoryResponse,
     ConversationListApiResponse,
     ConversationPatchRequest,
-    STATUS_LITERAL,
 )
 from app.system.conversation.service import ConversationService
 
@@ -75,6 +76,61 @@ async def list_conversations(
         )
 
 
+@conversation_router.post(
+    "/branch",
+    response_model=BranchConversationApiResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@inject
+async def branch_conversation(
+    request: BranchConversationRequest,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: ConversationService = Depends(
+        Provide[Container.conversation_service]
+    ),
+    agent_graph: AgentGraph = Depends(Provide[Container.agent_graph]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    logger.info("Branch conversation request user_id=%s", user.id)
+    try:
+        conversation = await service.branch(
+            graph=agent_graph.start(),
+            user_id=user.id,
+            request=request,
+        )
+        logger.info(
+            "Branch conversation request completed new_id=%s user_id=%s",
+            conversation.id,
+            user.id,
+        )
+        return BasicResponse(
+            data=conversation.model_dump(mode="json"),
+            message="Conversation branched successfully",
+        )
+    except ValueError as error:
+        logger.warning(
+            "Branch conversation request failed user_id=%s error=%s",
+            user.id,
+            error,
+        )
+        detail = str(error)
+        code = (
+            status.HTTP_404_NOT_FOUND
+            if detail == "Conversation not found"
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise HTTPException(status_code=code, detail=detail) from error
+    except Exception:
+        logger.exception(
+            "Unexpected error branching conversation user_id=%s",
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+
 @conversation_router.get(
     "/{conversation_id}",
     response_model=ConversationHistoryApiResponse,
@@ -124,70 +180,6 @@ async def get_conversation(
     except Exception:
         logger.exception(
             "Unexpected error getting conversation id=%s user_id=%s",
-            conversation_id,
-            user.id,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        )
-
-
-@conversation_router.post(
-    "/{conversation_id}/branch",
-    response_model=ConversationApiResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-@inject
-async def branch_conversation(
-    conversation_id: str,
-    request: BranchConversationRequest,
-    user: Annotated[UserResponse, Depends(get_current_user)],
-    service: ConversationService = Depends(
-        Provide[Container.conversation_service]
-    ),
-    logger: Logger = Depends(Provide[Container.logger]),
-) -> BasicResponse:
-    logger.info(
-        "Branch conversation request id=%s user_id=%s chat_count=%s",
-        conversation_id,
-        user.id,
-        request.chat_count,
-    )
-    try:
-        conversation = await service.branch(
-            conversation_id=conversation_id,
-            user_id=user.id,
-            request=request,
-        )
-        logger.info(
-            "Branch conversation request completed source_id=%s new_id=%s "
-            "user_id=%s",
-            conversation_id,
-            conversation.id,
-            user.id,
-        )
-        return BasicResponse(
-            data=conversation.model_dump(mode="json"),
-            message="Conversation branched successfully",
-        )
-    except ValueError as error:
-        logger.warning(
-            "Branch conversation request failed id=%s user_id=%s error=%s",
-            conversation_id,
-            user.id,
-            error,
-        )
-        detail = str(error)
-        code = (
-            status.HTTP_404_NOT_FOUND
-            if detail == "Conversation not found"
-            else status.HTTP_400_BAD_REQUEST
-        )
-        raise HTTPException(status_code=code, detail=detail) from error
-    except Exception:
-        logger.exception(
-            "Unexpected error branching conversation id=%s user_id=%s",
             conversation_id,
             user.id,
         )

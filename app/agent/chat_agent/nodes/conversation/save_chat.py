@@ -45,16 +45,26 @@ class SaveChatNode:
             turn_type,
             fork_chat_id,
         )
-        chat = await self.chat_service.save(
-            user_id=state["user_id"],
-            conversation_id=state["conversation_id"],
-            query=state["query"],
-            response=state["response"],
-            source=sources,
-            query_message_id=query_message_id,
-            response_message_id=response_message_id,
-            chat_id=fork_chat_id,
-        )
+        if fork_chat_id:
+            chat = await self.chat_service.replace_turn(
+                chat_id=fork_chat_id,
+                user_id=state["user_id"],
+                query=state["query"],
+                response=state["response"],
+                source=sources,
+                query_message_id=query_message_id,
+                response_message_id=response_message_id,
+            )
+        else:
+            chat = await self.chat_service.save(
+                user_id=state["user_id"],
+                conversation_id=state["conversation_id"],
+                query=state["query"],
+                response=state["response"],
+                source=sources,
+                query_message_id=query_message_id,
+                response_message_id=response_message_id,
+            )
 
         writer = get_stream_writer()
         if chat is None:

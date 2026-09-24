@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from logging import Logger
 from typing import Any
 
-from langchain_core.messages import HumanMessage, RemoveMessage
+import uuid_utils
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from app.system.chat.model import ChatModel
@@ -35,10 +36,6 @@ class ChatService:
         self.repository = repository
         self.logger = logger
         self.continuation_secret = continuation_secret
-
-    @staticmethod
-    def _is_valid_message_id(value: Any) -> bool:
-        return isinstance(value, str) and len(value) == MESSAGE_ID_LENGTH
 
     def validate_websocket_message(
         self,
@@ -196,6 +193,17 @@ class ChatService:
             "continuation_key": continuation_key,
         }, None
 
+    @staticmethod
+    def _to_response(record: ChatModel) -> ChatResponse:
+        return ChatResponse(
+            id=record.id,
+            conversation_id=record.conversation_id,
+            query=record.query,
+            response=record.chat,
+            continuation_key=record.continuation_key,
+            created_at=record.created_at,
+        )
+
     async def save(
         self,
         *,
@@ -207,67 +215,93 @@ class ChatService:
         query_message_id: str | None = None,
         response_message_id: str | None = None,
         chat_id: str | None = None,
+        continuation_key: str | None = None,
     ) -> ChatResponse | None:
-        audit = {"source": source}
+        """Create a new chat turn."""
+        create_fields: dict[str, Any] = {
+            "conversation_id": conversation_id,
+            "query": query,
+            "chat": response,
+            "query_message_id": query_message_id,
+            "response_message_id": response_message_id,
+            "audit": {"source": source},
+            "continuation_key": continuation_key,
+        }
+        if chat_id:
+            create_fields["id"] = chat_id
+        record = ChatModel(**create_fields)
 
         for attempt in range(1, SAVE_MAX_ATTEMPTS + 1):
             try:
-                if chat_id:
-                    record = await self.repository.update_turn(
-                        chat_id,
-                        user_id,
-                        query=query,
-                        response=response,
-                        query_message_id=query_message_id,
-                        response_message_id=response_message_id,
-                        audit=audit,
-                    )
-                    if record is None:
-                        self.logger.error(
-                            "Chat update failed: not found chat_id=%s "
-                            "user_id=%s",
-                            chat_id,
-                            user_id,
-                        )
-                        return None
-                    self.logger.info(
-                        "Chat updated successfully chat_id=%s user_id=%s",
-                        chat_id,
-                        user_id,
-                    )
-                else:
-                    record = ChatModel(
-                        conversation_id=conversation_id,
-                        query=query,
-                        chat=response,
-                        query_message_id=query_message_id,
-                        response_message_id=response_message_id,
-                        audit=audit,
-                    )
-                    await self.repository.create(record, user_id)
-                    self.logger.info(
-                        "Chat saved successfully user_id=%s",
-                        user_id,
-                    )
-
-                return ChatResponse(
-                    id=record.id,
-                    conversation_id=record.conversation_id,
-                    query=record.query,
-                    response=record.chat,
-                    continuation_key=record.continuation_key,
-                    created_at=record.created_at,
+                await self.repository.create(record, user_id)
+                self.logger.info(
+                    "Chat saved successfully chat_id=%s user_id=%s",
+                    record.id,
+                    user_id,
                 )
+                return self._to_response(record)
             except Exception:
                 self.logger.exception(
                     "Chat save failed user_id=%s chat_id=%s attempt=%s/%s",
+                    user_id,
+                    record.id,
+                    attempt,
+                    SAVE_MAX_ATTEMPTS,
+                )
+        self.logger.error(
+            "Chat save failed after %s attempts user_id=%s chat_id=%s",
+            SAVE_MAX_ATTEMPTS,
+            user_id,
+            record.id,
+        )
+        return None
+
+    async def replace_turn(
+        self,
+        *,
+        chat_id: str,
+        user_id: str,
+        query: str,
+        response: str,
+        source: list[dict[str, Any]],
+        query_message_id: str | None = None,
+        response_message_id: str | None = None,
+    ) -> ChatResponse | None:
+        """Overwrite an existing chat turn (edit/retry)."""
+        for attempt in range(1, SAVE_MAX_ATTEMPTS + 1):
+            try:
+                record = await self.repository.update_turn(
+                    chat_id,
+                    user_id,
+                    query=query,
+                    response=response,
+                    query_message_id=query_message_id,
+                    response_message_id=response_message_id,
+                    audit={"source": source},
+                )
+                if record is None:
+                    self.logger.error(
+                        "Chat replace failed: not found chat_id=%s user_id=%s",
+                        chat_id,
+                        user_id,
+                    )
+                    return None
+                self.logger.info(
+                    "Chat replaced successfully chat_id=%s user_id=%s",
+                    chat_id,
+                    user_id,
+                )
+                return self._to_response(record)
+            except Exception:
+                self.logger.exception(
+                    "Chat replace failed user_id=%s chat_id=%s attempt=%s/%s",
                     user_id,
                     chat_id,
                     attempt,
                     SAVE_MAX_ATTEMPTS,
                 )
         self.logger.error(
-            "Chat save failed after %s attempts user_id=%s chat_id=%s",
+            "Chat replace failed after %s attempts user_id=%s chat_id=%s",
             SAVE_MAX_ATTEMPTS,
             user_id,
             chat_id,
@@ -361,6 +395,161 @@ class ChatService:
             user_id,
         )
 
+    async def branch(
+        self,
+        graph: CompiledStateGraph,
+        *,
+        user_id: str,
+        payload: dict[str, str],
+        new_conversation_id: str,
+    ) -> ChatResponse:
+        """Seed a new thread from a verified turn payload and persist its chat.
+
+        ``payload`` must include ``thread_id``, ``checkpointer_id``, ``chat_id``,
+        ``query_message_id``, and ``response_message_id``. Loads that turn,
+        writes fresh messages into the new thread, creates the chat row, and
+        returns it with a new continuation key.
+        """
+        source_thread_id = payload["thread_id"]
+        checkpointer_id = payload["checkpointer_id"]
+        query_message_id = payload["query_message_id"]
+        response_message_id = payload["response_message_id"]
+        source_chat_id = payload["chat_id"]
+
+        source_chat = await self.repository.get(source_chat_id, user_id)
+        if source_chat is None:
+            self.logger.warning(
+                "Branch failed: source chat not found chat_id=%s user_id=%s",
+                source_chat_id,
+                user_id,
+            )
+            raise ValueError("Conversation not found")
+        if source_chat.conversation_id != source_thread_id:
+            self.logger.warning(
+                "Branch failed: chat/thread mismatch chat_id=%s "
+                "conversation_id=%s thread_id=%s",
+                source_chat_id,
+                source_chat.conversation_id,
+                source_thread_id,
+            )
+            raise ValueError("Invalid branch payload")
+
+        source_config = {
+            "configurable": {
+                "thread_id": source_thread_id,
+                "checkpoint_id": checkpointer_id,
+            },
+        }
+        snapshot = await graph.aget_state(source_config)
+        messages = list((snapshot.values or {}).get("messages") or [])
+
+        human_message, ai_message = self._find_turn_messages(
+            messages,
+            query_message_id=query_message_id,
+            response_message_id=response_message_id,
+        )
+        if human_message is None or ai_message is None:
+            self.logger.warning(
+                "Branch failed: turn not found thread_id=%s "
+                "query_message_id=%s response_message_id=%s",
+                source_thread_id,
+                query_message_id,
+                response_message_id,
+            )
+            raise ValueError("Turn not found in checkpoint")
+
+        query = str(human_message.content)
+        response = str(ai_message.content)
+        source = list((source_chat.audit or {}).get("source") or [])
+
+        new_thread_config = {"configurable": {"thread_id": new_conversation_id}}
+        new_config = await graph.aupdate_state(
+            new_thread_config,
+            {
+                "messages": [
+                    HumanMessage(content=query),
+                    AIMessage(content=response),
+                ],
+                "query": query,
+                "response": response,
+                "conversation_id": new_conversation_id,
+                "user_id": user_id,
+                "document_ids": (snapshot.values or {}).get("document_ids"),
+            },
+        )
+        new_checkpointer_id = (
+            (new_config or {})
+            .get("configurable", {})
+            .get("checkpoint_id")
+        )
+        if not new_checkpointer_id:
+            self.logger.error(
+                "Branch failed: no checkpoint_id after seed "
+                "new_conversation_id=%s",
+                new_conversation_id,
+            )
+            raise ValueError("Failed to seed branched conversation")
+
+        branched_snapshot = await graph.aget_state(new_thread_config)
+        branched_messages = list(
+            (branched_snapshot.values or {}).get("messages") or []
+        )
+        new_query_message_id = None
+        new_response_message_id = None
+        for message in reversed(branched_messages):
+            if new_response_message_id is None and message.type == "ai":
+                new_response_message_id = message.id
+            elif new_query_message_id is None and message.type == "human":
+                new_query_message_id = message.id
+            if new_query_message_id and new_response_message_id:
+                break
+        if not new_query_message_id or not new_response_message_id:
+            self.logger.error(
+                "Branch failed: missing message ids after seed "
+                "new_conversation_id=%s",
+                new_conversation_id,
+            )
+            raise ValueError("Failed to seed branched conversation")
+
+        new_chat_id = str(uuid_utils.uuid7())
+        new_continuation_key = create_continuation_key(
+            chat_id=new_chat_id,
+            thread_id=new_conversation_id,
+            checkpointer_id=new_checkpointer_id,
+            query_message_id=new_query_message_id,
+            response_message_id=new_response_message_id,
+            secret=self.continuation_secret,
+        )
+        chat = await self.save(
+            user_id=user_id,
+            conversation_id=new_conversation_id,
+            query=query,
+            response=response,
+            source=source,
+            query_message_id=new_query_message_id,
+            response_message_id=new_response_message_id,
+            chat_id=new_chat_id,
+            continuation_key=new_continuation_key,
+        )
+        if chat is None:
+            self.logger.error(
+                "Branch failed: chat save failed new_conversation_id=%s "
+                "user_id=%s",
+                new_conversation_id,
+                user_id,
+            )
+            raise ValueError("Failed to create branched chat")
+
+        self.logger.info(
+            "Branched turn source_thread=%s new_conversation_id=%s "
+            "chat_id=%s checkpointer_id=%s",
+            source_thread_id,
+            new_conversation_id,
+            chat.id,
+            new_checkpointer_id,
+        )
+        return chat
+
     async def apply_edit(
         self,
         graph: CompiledStateGraph,
@@ -384,13 +573,10 @@ class ChatService:
         snapshot = await graph.aget_state(config)
         messages = list((snapshot.values or {}).get("messages") or [])
 
-        human_message = next(
-            (
-                message
-                for message in messages
-                if message.type == "human" and message.id == query_message_id
-            ),
-            None,
+        human_message, ai_message = self._find_turn_messages(
+            messages,
+            query_message_id=query_message_id,
+            response_message_id=response_message_id,
         )
         if human_message is None:
             self.logger.warning(
@@ -401,14 +587,6 @@ class ChatService:
             )
             return "Human message not found", None
 
-        ai_message = next(
-            (
-                message
-                for message in messages
-                if message.type == "ai" and message.id == response_message_id
-            ),
-            None,
-        )
         if ai_message is None:
             self.logger.info(
                 "Edit: AI reply missing, continuing conversation_id=%s "
@@ -469,13 +647,10 @@ class ChatService:
         snapshot = await graph.aget_state(config)
         messages = list((snapshot.values or {}).get("messages") or [])
 
-        human_message = next(
-            (
-                message
-                for message in messages
-                if message.type == "human" and message.id == query_message_id
-            ),
-            None,
+        human_message, ai_message = self._find_turn_messages(
+            messages,
+            query_message_id=query_message_id,
+            response_message_id=response_message_id,
         )
         if human_message is None:
             self.logger.warning(
@@ -486,14 +661,6 @@ class ChatService:
             )
             return "Human message not found", None
 
-        ai_message = next(
-            (
-                message
-                for message in messages
-                if message.type == "ai" and message.id == response_message_id
-            ),
-            None,
-        )
         if ai_message is None:
             self.logger.info(
                 "Retry: AI reply missing, continuing conversation_id=%s "
@@ -740,3 +907,25 @@ class ChatService:
                 thread_id,
             )
             return None
+
+    @staticmethod
+    def _is_valid_message_id(value: Any) -> bool:
+        return isinstance(value, str) and len(value) == MESSAGE_ID_LENGTH
+
+    @staticmethod
+    def _find_turn_messages(
+        messages: list[Any],
+        *,
+        query_message_id: str,
+        response_message_id: str,
+    ) -> tuple[Any | None, Any | None]:
+        human_message = None
+        ai_message = None
+        for message in messages:
+            if message.type == "human" and message.id == query_message_id:
+                human_message = message
+            elif message.type == "ai" and message.id == response_message_id:
+                ai_message = message
+            if human_message is not None and ai_message is not None:
+                break
+        return human_message, ai_message

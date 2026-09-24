@@ -1,6 +1,6 @@
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from app.system.chat.schema import ChatResponse
 
@@ -39,9 +39,15 @@ class ConversationPatchRequest(BaseModel):
 
 
 class BranchConversationRequest(BaseModel):
-    """Copy the first `chat_count` turns into a new conversation."""
+    """Branch from a turn identified by its continuation key."""
 
-    chat_count: int = Field(ge=1, description="Number of chat turns to include")
+    continuation_key: str = Field(min_length=1)
+
+
+class BranchConversationResponse(ConversationResponse):
+    continuation_key: str
+    chat_id: str
+    title: str | None
 
 
 class ConversationListResponseData(BaseModel):
@@ -67,6 +73,13 @@ class ConversationHistoryApiResponse(BaseModel):
 
 class ConversationApiResponse(BaseModel):
     data: ConversationResponse | None = None
+    success: bool = True
+    message: str | None = None
+    error: str | None = None
+
+
+class BranchConversationApiResponse(BaseModel):
+    data: BranchConversationResponse | None = None
     success: bool = True
     message: str | None = None
     error: str | None = None
