@@ -7,6 +7,9 @@ QuestionBankStatus = Literal["pending", "failed", "success"]
 DEFAULT_LIST_LIMIT = 20
 MAX_LIST_LIMIT = 50
 
+def question_bank_thread_id(user_id: str, document_id: str) -> str:
+    return f"question-bank:{user_id}:{document_id}"
+
 
 class QuestionBankAlreadyExistsError(Exception):
     def __init__(self, document_id: str):

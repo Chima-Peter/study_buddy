@@ -5,6 +5,7 @@ from aio_pika.abc import AbstractIncomingMessage
 from app.core.redis import RedisClient
 from app.handlers.question_bank_generate.utils import notify_question_bank_status
 from app.system.notification.service import NotificationService
+from app.system.question_bank.schema import question_bank_thread_id
 from app.utils.llm import is_rate_limit_error
 from pydantic import ValidationError
 
@@ -51,8 +52,8 @@ async def handle_question_bank_generate(
                 },
                 config={
                     "configurable": {
-                        "thread_id": (
-                            f"question-bank:{user_id}:{document_id}"
+                        "thread_id": question_bank_thread_id(
+                            user_id, document_id
                         ),
                     }
                 },

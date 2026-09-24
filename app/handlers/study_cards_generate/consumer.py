@@ -5,6 +5,7 @@ from aio_pika.abc import AbstractIncomingMessage
 from app.core.redis import RedisClient
 from app.handlers.study_cards_generate.utils import notify_study_cards_status
 from app.system.notification.service import NotificationService
+from app.system.study_cards.schema import study_cards_thread_id
 from app.utils.llm import is_rate_limit_error
 from pydantic import ValidationError
 
@@ -52,8 +53,8 @@ async def handle_study_cards_generate(
                 },
                 config={
                     "configurable": {
-                        "thread_id": (
-                            f"study-cards:{user_id}:{document_id}"
+                        "thread_id": study_cards_thread_id(
+                            user_id, document_id
                         ),
                     }
                 },

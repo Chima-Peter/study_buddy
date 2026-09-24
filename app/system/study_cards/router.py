@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.system.user.schema import UserResponse
 from app.container import Container
-from app.core.response import BasicResponse
+from app.core.response import ApiResponse, BasicResponse
 from app.core.security import get_current_user
 from app.system.study_cards.schema import (
     DEFAULT_LIST_LIMIT,
@@ -244,3 +244,41 @@ async def get_study_cards(
         data=study_card.to_response().model_dump(mode="json"),
         message="Study cards retrieved successfully",
     )
+
+
+@study_cards_router.delete(
+    "/{document_id}",
+    response_model=ApiResponse,
+    summary="Delete study cards",
+    description=(
+        "Delete study cards for an owned document and clear the "
+        "associated LangGraph checkpoint thread."
+    ),
+)
+@inject
+async def delete_study_cards(
+    document_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        await service.delete(document_id, user.id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Study cards not found",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error deleting study cards "
+            "document_id=%s user_id=%s",
+            document_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while deleting study cards. Please try again later.",
+        )
+
+    return BasicResponse(message="Study cards deleted successfully")

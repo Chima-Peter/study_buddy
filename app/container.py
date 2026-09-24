@@ -723,6 +723,11 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
+    checkpoint_saver = providers.Resource(
+        init_checkpointer,
+        database_url=settings.provided.checkpoint_database_url,
+    )
+
     study_cards_repository = providers.Factory(
         StudyCardsRepository,
         session_factory=async_session_factory,
@@ -734,6 +739,7 @@ class Container(containers.DeclarativeContainer):
         repository=study_cards_repository,
         document_service=document_service,
         rabbitmq=rabbitmq,
+        checkpointer=checkpoint_saver,
         logger=logger,
     )
 
@@ -748,12 +754,8 @@ class Container(containers.DeclarativeContainer):
         repository=question_bank_repository,
         document_service=document_service,
         rabbitmq=rabbitmq,
+        checkpointer=checkpoint_saver,
         logger=logger,
-    )
-
-    checkpoint_saver = providers.Resource(
-        init_checkpointer,
-        database_url=settings.provided.checkpoint_database_url,
     )
 
     agent_graph = providers.Singleton(

@@ -5,7 +5,7 @@ from dependency_injector.wiring import Provide, inject
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.container import Container
-from app.core.response import BasicResponse
+from app.core.response import ApiResponse, BasicResponse
 from app.core.security import get_current_user
 from app.system.question_bank.schema import (
     DEFAULT_LIST_LIMIT,
@@ -262,3 +262,43 @@ async def get_question_bank(
         data=question_bank.to_response().model_dump(mode="json"),
         message="Question bank retrieved successfully",
     )
+
+
+@question_bank_router.delete(
+    "/{document_id}",
+    response_model=ApiResponse,
+    summary="Delete question bank",
+    description=(
+        "Delete the question bank for an owned document and clear the "
+        "associated LangGraph checkpoint thread."
+    ),
+)
+@inject
+async def delete_question_bank(
+    document_id: str,
+    user: Annotated[UserResponse, Depends(get_current_user)],
+    service: QuestionBankService = Depends(
+        Provide[Container.question_bank_service]
+    ),
+    logger: Logger = Depends(Provide[Container.logger]),
+) -> BasicResponse:
+    try:
+        await service.delete(document_id, user.id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Question bank not found",
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error deleting question bank "
+            "document_id=%s user_id=%s",
+            document_id,
+            user.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while deleting question bank. Please try again later.",
+        )
+
+    return BasicResponse(message="Question bank deleted successfully")

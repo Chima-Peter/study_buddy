@@ -1,6 +1,7 @@
 from logging import Logger
 import random
 
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from sqlalchemy.exc import IntegrityError
 
 from app.core.rabbitmq import RabbitMQ
@@ -18,6 +19,7 @@ from app.system.question_bank.schema import (
     QuestionBankListResponseData,
     QuestionBankNotRetryableError,
     QuestionBankStatus,
+    question_bank_thread_id,
 )
 
 
@@ -27,11 +29,13 @@ class QuestionBankService:
         repository: QuestionBankRepository,
         document_service: DocumentService,
         rabbitmq: RabbitMQ,
+        checkpointer: AsyncPostgresSaver,
         logger: Logger,
     ):
         self.repository = repository
         self.document_service = document_service
         self.rabbitmq = rabbitmq
+        self.checkpointer = checkpointer
         self.logger = logger
 
     async def enqueue_generate(
@@ -209,6 +213,34 @@ class QuestionBankService:
             user_id,
         )
         return question_bank
+
+    async def delete(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> None:
+        self.logger.info(
+            "Deleting question bank document_id=%s user_id=%s",
+            document_id,
+            user_id,
+        )
+        existing = await self.repository.get_by_document(document_id, user_id)
+        if existing is None:
+            raise ValueError("Question bank not found")
+
+        thread_id = question_bank_thread_id(user_id, document_id)
+        await self.checkpointer.adelete_thread(thread_id)
+
+        deleted = await self.repository.delete_by_document(document_id, user_id)
+        if not deleted:
+            raise ValueError("Question bank not found")
+
+        self.logger.info(
+            "Question bank deleted document_id=%s user_id=%s thread_id=%s",
+            document_id,
+            user_id,
+            thread_id,
+        )
 
     async def list_by_user(
         self,
