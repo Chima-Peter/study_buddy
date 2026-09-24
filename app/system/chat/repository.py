@@ -183,3 +183,58 @@ class ChatRepository:
                 chat_id,
             )
             return True
+
+    async def update_turn(
+        self,
+        chat_id: str,
+        user_id: str,
+        *,
+        query: str,
+        response: str,
+        query_message_id: str | None,
+        response_message_id: str | None,
+        audit: dict,
+    ) -> ChatModel | None:
+        async with self.session_factory() as session:
+            db_chat = await session.scalar(
+                select(ChatDBModel)
+                .join(
+                    ConversationDBModel,
+                    ConversationDBModel.id == ChatDBModel.conversation_id,
+                )
+                .where(
+                    ChatDBModel.id == chat_id,
+                    ConversationDBModel.user_id == user_id,
+                )
+            )
+            if db_chat is None:
+                self.logger.warning(
+                    "Chat not found for turn update chat_id=%s user_id=%s",
+                    chat_id,
+                    user_id,
+                )
+                return None
+
+            db_chat.query = query
+            db_chat.chat = response
+            db_chat.query_message_id = query_message_id
+            db_chat.response_message_id = response_message_id
+            db_chat.audit = audit
+            db_chat.continuation_key = None
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                self.logger.exception(
+                    "Error updating chat turn chat_id=%s",
+                    chat_id,
+                )
+                raise
+
+            await session.refresh(db_chat)
+            self.logger.info(
+                "Chat turn updated chat_id=%s conversation_id=%s",
+                db_chat.id,
+                db_chat.conversation_id,
+            )
+            return ChatModel(**db_chat.model_dump())

@@ -3,7 +3,6 @@ import json
 from logging import Logger
 from typing import Annotated, Any
 
-from langchain_core.messages import HumanMessage
 from app.agent.chat_agent.graph import AgentGraph
 from redis.exceptions import ConnectionError
 from dependency_injector.wiring import Provide, inject
@@ -161,92 +160,22 @@ async def websocket_endpoint(
 
                         try:
                             graph = agent_graph.start()
-                            checkpointer_id = payload.get("checkpointer_id")
-                            graph_input: dict[str, Any] = {
-                                "user_id": user.id,
-                                "conversation_id": conversation_id,
-                                "query": query,
-                                "document_ids": document_ids,
-                            }
-
-                            if message_type == "edit":
-                                edit_error, checkpointer_id = (
-                                    await chat_service.apply_edit(
-                                        graph,
-                                        conversation_id=conversation_id,
-                                        query=query,
-                                        document_ids=document_ids,
-                                        query_message_id=payload[
-                                            "query_message_id"
-                                        ],
-                                        response_message_id=payload[
-                                            "response_message_id"
-                                        ],
-                                        checkpointer_id=checkpointer_id,
-                                    )
-                                )
-                                if edit_error:
-                                    await websocket.send_json({
-                                        "type": "error",
-                                        "message": edit_error,
-                                    })
-                                    continue
-                                fork_chat_id = payload.get("chat_id")
-                                if fork_chat_id:
-                                    asyncio.create_task(
-                                        chat_service.delete_chats_after(
-                                            chat_id=fork_chat_id,
-                                            user_id=user.id,
-                                        )
-                                    )
-                            elif message_type == "retry":
-                                retry_error, checkpointer_id = (
-                                    await chat_service.apply_retry(
-                                        graph,
-                                        conversation_id=conversation_id,
-                                        query=query,
-                                        document_ids=document_ids,
-                                        query_message_id=payload[
-                                            "query_message_id"
-                                        ],
-                                        response_message_id=payload[
-                                            "response_message_id"
-                                        ],
-                                        checkpointer_id=checkpointer_id,
-                                    )
-                                )
-                                if retry_error:
-                                    await websocket.send_json({
-                                        "type": "error",
-                                        "message": retry_error,
-                                    })
-                                    continue
-                                fork_chat_id = payload.get("chat_id")
-                                if fork_chat_id:
-                                    asyncio.create_task(
-                                        chat_service.delete_chats_after(
-                                            chat_id=fork_chat_id,
-                                            user_id=user.id,
-                                        )
-                                    )
-                            else:
-                                graph_input["messages"] = [
-                                    HumanMessage(content=query)
-                                ]
-
-                            config_dict: dict[str, Any] = {
-                                "conversation_id": conversation_id,
-                                "checkpointer_id": checkpointer_id,
-                            }
-
-                            asyncio.create_task(
-                                chat_service.run_graph(
-                                    graph,
-                                    config_dict,
-                                    queue,
-                                    graph_input,
-                                )
+                            turn_error = await chat_service.handle_turn(
+                                graph,
+                                user_id=user.id,
+                                conversation_id=conversation_id,
+                                payload={
+                                    **payload,
+                                    "conversation_id": conversation_id,
+                                },
+                                queue=queue,
                             )
+                            if turn_error:
+                                await websocket.send_json({
+                                    "type": "error",
+                                    "message": turn_error,
+                                })
+                                continue
 
                             while True:
                                 event = await queue.get()

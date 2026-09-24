@@ -29,3 +29,6 @@ class AgentState(MessagesState):
     response: str
 
     retry_count: int = 1
+
+    turn_type: str | None
+    fork_chat_id: str | None

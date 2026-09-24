@@ -206,28 +206,51 @@ class ChatService:
         source: list[dict[str, Any]],
         query_message_id: str | None = None,
         response_message_id: str | None = None,
+        chat_id: str | None = None,
     ) -> ChatResponse | None:
-        record = ChatModel(
-            conversation_id=conversation_id,
-            query=query,
-            chat=response,
-            query_message_id=query_message_id,
-            response_message_id=response_message_id,
-            audit={
-                "source": source,
-            },
-        )
+        audit = {"source": source}
 
         for attempt in range(1, SAVE_MAX_ATTEMPTS + 1):
             try:
-                await self.repository.create(record, user_id)
+                if chat_id:
+                    record = await self.repository.update_turn(
+                        chat_id,
+                        user_id,
+                        query=query,
+                        response=response,
+                        query_message_id=query_message_id,
+                        response_message_id=response_message_id,
+                        audit=audit,
+                    )
+                    if record is None:
+                        self.logger.error(
+                            "Chat update failed: not found chat_id=%s "
+                            "user_id=%s",
+                            chat_id,
+                            user_id,
+                        )
+                        return None
+                    self.logger.info(
+                        "Chat updated successfully chat_id=%s user_id=%s",
+                        chat_id,
+                        user_id,
+                    )
+                else:
+                    record = ChatModel(
+                        conversation_id=conversation_id,
+                        query=query,
+                        chat=response,
+                        query_message_id=query_message_id,
+                        response_message_id=response_message_id,
+                        audit=audit,
+                    )
+                    await self.repository.create(record, user_id)
+                    self.logger.info(
+                        "Chat saved successfully user_id=%s",
+                        user_id,
+                    )
 
-                self.logger.info(
-                    "Chat saved successfully user_id=%s",
-                    user_id,
-                )
-
-                result = ChatResponse(
+                return ChatResponse(
                     id=record.id,
                     conversation_id=record.conversation_id,
                     query=record.query,
@@ -235,19 +258,19 @@ class ChatService:
                     continuation_key=record.continuation_key,
                     created_at=record.created_at,
                 )
-
-                return result
             except Exception:
                 self.logger.exception(
-                    "Chat save failed user_id=%s attempt=%s/%s",
+                    "Chat save failed user_id=%s chat_id=%s attempt=%s/%s",
                     user_id,
+                    chat_id,
                     attempt,
                     SAVE_MAX_ATTEMPTS,
                 )
         self.logger.error(
-            "Chat save failed after %s attempts user_id=%s",
+            "Chat save failed after %s attempts user_id=%s chat_id=%s",
             SAVE_MAX_ATTEMPTS,
             user_id,
+            chat_id,
         )
         return None
 
@@ -501,6 +524,85 @@ class ChatService:
             new_checkpointer_id,
         )
         return None, new_checkpointer_id
+
+    async def handle_turn(
+        self,
+        graph: CompiledStateGraph,
+        *,
+        user_id: str,
+        conversation_id: str,
+        payload: dict[str, Any],
+        queue: Queue,
+    ) -> str | None:
+        """Prepare fork/prune for edit|retry, then start ``run_graph``.
+
+        Returns an error message on fork failure, or None on success.
+        """
+        message_type = payload["type"]
+        query = payload["query"]
+        document_ids = payload["document_ids"]
+        checkpointer_id = payload.get("checkpointer_id")
+        fork_chat_id: str | None = None
+
+        graph_input: dict[str, Any] = {
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "query": query,
+            "document_ids": document_ids,
+            "turn_type": message_type,
+            "fork_chat_id": None,
+        }
+
+        if message_type == "edit":
+            edit_error, checkpointer_id = await self.apply_edit(
+                graph,
+                conversation_id=conversation_id,
+                query=query,
+                document_ids=document_ids,
+                query_message_id=payload["query_message_id"],
+                response_message_id=payload["response_message_id"],
+                checkpointer_id=checkpointer_id,
+            )
+            if edit_error:
+                return edit_error
+            fork_chat_id = payload.get("chat_id")
+        elif message_type == "retry":
+            retry_error, checkpointer_id = await self.apply_retry(
+                graph,
+                conversation_id=conversation_id,
+                query=query,
+                document_ids=document_ids,
+                query_message_id=payload["query_message_id"],
+                response_message_id=payload["response_message_id"],
+                checkpointer_id=checkpointer_id,
+            )
+            if retry_error:
+                return retry_error
+            fork_chat_id = payload.get("chat_id")
+        else:
+            graph_input["messages"] = [HumanMessage(content=query)]
+
+        if fork_chat_id:
+            graph_input["fork_chat_id"] = fork_chat_id
+            asyncio.create_task(
+                self.delete_chats_after(
+                    chat_id=fork_chat_id,
+                    user_id=user_id,
+                )
+            )
+
+        asyncio.create_task(
+            self.run_graph(
+                graph,
+                {
+                    "conversation_id": conversation_id,
+                    "checkpointer_id": checkpointer_id,
+                },
+                queue,
+                graph_input,
+            )
+        )
+        return None
 
     async def run_graph(
         self,

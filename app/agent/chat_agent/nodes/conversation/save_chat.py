@@ -31,14 +31,19 @@ class SaveChatNode:
             if query_message_id and response_message_id:
                 break
 
+        fork_chat_id = state.get("fork_chat_id")
+        turn_type = state.get("turn_type")
         self.logger.info(
             "Save chat node started id=%s user_id=%s sources=%s "
-            "query_message_id=%s response_message_id=%s",
+            "query_message_id=%s response_message_id=%s turn_type=%s "
+            "fork_chat_id=%s",
             state["conversation_id"],
             state["user_id"],
             len(sources),
             query_message_id,
             response_message_id,
+            turn_type,
+            fork_chat_id,
         )
         chat = await self.chat_service.save(
             user_id=state["user_id"],
@@ -48,6 +53,7 @@ class SaveChatNode:
             source=sources,
             query_message_id=query_message_id,
             response_message_id=response_message_id,
+            chat_id=fork_chat_id,
         )
 
         writer = get_stream_writer()
