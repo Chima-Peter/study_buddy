@@ -44,10 +44,10 @@ class BranchConversationRequest(BaseModel):
     continuation_key: str = Field(min_length=1)
 
 
-class BranchConversationResponse(ConversationResponse):
-    continuation_key: str
-    chat_id: str
+class BranchConversationResponse(BaseModel):
+    id: str
     title: str | None
+    chat: ChatResponse
 
 
 class ConversationListResponseData(BaseModel):

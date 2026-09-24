@@ -259,9 +259,7 @@ class ConversationService:
         return BranchConversationResponse(
             id=conversation.id,
             title=conversation.title,
-            status=conversation.status,
-            continuation_key=chat.continuation_key,
-            chat_id=chat.id,
+            chat=chat,
         )
 
     async def verify_ownership(
