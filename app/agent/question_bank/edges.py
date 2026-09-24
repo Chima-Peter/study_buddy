@@ -18,8 +18,8 @@ RouteTarget = Literal[
 ]
 
 
-def route_from_checkpoint(state: QuestionBankState) -> RouteTarget | list[str]:
-    """Resume-aware router: pick the next step from current/checkpointed state."""
+def route_next(state: QuestionBankState) -> RouteTarget | list[str]:
+    """Resume-aware router: pick the next step from current state."""
     if state.get("saved"):
         return "END"
     if state.get("final_question_bank") is not None:

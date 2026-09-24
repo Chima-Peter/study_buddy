@@ -6,14 +6,14 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from app.agent.question_bank.edges import route_from_checkpoint
+from app.agent.question_bank.edges import route_next
 from app.agent.question_bank.nodes import (
-    CheckpointerNode,
     ConsolidateNode,
     CritiqueQuestionsNode,
     GenerateQuestionsNode,
     RetrieveChapterKeysNode,
     RetrieveChapterRecordsNode,
+    RouterNode,
     SaveNode,
 )
 from app.agent.question_bank.state import QuestionBankState
@@ -44,7 +44,7 @@ class QuestionBankGraph:
 
         nodes = {
             "start": StartNode(logger=self.logger),
-            "checkpointer": CheckpointerNode(logger=self.logger),
+            "router": RouterNode(logger=self.logger),
             "retrieve_chapter_keys": RetrieveChapterKeysNode(
                 logger=self.logger,
                 document_service=self.document_service,
@@ -72,10 +72,10 @@ class QuestionBankGraph:
             self._add_node(node_name, node)
 
         graph.add_edge(START, "start")
-        graph.add_edge("start", "checkpointer")
+        graph.add_edge("start", "router")
         graph.add_conditional_edges(
-            "checkpointer",
-            route_from_checkpoint,
+            "router",
+            route_next,
             {
                 "retrieve_chapter_keys": "retrieve_chapter_keys",
                 "retrieve_chapter_records": "retrieve_chapter_records",
@@ -88,9 +88,9 @@ class QuestionBankGraph:
         )
 
         graph.add_edge("retrieve_chapter_keys", "retrieve_chapter_records")
-        graph.add_edge("retrieve_chapter_records", "checkpointer")
-        graph.add_edge("generate", "checkpointer")
-        graph.add_edge("critique", "checkpointer")
+        graph.add_edge("retrieve_chapter_records", "router")
+        graph.add_edge("generate", "router")
+        graph.add_edge("critique", "router")
         graph.add_edge("consolidate", "save")
         graph.add_edge("save", END)
 

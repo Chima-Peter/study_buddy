@@ -8,14 +8,14 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from app.agent.study_cards_agent.edges import route_from_checkpoint
+from app.agent.study_cards_agent.edges import route_next
 from app.agent.study_cards_agent.nodes import (
-    CheckpointerNode,
     ConsolidateNode,
     CritiqueNode,
     GenerateChapterNode,
     RetrieveChaptersNode,
     RetrieveSessionsNode,
+    RouterNode,
     SaveNode,
 )
 from app.agent.study_cards_agent.state import StudyCardsState
@@ -48,7 +48,7 @@ class StudyCardsGraph:
 
         nodes = {
             "start": StartNode(logger=self.logger),
-            "checkpointer": CheckpointerNode(logger=self.logger),
+            "router": RouterNode(logger=self.logger),
             "retrieve_chapter_keys": RetrieveChaptersNode(
                 logger=self.logger,
                 document_service=self.document_service,
@@ -80,10 +80,10 @@ class StudyCardsGraph:
             self._add_node(node_name, node)
 
         graph.add_edge(START, "start")
-        graph.add_edge("start", "checkpointer")
+        graph.add_edge("start", "router")
         graph.add_conditional_edges(
-            "checkpointer",
-            route_from_checkpoint,
+            "router",
+            route_next,
             {
                 "retrieve_memories": "retrieve_memories",
                 "retrieve_chapter_keys": "retrieve_chapter_keys",
@@ -99,10 +99,10 @@ class StudyCardsGraph:
         graph.add_edge("retrieve_chapter_keys", "retrieve_sessions")
         graph.add_edge(
             ["retrieve_memories", "retrieve_sessions"],
-            "checkpointer",
+            "router",
         )
-        graph.add_edge("generate", "checkpointer")
-        graph.add_edge("critique", "checkpointer")
+        graph.add_edge("generate", "router")
+        graph.add_edge("critique", "router")
         graph.add_edge("consolidate", "save")
         graph.add_edge("save", END)
 

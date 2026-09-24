@@ -15,8 +15,8 @@ RouteTarget = Literal[
 ]
 
 
-def route_from_checkpoint(state: StudyCardsState) -> RouteTarget | list[str]:
-    """Resume-aware router: pick the next step from current/checkpointed state."""
+def route_next(state: StudyCardsState) -> RouteTarget | list[str]:
+    """Resume-aware router: pick the next step from current state."""
     if state.get("final_result") and len(state.get("final_result").chapters) > 0:
         if state.get("saved") is True:
             return "END"

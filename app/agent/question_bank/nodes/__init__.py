@@ -1,4 +1,3 @@
-from app.agent.question_bank.nodes.checkpointer import CheckpointerNode
 from app.agent.question_bank.nodes.generation import (
     ConsolidateNode,
     CritiqueQuestionsNode,
@@ -11,13 +10,14 @@ from app.agent.question_bank.nodes.retrieval.retrieve_chapter_keys import (
 from app.agent.question_bank.nodes.retrieval.retrieve_chapter_records import (
     RetrieveChapterRecordsNode,
 )
+from app.agent.question_bank.nodes.router import RouterNode
 
 __all__ = [
-    "CheckpointerNode",
     "ConsolidateNode",
     "CritiqueQuestionsNode",
     "GenerateQuestionsNode",
     "RetrieveChapterKeysNode",
     "RetrieveChapterRecordsNode",
+    "RouterNode",
     "SaveNode",
 ]
