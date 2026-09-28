@@ -1,8 +1,7 @@
 def format_history(
     messages: list | None,
     *,
-    limit: int | None = None,
-    truncate_ai: int | None = None,
+    limit: int | None = None
 ) -> str:
     """Format completed turns as User:/Assistant: text. Drops a trailing human query."""
     msgs = list(messages or [])
@@ -18,8 +17,6 @@ def format_history(
             user = str(message.content)
         elif message.type == "ai" and user is not None:
             assistant = str(message.content)
-            if truncate_ai is not None:
-                assistant = assistant[:truncate_ai]
             parts.append(f"User: {user}\nAssistant: {assistant}")
             user = None
 
