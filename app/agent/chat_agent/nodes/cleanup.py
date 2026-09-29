@@ -26,26 +26,21 @@ class CleanupNode:
         )
 
         document_sections = dict(state.get("document_sections") or {})
-        document_ids = state.get("document_ids") or []
-        missing_ids = [
-            document_id
-            for document_id in document_ids
-            if document_id not in document_sections
-        ]
-        if missing_ids:
+        document_id = state.get("document_id")
+        if document_id and document_id not in document_sections:
             try:
                 fetched = await self.document_service.get_sections_by_document(
-                    missing_ids,
+                    [document_id],
                     state["user_id"],
                 )
                 document_sections.update(fetched)
             except Exception:
                 self.logger.exception(
                     "Cleanup failed caching section keys id=%s user_id=%s "
-                    "document_ids=%s",
+                    "document_id=%s",
                     state["conversation_id"],
                     state["user_id"],
-                    missing_ids,
+                    document_id,
                 )
 
         self.logger.info(

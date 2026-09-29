@@ -8,7 +8,7 @@ class AgentState(MessagesState):
     rewritten_query: str
     conversation_id: str
     user_id: str
-    document_ids: list[str] | None
+    document_id: str | None
     document_sections: dict[str, list[str]]
     chapter_keys: list[str] | None
     title: str | None

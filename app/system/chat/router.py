@@ -165,11 +165,11 @@ async def websocket_endpoint(
 
                 logger.info(
                     "Received message user_id=%s conversation_id=%s "
-                    "type=%s document_ids=%s",
+                    "type=%s document_id=%s",
                     user.id,
                     conversation_id,
                     payload["type"],
-                    payload["document_ids"],
+                    payload["document_id"],
                 )
 
                 graph = agent_graph.start()

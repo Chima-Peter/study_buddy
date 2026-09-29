@@ -65,16 +65,17 @@ def _match_section_keys(
 
 
 def _flatten_section_keys(
-    document_ids: list[str],
+    document_id: str | None,
     document_sections: dict[str, list[str]],
 ) -> list[str]:
+    if not document_id:
+        return []
     keys: list[str] = []
     seen: set[str] = set()
-    for document_id in document_ids:
-        for key in document_sections.get(document_id, []):
-            if key and key not in seen:
-                seen.add(key)
-                keys.append(key)
+    for key in document_sections.get(document_id, []):
+        if key and key not in seen:
+            seen.add(key)
+            keys.append(key)
     return keys
 
 
@@ -108,16 +109,11 @@ class RewriteQueryNode:
 
         document_sections = dict(state.get("document_sections") or {})
         if retrieve_rag:
-            document_ids = state.get("document_ids") or []
-            missing_ids = [
-                document_id
-                for document_id in document_ids
-                if document_id not in document_sections
-            ]
-            if missing_ids:
+            document_id = state.get("document_id")
+            if document_id and document_id not in document_sections:
                 try:
                     fetched = await self.document_service.get_sections_by_document(
-                        missing_ids,
+                        [document_id],
                         state["user_id"],
                     )
                     document_sections.update(fetched)
@@ -127,7 +123,7 @@ class RewriteQueryNode:
                         state["conversation_id"],
                         state["user_id"],
                     )
-            section_keys = _flatten_section_keys(document_ids, document_sections)
+            section_keys = _flatten_section_keys(document_id, document_sections)
         else:
             section_keys = []
 

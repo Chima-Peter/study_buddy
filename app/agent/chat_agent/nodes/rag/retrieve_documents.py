@@ -25,7 +25,9 @@ class RetrieveDocumentsNode:
         results = await self.retriever.retrieve(
             user_id=state["user_id"],
             query=state["rewritten_query"],
-            document_ids=state.get("document_ids"),
+            document_ids=(
+                [state["document_id"]] if state.get("document_id") else None
+            ),
             chapter_keys=state.get("chapter_keys"),
         )
 

@@ -107,7 +107,7 @@ class RetrievalDeciderNode:
             is_academic_discussion,
         )
 
-        if not state.get("document_ids"):
+        if not state.get("document_id"):
             retrieve_rag = False
 
         return {

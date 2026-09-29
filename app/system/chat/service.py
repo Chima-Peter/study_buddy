@@ -24,7 +24,6 @@ from app.utils.continuation_key import (
 SAVE_MAX_ATTEMPTS = 3
 MAX_PAYLOAD_SIZE = 64 * 1024
 MESSAGE_ID_LENGTH = 36
-MAX_DOCUMENT_IDS = 3
 WEBSOCKET_MESSAGE_TYPES = frozenset({"chat", "edit", "retry"})
 CHAT_QUEUED = "queued"
 
@@ -146,7 +145,7 @@ class ChatService:
         """Validate and normalize a websocket chat payload.
 
         Returns (payload, None) on success or (None, error_message) on failure.
-        Payload keys: type, query, conversation_id, document_ids,
+        Payload keys: type, query, conversation_id, document_id,
         query_message_id, response_message_id, chat_id, checkpointer_id,
         continuation_key.
 
@@ -173,8 +172,6 @@ class ChatService:
             return {
                 "type": None,
                 "query": "ping",
-                "conversation_id": None,
-                "document_ids": None,
             }, None
 
         request_id = message.get("request_id")
@@ -211,25 +208,12 @@ class ChatService:
             return None, "Query too big"
 
         conversation_id = message.get("conversation_id")
-        document_ids = message.get("document_ids")
-        if document_ids is None and message.get("document_id"):
-            if isinstance(message.get("document_id"), str):
-                document_ids = [message.get("document_id")]
-            else:
-                document_ids = message.get("document_id")
-        if isinstance(document_ids, str):
-            document_ids = [document_ids]
-        if not document_ids:
-            return None, "At least one document is required for chat."
-        if not isinstance(document_ids, list):
-            return None, "document_ids must be a list"
-        if len(document_ids) > MAX_DOCUMENT_IDS:
-            self.logger.warning(
-                "Too many document_ids user_id=%s count=%s",
-                user_id,
-                len(document_ids),
-            )
-            return None, f"At most {MAX_DOCUMENT_IDS} documents are allowed"
+        document_id = message.get("document_id")
+        if not document_id:
+            return None, "document_id is required for chat"
+        if not isinstance(document_id, str) or not document_id.strip():
+            return None, "document_id is required for chat"
+        document_id = document_id.strip()
 
         continuation_key = message.get("continuation_key")
         chat_id = None
@@ -294,7 +278,7 @@ class ChatService:
             "type": message_type,
             "query": query,
             "conversation_id": conversation_id,
-            "document_ids": document_ids,
+            "document_id": document_id,
             "query_message_id": query_message_id,
             "response_message_id": response_message_id,
             "chat_id": chat_id,
@@ -574,7 +558,7 @@ class ChatService:
                 "response": response,
                 "conversation_id": new_conversation_id,
                 "user_id": user_id,
-                "document_ids": (snapshot.values or {}).get("document_ids"),
+                "document_id": (snapshot.values or {}).get("document_id"),
             },
         )
         new_checkpointer_id = (
@@ -656,7 +640,7 @@ class ChatService:
         *,
         conversation_id: str,
         query: str,
-        document_ids: list[str],
+        document_id: str,
         query_message_id: str,
         response_message_id: str,
         checkpointer_id: str | None = None,
@@ -706,7 +690,7 @@ class ChatService:
             {
                 "messages": message_updates,
                 "query": query,
-                "document_ids": document_ids,
+                "document_id": document_id,
             },
         )
         new_checkpointer_id = (
@@ -730,7 +714,7 @@ class ChatService:
         *,
         conversation_id: str,
         query: str,
-        document_ids: list[str],
+        document_id: str,
         query_message_id: str,
         response_message_id: str,
         checkpointer_id: str | None = None,
@@ -771,7 +755,7 @@ class ChatService:
 
         state_update: dict[str, Any] = {
             "query": query,
-            "document_ids": document_ids,
+            "document_id": document_id,
         }
         if ai_message is not None:
             state_update["messages"] = [RemoveMessage(id=ai_message.id)]
@@ -887,7 +871,7 @@ class ChatService:
         user_id = payload["user_id"]
         conversation_id = payload["conversation_id"]
         query = payload["query"]
-        document_ids = payload["document_ids"]
+        document_id = payload["document_id"]
         message_type = payload["type"]
         checkpointer_id = payload.get("checkpointer_id")
         fork_chat_id: str | None = None
@@ -896,7 +880,7 @@ class ChatService:
             "user_id": user_id,
             "conversation_id": conversation_id,
             "query": query,
-            "document_ids": document_ids,
+            "document_id": document_id,
             "turn_type": message_type,
             "fork_chat_id": None,
         }
@@ -906,7 +890,7 @@ class ChatService:
                 graph,
                 conversation_id=conversation_id,
                 query=query,
-                document_ids=document_ids,
+                document_id=document_id,
                 query_message_id=payload["query_message_id"],
                 response_message_id=payload["response_message_id"],
                 checkpointer_id=checkpointer_id,
@@ -919,7 +903,7 @@ class ChatService:
                 graph,
                 conversation_id=conversation_id,
                 query=query,
-                document_ids=document_ids,
+                document_id=document_id,
                 query_message_id=payload["query_message_id"],
                 response_message_id=payload["response_message_id"],
                 checkpointer_id=checkpointer_id,
@@ -962,7 +946,7 @@ class ChatService:
         """
         message_type = payload["type"]
         query = payload["query"]
-        document_ids = payload["document_ids"]
+        document_id = payload["document_id"]
         checkpointer_id = payload.get("checkpointer_id")
         user_id = payload["user_id"]
         conversation_id = payload["conversation_id"]
@@ -972,7 +956,7 @@ class ChatService:
             "user_id": user_id,
             "conversation_id": conversation_id,
             "query": query,
-            "document_ids": document_ids,
+            "document_id": document_id,
             "turn_type": message_type,
             "fork_chat_id": None,
             "messages": [HumanMessage(content=query)],
