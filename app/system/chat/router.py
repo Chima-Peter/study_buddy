@@ -38,7 +38,8 @@ async def websocket_endpoint(
     conversation_service: ConversationService = Depends(Provide[Container.conversation_service]),
 ) -> None:
     connection_counted = False
-    queue_bucket: dict[str, asyncio.Queue] = {}
+    out_queue: asyncio.Queue = asyncio.Queue()
+    drain_task: asyncio.Task | None = None
 
     try:
         connection_count = await redis_service.get_connection_count(user.id)
@@ -57,20 +58,28 @@ async def websocket_endpoint(
         await websocket.accept()
         await redis_service.incr_connection_count(user.id)
         connection_counted = True
+        drain_task = chat_service.start_drain(websocket, out_queue)
 
         refreshed_token = getattr(websocket.state, "refreshed_token", None)
         if refreshed_token:
-            await websocket.send_json({
+            await out_queue.put({
                 "type": "token_refresh",
                 "token": refreshed_token,
             })
 
-        await websocket.send_json({
+        await out_queue.put({
             "type": "heartbeat",
             "message": "Ping",
         })
 
         while True:
+            if drain_task.done():
+                logger.info(
+                    "WebSocket drain ended user_id=%s",
+                    user.id,
+                )
+                return
+
             if not await redis_service.exists(f"auth_{user.id}"):
                 logger.info(
                     "WebSocket client not authenticated user_id=%s",
@@ -85,144 +94,120 @@ async def websocket_endpoint(
             chat_task = asyncio.create_task(websocket.receive_json())
 
             done, pending = await asyncio.wait(
-                {chat_task},
+                {chat_task, drain_task},
                 return_when=asyncio.FIRST_COMPLETED,
                 timeout=80,
             )
 
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+            if drain_task in done:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                logger.info(
+                    "WebSocket drain ended user_id=%s",
+                    user.id,
+                )
+                return
 
-            if chat_task in done:
-                try:
-                    message: dict[str, Any] = chat_task.result()
-                    payload, error = chat_service.validate_websocket_message(
-                        message,
+            if chat_task not in done:
+                for task in pending:
+                    if task is not drain_task:
+                        task.cancel()
+                await asyncio.gather(
+                    *[t for t in pending if t is not drain_task],
+                    return_exceptions=True,
+                )
+                await out_queue.put({
+                    "type": "heartbeat",
+                    "message": "Ping",
+                })
+                continue
+
+            try:
+                message: dict[str, Any] = chat_task.result()
+                payload, error = chat_service.validate_websocket_message(
+                    message,
+                    user_id=user.id,
+                )
+                if error or not payload:
+                    await out_queue.put({
+                        "type": "error",
+                        "message": error or "Invalid message",
+                    })
+                    continue
+
+                query = payload["query"]
+                conversation_id = payload["conversation_id"]
+
+                if query == "ping":
+                    await out_queue.put({
+                        "type": "heartbeat",
+                        "message": "Pong",
+                    })
+                    continue
+
+                if not conversation_id:
+                    conversation = await conversation_service.create(
+                        CreateConversationRequest(title="New Conversation"),
                         user_id=user.id,
                     )
-                    if error or not payload:
-                        await websocket.send_json({
-                            "type": "error",
-                            "message": error or "Invalid message",
-                        })
-                        continue
-
-                    query = payload["query"]
-                    conversation_id = payload["conversation_id"]
-                    document_ids = payload["document_ids"]
-                    message_type = payload["type"]
-
-                    if query == "ping":
-                        await websocket.send_json({
-                            "type": "heartbeat",
-                            "message": "Pong",
-                        })
-                    else:
-                        if not conversation_id:
-                            conversation = await conversation_service.create(
-                                CreateConversationRequest(title="New Conversation"),
-                                user_id=user.id,
-                            )
-                            conversation_id = conversation.id
-                            logger.info(
-                                "Created conversation id=%s user_id=%s",
-                                conversation_id,
-                                user.id,
-                            )
-                        logger.info(
-                            "Received message user_id=%s conversation_id=%s "
-                            "type=%s document_ids=%s",
-                            user.id,
-                            conversation_id,
-                            message_type,
-                            document_ids,
-                        )
-
-                        queue = queue_bucket.get(conversation_id)
-                        if queue is None:
-                            queue = asyncio.Queue()
-                            queue_bucket[conversation_id] = queue
-
-                        lock_token = await redis_service.acquire_chat_lock(
-                            user.id,
-                            conversation_id,
-                        )
-                        if lock_token is None:
-                            await websocket.send_json({
-                                "type": "error",
-                                "message": (
-                                    "This conversation is already processing "
-                                    "a message. Please wait."
-                                ),
-                            })
-                            continue
-
-                        try:
-                            graph = agent_graph.start()
-                            turn_error = await chat_service.handle_turn(
-                                graph,
-                                user_id=user.id,
-                                conversation_id=conversation_id,
-                                payload={
-                                    **payload,
-                                    "conversation_id": conversation_id,
-                                },
-                                queue=queue,
-                            )
-                            if turn_error:
-                                await websocket.send_json({
-                                    "type": "error",
-                                    "message": turn_error,
-                                })
-                                continue
-
-                            while True:
-                                event = await queue.get()
-                                if event is None:
-                                    queue_bucket.pop(conversation_id, None)
-                                    break
-                                if not await _safe_send_json(
-                                    websocket, {**event}
-                                ):
-                                    logger.info(
-                                        "WebSocket disconnected during stream "
-                                        "user_id=%s conversation_id=%s",
-                                        user.id,
-                                        conversation_id,
-                                    )
-                                    return
-                        finally:
-                            await redis_service.release_chat_lock(
-                                user.id,
-                                conversation_id,
-                                lock_token,
-                            )
-                except json.JSONDecodeError:
-                    logger.warning(
-                        "Invalid JSON message user_id=%s", user.id,
+                    conversation_id = conversation.id
+                    logger.info(
+                        "Created conversation id=%s user_id=%s",
+                        conversation_id,
+                        user.id,
                     )
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "Invalid JSON message",
+                    await out_queue.put({
+                        "type": "chat.started",
+                        "conversation_id": conversation_id,
+                        "request_id": payload.get("request_id"),
                     })
-                    continue
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Timeout error user_id=%s. Sending heartbeat.", user.id
+
+                logger.info(
+                    "Received message user_id=%s conversation_id=%s "
+                    "type=%s document_ids=%s",
+                    user.id,
+                    conversation_id,
+                    payload["type"],
+                    payload["document_ids"],
+                )
+
+                graph = agent_graph.start()
+                asyncio.create_task(
+                    chat_service.handle_chat_queue(
+                        graph,
+                        payload={
+                            **payload,
+                            "conversation_id": conversation_id,
+                        },
+                        queue=out_queue,
                     )
-                    await websocket.send_json({
-                        "type": "heartbeat",
-                        "message": "Ping",
-                    })
-                    continue
+                )
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Invalid JSON message user_id=%s", user.id,
+                )
+                await out_queue.put({
+                    "type": "error",
+                    "message": "Invalid JSON message",
+                })
+                continue
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Timeout error user_id=%s. Sending heartbeat.", user.id
+                )
+                await out_queue.put({
+                    "type": "heartbeat",
+                    "message": "Ping",
+                })
+                continue
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected user_id=%s", user.id)
     except ConnectionError:
         logger.exception(
             "Redis connection error user_id=%s", user.id
         )
-        await _safe_close(
+        await chat_service.close_websocket(
             websocket,
             code=status.WS_1012_SERVICE_RESTART,
         )
@@ -230,33 +215,12 @@ async def websocket_endpoint(
         logger.exception(
             "Unexpected error in websocket endpoint user_id=%s", user.id
         )
-        await _safe_close(
+        await chat_service.close_websocket(
             websocket,
             code=status.WS_1011_INTERNAL_ERROR,
             reason="Internal server error",
         )
     finally:
+        await chat_service.stop_drain(out_queue, drain_task)
         if connection_counted:
             await redis_service.decr_connection_count(user.id)
-
-
-async def _safe_send_json(websocket: WebSocket, data: dict[str, Any]) -> bool:
-    try:
-        await websocket.send_json(data)
-        return True
-    except (WebSocketDisconnect, RuntimeError):
-        return False
-    except Exception:
-        return False
-
-
-async def _safe_close(
-    websocket: WebSocket,
-    *,
-    code: int,
-    reason: str = "",
-) -> None:
-    try:
-        await websocket.close(code=code, reason=reason)
-    except (WebSocketDisconnect, RuntimeError):
-        pass

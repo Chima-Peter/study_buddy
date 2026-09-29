@@ -1,10 +1,12 @@
 import asyncio
-from asyncio import Queue
+from asyncio import Queue, Task
 from datetime import datetime, timezone
 from logging import Logger
 from typing import Any
 
+from app.core.redis import RedisClient
 import uuid_utils
+from fastapi import WebSocket, WebSocketDisconnect, status
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 from langgraph.graph.state import CompiledStateGraph
 
@@ -24,6 +26,7 @@ MAX_PAYLOAD_SIZE = 64 * 1024
 MESSAGE_ID_LENGTH = 36
 MAX_DOCUMENT_IDS = 3
 WEBSOCKET_MESSAGE_TYPES = frozenset({"chat", "edit", "retry"})
+CHAT_QUEUED = "queued"
 
 
 class ChatService:
@@ -31,11 +34,108 @@ class ChatService:
         self,
         repository: ChatRepository,
         logger: Logger,
+        redis: RedisClient,
         continuation_secret: str,
     ):
         self.repository = repository
         self.logger = logger
         self.continuation_secret = continuation_secret
+        self.redis = redis
+
+    def start_drain(
+        self,
+        websocket: WebSocket,
+        queue: Queue,
+    ) -> Task[None]:
+        """Start a single connection-scoped drain task."""
+        return asyncio.create_task(
+            self._drain_websocket(websocket, queue),
+            name="chat_ws_drain",
+        )
+
+    async def stop_drain(
+        self,
+        queue: Queue,
+        drain_task: Task[None] | None,
+    ) -> None:
+        """Signal the drain to stop and wait for it."""
+        if drain_task is None:
+            return
+        await queue.put(None)
+        try:
+            await drain_task
+        except asyncio.CancelledError:
+            pass
+
+    async def _drain_websocket(
+        self,
+        websocket: WebSocket,
+        queue: Queue,
+    ) -> None:
+        """Send outbound events until ``None`` or an error closes the socket."""
+        while True:
+            event = await queue.get()
+            if event is None:
+                return
+
+            if not isinstance(event, dict):
+                self.logger.warning(
+                    "Ignoring non-dict drain event type=%s",
+                    type(event).__name__,
+                )
+                continue
+
+            if not await self._safe_send_json(websocket, event):
+                self.logger.info("WebSocket send failed during drain; closing")
+                await self._safe_close(
+                    websocket,
+                    code=status.WS_1011_INTERNAL_ERROR,
+                    reason="Send failed",
+                )
+                return
+
+    @staticmethod
+    async def _safe_send_json(
+        websocket: WebSocket,
+        data: dict[str, Any],
+    ) -> bool:
+        try:
+            await websocket.send_json(data)
+            return True
+        except (WebSocketDisconnect, RuntimeError):
+            return False
+        except Exception:
+            return False
+
+    async def close_websocket(
+        self,
+        websocket: WebSocket,
+        *,
+        code: int,
+        reason: str = "",
+    ) -> None:
+        await self._safe_close(websocket, code=code, reason=reason)
+
+    @staticmethod
+    async def _safe_close(
+        websocket: WebSocket,
+        *,
+        code: int,
+        reason: str = "",
+    ) -> None:
+        try:
+            await websocket.close(code=code, reason=reason)
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+
+    @staticmethod
+    def _event_with_request_id(
+        event: dict[str, Any],
+        request_id: str | None,
+    ) -> dict[str, Any]:
+        if not request_id or "request_id" in event:
+            return event
+        return {**event, "request_id": request_id}
 
     def validate_websocket_message(
         self,
@@ -76,6 +176,15 @@ class ChatService:
                 "conversation_id": None,
                 "document_ids": None,
             }, None
+
+        request_id = message.get("request_id")
+        if request_id is None or not isinstance(request_id, str):
+            self.logger.warning(
+                "Invalid request_id in message user_id=%s value=%r",
+                user_id,
+                request_id,
+            )
+            return None, "Invalid request_id in message"
 
         message_type = message.get("type")
         if message_type not in WEBSOCKET_MESSAGE_TYPES:
@@ -191,18 +300,9 @@ class ChatService:
             "chat_id": chat_id,
             "checkpointer_id": checkpointer_id,
             "continuation_key": continuation_key,
+            "user_id": user_id,
+            "request_id": request_id,
         }, None
-
-    @staticmethod
-    def _to_response(record: ChatModel) -> ChatResponse:
-        return ChatResponse(
-            id=record.id,
-            conversation_id=record.conversation_id,
-            query=record.query,
-            response=record.chat,
-            continuation_key=record.continuation_key,
-            created_at=record.created_at,
-        )
 
     async def save(
         self,
@@ -692,22 +792,103 @@ class ChatService:
         )
         return None, new_checkpointer_id
 
-    async def handle_turn(
+    async def handle_chat_queue(
         self,
         graph: CompiledStateGraph,
         *,
-        user_id: str,
-        conversation_id: str,
         payload: dict[str, Any],
         queue: Queue,
     ) -> str | None:
-        """Prepare fork/prune for edit|retry, then start ``run_graph``.
+        """Dispatch a chat payload; chat type uses Redis arrival/completion.
 
-        Returns an error message on fork failure, or None on success.
+        Returns ``CHAT_QUEUED`` if the chat was enqueued, an error message on
+        failure, or None on success.
         """
         message_type = payload["type"]
+        if message_type in ("edit", "retry"):
+            turn_error = await self.handle_retry_and_edit_turns(
+                graph,
+                payload=payload,
+                queue=queue,
+            )
+            if turn_error:
+                await queue.put(
+                    self._event_with_request_id(
+                        {
+                            "type": "error",
+                            "message": turn_error,
+                            "conversation_id": payload.get("conversation_id"),
+                        },
+                        payload.get("request_id"),
+                    )
+                )
+            return turn_error
+
+        user_id = payload["user_id"]
+        conversation_id = payload["conversation_id"]
+        request_id = payload["request_id"]
+        lock_key, queue_key, items_key = self._chat_queue_keys(
+            user_id,
+            conversation_id,
+        )
+
+        acquired = await self.redis.arrival(
+            lock_key=lock_key,
+            queue_key=queue_key,
+            items_key=items_key,
+            item_id=request_id,
+            item=payload,
+        )
+        if not acquired:
+            self.logger.info(
+                "Chat turn enqueued user_id=%s conversation_id=%s "
+                "request_id=%s",
+                user_id,
+                conversation_id,
+                request_id,
+            )
+            return CHAT_QUEUED
+
+        current: dict[str, Any] | None = payload
+        lock_token = request_id
+        while current is not None:
+            checkpointer_id: str | None = None
+            checkpointer_id = await self.handle_chat_turns(
+                graph,
+                payload=current,
+                queue=queue,
+            )
+
+            next_payload = await self.redis.completion(
+                lock_key=lock_key,
+                queue_key=queue_key,
+                items_key=items_key,
+                lock_token=lock_token,
+            )
+            if next_payload is None:
+                return None
+            next_payload["checkpointer_id"] = checkpointer_id
+            current = next_payload
+            lock_token = next_payload["request_id"]
+        
+    async def handle_retry_and_edit_turns(
+        self,
+        graph: CompiledStateGraph,
+        *,
+        payload: dict[str, Any],
+        queue: Queue,
+    ) -> str | None:
+        """
+            Handle retry and edit.
+
+            Returns an error message on failure, or None on success.
+        """
+        
+        user_id = payload["user_id"]
+        conversation_id = payload["conversation_id"]
         query = payload["query"]
         document_ids = payload["document_ids"]
+        message_type = payload["type"]
         checkpointer_id = payload.get("checkpointer_id")
         fork_chat_id: str | None = None
 
@@ -746,8 +927,6 @@ class ChatService:
             if retry_error:
                 return retry_error
             fork_chat_id = payload.get("chat_id")
-        else:
-            graph_input["messages"] = [HumanMessage(content=query)]
 
         if fork_chat_id:
             graph_input["fork_chat_id"] = fork_chat_id
@@ -758,18 +937,83 @@ class ChatService:
                 )
             )
 
-        asyncio.create_task(
-            self.run_graph(
+        await self.run_graph(
+            graph,
+            {
+                "conversation_id": conversation_id,
+                "checkpointer_id": checkpointer_id,
+                "request_id": payload.get("request_id"),
+            },
+            queue,
+            graph_input,
+        )
+        return None
+
+    async def handle_chat_turns(
+        self,
+        graph: CompiledStateGraph,
+        *,
+        payload: dict[str, Any],
+        queue: Queue,
+    ) -> str | None:
+        """Run ``run_graph`` for a new chat turn.
+
+        Returns the latest checkpointer_id after the turn, or None.
+        """
+        message_type = payload["type"]
+        query = payload["query"]
+        document_ids = payload["document_ids"]
+        checkpointer_id = payload.get("checkpointer_id")
+        user_id = payload["user_id"]
+        conversation_id = payload["conversation_id"]
+        request_id = payload.get("request_id")
+
+        graph_input: dict[str, Any] = {
+            "user_id": user_id,
+            "conversation_id": conversation_id,
+            "query": query,
+            "document_ids": document_ids,
+            "turn_type": message_type,
+            "fork_chat_id": None,
+            "messages": [HumanMessage(content=query)],
+        }
+
+        try:
+            return await self.run_graph(
                 graph,
                 {
                     "conversation_id": conversation_id,
                     "checkpointer_id": checkpointer_id,
+                    "request_id": request_id,
                 },
                 queue,
                 graph_input,
             )
-        )
-        return None
+        except Exception:
+            self.logger.exception(
+                "Error running graph user_id=%s conversation_id=%s",
+                user_id,
+                conversation_id,
+            )
+            await queue.put(
+                self._event_with_request_id(
+                    {
+                        "type": "chat.error",
+                        "message": (
+                            "Error processing your request. Please try again"
+                        ),
+                        "conversation_id": conversation_id,
+                    },
+                    request_id,
+                )
+            )
+            chat_id = payload.get("chat_id")
+            if chat_id:
+                await self.delete_chats_after(
+                    chat_id=chat_id,
+                    user_id=user_id,
+                )
+            return checkpointer_id
 
     async def run_graph(
         self,
@@ -777,15 +1021,17 @@ class ChatService:
         config_dict: dict[str, Any],
         queue: Queue,
         input: dict[str, Any],
-    ) -> None:
+    ) -> str | None:
         thread_id = config_dict["conversation_id"]
         user_id = input["user_id"]
         checkpointer_id = config_dict.get("checkpointer_id")
+        request_id = config_dict.get("request_id")
         configurable: dict[str, Any] = {"thread_id": thread_id}
         if checkpointer_id:
             configurable["checkpoint_id"] = checkpointer_id
         config = {"configurable": configurable}
         pending_done: dict[str, Any] | None = None
+        latest_checkpointer_id: str | None = None
 
         try:
             async for chunk in graph.astream(
@@ -799,13 +1045,21 @@ class ChatService:
                 ):
                     pending_done = chunk
                     continue
-                await queue.put(chunk)
+                if isinstance(chunk, dict):
+                    await queue.put(
+                        self._event_with_request_id(chunk, request_id)
+                    )
+                else:
+                    await queue.put(chunk)
 
             if pending_done is not None:
                 chat_id = pending_done.get("chat_id")
                 continuation_key = None
                 if chat_id:
-                    continuation_key = await self._issue_continuation_key(
+                    (
+                        continuation_key,
+                        latest_checkpointer_id,
+                    ) = await self._issue_continuation_key(
                         graph=graph,
                         chat_id=chat_id,
                         thread_id=thread_id,
@@ -820,20 +1074,17 @@ class ChatService:
                         **pending_done,
                         "continuation_key": continuation_key,
                     }
-                await queue.put(pending_done)
+                await queue.put(
+                    self._event_with_request_id(pending_done, request_id)
+                )
         except Exception:
             self.logger.exception(
                 "Error running graph user_id=%s conversation_id=%s",
                 user_id,
                 thread_id,
             )
-            await queue.put({
-                "type": "chat.error",
-                "message": "Error processing your request. Please try again",
-                "conversation_id": thread_id,
-            })
-        finally:
-            await queue.put(None)
+            raise
+        return latest_checkpointer_id
 
     async def _issue_continuation_key(
         self,
@@ -844,7 +1095,7 @@ class ChatService:
         user_id: str,
         query_message_id: str | None,
         response_message_id: str | None,
-    ) -> str | None:
+    ) -> tuple[str | None, str | None]:
         try:
             if not query_message_id or not response_message_id:
                 self.logger.warning(
@@ -855,7 +1106,7 @@ class ChatService:
                     query_message_id,
                     response_message_id,
                 )
-                return None
+                return None, None
 
             snapshot = await graph.aget_state({
                 "configurable": {"thread_id": thread_id},
@@ -872,7 +1123,7 @@ class ChatService:
                     chat_id,
                     thread_id,
                 )
-                return None
+                return None, None
 
             continuation_key = create_continuation_key(
                 chat_id=chat_id,
@@ -899,14 +1150,14 @@ class ChatService:
                 query_message_id,
                 response_message_id,
             )
-            return continuation_key
+            return continuation_key, checkpointer_id
         except Exception:
             self.logger.exception(
                 "Failed to issue continuation_key chat_id=%s thread_id=%s",
                 chat_id,
                 thread_id,
             )
-            return None
+            return None, None
 
     @staticmethod
     def _is_valid_message_id(value: Any) -> bool:
@@ -929,3 +1180,23 @@ class ChatService:
             if human_message is not None and ai_message is not None:
                 break
         return human_message, ai_message
+
+    @staticmethod
+    def _to_response(record: ChatModel) -> ChatResponse:
+        return ChatResponse(
+            id=record.id,
+            conversation_id=record.conversation_id,
+            query=record.query,
+            response=record.chat,
+            continuation_key=record.continuation_key,
+            created_at=record.created_at,
+        )
+
+    @staticmethod
+    def _chat_queue_keys(user_id: str, conversation_id: str) -> tuple[str, str, str]:
+        return (
+            f"chat_lock:{user_id}:{conversation_id}",
+            f"chat_queue:{user_id}:{conversation_id}",
+            f"chat_items:{user_id}:{conversation_id}",
+        )
+

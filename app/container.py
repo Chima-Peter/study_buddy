@@ -687,6 +687,7 @@ class Container(containers.DeclarativeContainer):
         repository=chat_repository,
         logger=logger,
         continuation_secret=settings.provided.jwt_secret,
+        redis=redis_client,
     )
 
     memory_repository = providers.Factory(
