@@ -104,7 +104,7 @@ class DocumentService:
             document_id,
             user_id,
             "pending",
-            ("failed",),
+            ("failed", "cancelled"),
         )
         if updated is None:
             raise DocumentNotRetryableError(document_id, document.status)
@@ -112,12 +112,6 @@ class DocumentService:
         try:
             await self._enqueue_ingest(updated, user_id)
         except Exception:
-            await self.repository.transition_status(
-                document_id,
-                user_id,
-                "failed",
-                ("pending",),
-            )
             raise
 
         return updated.to_response()

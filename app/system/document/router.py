@@ -220,10 +220,11 @@ async def start_ingestion(
     "/{document_id}/ingest/retry",
     status_code=status.HTTP_202_ACCEPTED,
     response_model=DocumentApiResponse,
-    summary="Retry failed document ingestion",
+    summary="Retry document ingestion",
     description=(
-        "Resets a failed document to pending and re-queues it for ingestion. "
-        "Only documents with status 'failed' can be retried."
+        "Resets a failed or cancelled document to pending and re-queues it "
+        "for ingestion. Only documents with status 'failed' or 'cancelled' "
+        "can be retried."
     ),
 )
 @inject

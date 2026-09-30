@@ -1,11 +1,18 @@
 import logging
 import re
 import tempfile
+from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
 
 import fitz
-from unstructured.documents.elements import Element, Title
+
+# from unstructured.documents.elements import Element, Title
+#
+# from app.rag.unstructured_api import (
+#     normalize_unstructured_base_url,
+#     partition_file_via_api,
+# )
 
 from app.rag.schema import (
     ALLOWED_FILE_TYPES,
@@ -17,8 +24,19 @@ from app.rag.schema import (
     named_section_key,
     normalize_chapter_key,
 )
-from app.rag.unstructured_api import normalize_unstructured_base_url, partition_file_via_api
 from app.utils.errors.rabbitmq import NonRetryableIngestError
+
+
+@dataclass
+class TextElement:
+    """Minimal text unit with 1-based page number (fitz partition)."""
+
+    text: str
+    page_number: int
+    category: str = "NarrativeText"
+
+    def __str__(self) -> str:
+        return self.text
 
 
 class ChapterSplitter:
@@ -29,12 +47,12 @@ class ChapterSplitter:
         unstructured_api_key: str = "",
     ):
         self.logger = logger or logging.getLogger(__name__)
-        self.unstructured_api_url = normalize_unstructured_base_url(unstructured_api_url)
+        self.unstructured_api_url = unstructured_api_url
         self.unstructured_api_key = unstructured_api_key or ""
 
     def initiate_chapter_split(self, filepath: str) -> list[ParsedSections]:
         """
-        Split a document into chapter-level sections via the Unstructured API.
+        Split a document into chapter-level sections using fitz text extraction.
         Each section is written as a PDF so embedded images are preserved.
         """
         self.logger.info(f"Initiating chapter split for file: {filepath}")
@@ -80,29 +98,62 @@ class ChapterSplitter:
 
         return final_parsed_documents
 
-    def _partition_file(self, filepath: str) -> list[Element]:
-        """Partition document into structured elements via Unstructured API."""
+    def _partition_file(self, filepath: str) -> list[TextElement]:
+        """Partition document into text elements via fitz (Unstructured disabled)."""
+        # --- Unstructured API path (disabled) ---
+        # try:
+        #     self.logger.info(
+        #         "Partitioning via Unstructured API url=%s file=%s",
+        #         self.unstructured_api_url,
+        #         filepath,
+        #     )
+        #     return partition_file_via_api(
+        #         filepath,
+        #         api_url=self.unstructured_api_url,
+        #         api_key=self.unstructured_api_key,
+        #         strategy="fast",
+        #     )
+        # except Exception as e:
+        #     self.logger.error(f"Failed to partition file {filepath}: {e}")
+        #     raise NonRetryableIngestError(f"Failed to parse document: {e}") from e
+
         try:
-            self.logger.info(
-                "Partitioning via Unstructured API url=%s file=%s",
-                self.unstructured_api_url,
-                filepath,
-            )
-            return partition_file_via_api(
-                filepath,
-                api_url=self.unstructured_api_url,
-                api_key=self.unstructured_api_key,
-                strategy="fast",
-            )
+            self.logger.info("Partitioning via fitz file=%s", filepath)
+            doc = fitz.open(filepath)
         except Exception as e:
-            self.logger.error(f"Failed to partition file {filepath}: {e}")
+            self.logger.error(f"Failed to open file with fitz {filepath}: {e}")
             raise NonRetryableIngestError(f"Failed to parse document: {e}") from e
+
+        elements: list[TextElement] = []
+        try:
+            for page_idx in range(doc.page_count):
+                page = doc[page_idx]
+                page_number = page_idx + 1
+                for block in page.get_text("blocks"):
+                    # (x0, y0, x1, y1, text, block_no, block_type); 0 = text
+                    if len(block) < 7 or block[6] != 0:
+                        continue
+                    text = (block[4] or "").strip()
+                    if not text:
+                        continue
+                    for line in text.splitlines():
+                        line = line.strip()
+                        if line:
+                            elements.append(
+                                TextElement(text=line, page_number=page_number)
+                            )
+        finally:
+            doc.close()
+
+        return elements
 
     def _is_section_heading(self, text: str) -> bool:
         """True for numbered chapter-like headings and named front/back matter."""
         return is_section_heading(text)
 
-    def _find_chapter_candidates(self, elements: list[Element]) -> list[SectionCandidate]:
+    def _find_chapter_candidates(
+        self, elements: list[TextElement]
+    ) -> list[SectionCandidate]:
         """
         Find top-level section headings (chapters plus intro/TOC/conclusion/etc.).
         Subsections like "1.1 …" are left inside their parent body.
@@ -115,14 +166,11 @@ class ChapterSplitter:
             if not text:
                 continue
 
-            category = getattr(element, "category", None)
-            is_title = category == "Title" or isinstance(element, Title)
-            is_header = category == "Header"
-
-            # Also accept plain narrative lines that clearly match a section
-            # heading (some parsers mis-classify headings).
-            if not (is_title or is_header or self._is_section_heading(text)):
-                continue
+            # category = getattr(element, "category", None)
+            # is_title = category == "Title" or isinstance(element, Title)
+            # is_header = category == "Header"
+            # if not (is_title or is_header or self._is_section_heading(text)):
+            #     continue
             if not self._is_section_heading(text):
                 continue
 
@@ -133,7 +181,7 @@ class ChapterSplitter:
         return self._dedupe_candidates(candidates)
 
     def _extract_chapters(
-        self, elements: list[Element], candidates: list[SectionCandidate]
+        self, elements: list[TextElement], candidates: list[SectionCandidate]
     ) -> list[ExtractedSection]:
         """
         Slice element stream between consecutive chapter headings.
@@ -180,7 +228,7 @@ class ChapterSplitter:
     def _write_sections(
         self,
         filepath: str,
-        elements: list[Element],
+        elements: list[TextElement],
         sections: list[ExtractedSection],
     ) -> list[ParsedSections]:
         """Write each chapter as a PDF (page-sliced when source is PDF)."""
@@ -234,10 +282,13 @@ class ChapterSplitter:
 
         return written
 
-    def _element_page(self, element: Element) -> int | None:
-        """1-based page number from Unstructured metadata, if present."""
-        meta = getattr(element, "metadata", None)
-        page = getattr(meta, "page_number", None) if meta else None
+    def _element_page(self, element: TextElement) -> int | None:
+        """1-based page number from element, if present."""
+        page = getattr(element, "page_number", None)
+        if page is None:
+            # Unstructured elements used metadata.page_number
+            meta = getattr(element, "metadata", None)
+            page = getattr(meta, "page_number", None) if meta else None
         if page is None:
             return None
         try:
@@ -246,7 +297,7 @@ class ChapterSplitter:
             return None
 
     def _section_start_page(
-        self, elements: list[Element], section: ExtractedSection
+        self, elements: list[TextElement], section: ExtractedSection
     ) -> int | None:
         """Earliest 1-based source page covered by this section."""
         pages = [
@@ -259,7 +310,7 @@ class ChapterSplitter:
     def _write_pdf_page_slice(
         self,
         source_doc: fitz.Document,
-        elements: list[Element],
+        elements: list[TextElement],
         section: ExtractedSection,
         out_path: Path,
     ) -> None:
@@ -273,7 +324,7 @@ class ChapterSplitter:
         out = fitz.open()
         try:
             if pages:
-                # Unstructured pages are 1-based; fitz is 0-based.
+                # Element pages are 1-based; fitz is 0-based.
                 start_page = max(0, min(pages) - 1)
                 end_page = min(source_doc.page_count - 1, max(pages) - 1)
                 out.insert_pdf(source_doc, from_page=start_page, to_page=end_page)

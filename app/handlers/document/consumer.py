@@ -23,6 +23,7 @@ from app.core.redis import RedisClient
 from app.core.supabase import Supabase
 from app.rag.chapter_splitter import ChapterSplitter
 from app.rag.ingest_pipeline import IngestPipeline
+from app.rag.schema import ALLOWED_FILE_TYPES
 from app.system.document.schema import (
     IngestDocumentRequest,
     ingest_failure_comment,
@@ -118,7 +119,13 @@ async def handle_document(
             suffix = (
                 Path(ingest_payload.file_name).suffix
                 or Path(ingest_payload.path).suffix
-            )
+            ).lower()
+            supported = {f".{ext}" for ext in ALLOWED_FILE_TYPES} | {".markdown"}
+            if suffix not in supported:
+                raise NonRetryableIngestError(
+                    f"Unsupported file type: {suffix}. "
+                    f"Should be one of: {', '.join(ALLOWED_FILE_TYPES)}"
+                )
 
             with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
                 try:

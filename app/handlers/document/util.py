@@ -158,6 +158,16 @@ async def process_with_chapters(
     section_dirs = {Path(section.file_path).parent for section in sections}
 
     async def _process_section(section: ParsedSections) -> list[Document]:
+        logger.info(
+            "Processing chapter=%s chapter_key=%s chapter_number=%s "
+            "chunks=%s file=%s document_id=%s",
+            section.title,
+            section.chapter_key,
+            section.chapter_number,
+            len(section_chunks),
+            payload.file_name,
+            payload.document_id,
+        )
         section_chunks = await asyncio.to_thread(
             ingest_pipeline.process_file,
             payload,
