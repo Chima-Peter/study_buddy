@@ -92,7 +92,7 @@ class ChapterSplitter:
                 filepath,
                 api_url=self.unstructured_api_url,
                 api_key=self.unstructured_api_key,
-                strategy="auto",
+                strategy="fast",
             )
         except Exception as e:
             self.logger.error(f"Failed to partition file {filepath}: {e}")

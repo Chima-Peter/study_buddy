@@ -26,6 +26,7 @@ class RAGRetriever(Retriever):
         query: str,
         document_ids: list[str] | None = None,
         chapter_keys: list[str] | None = None,
+        embedding: list[float] | None = None,
     ) -> list[FusedResult]:
         self.logger.info(
             "Retriever retrieve start user_id=%s top_k=%s document_ids=%s "
@@ -36,7 +37,8 @@ class RAGRetriever(Retriever):
             chapter_keys,
             query[:120],
         )
-        embedding = self.embedding_manager.embed_query(query).tolist()
+        if embedding is None:
+            embedding = self.embedding_manager.embed_query(query).tolist()
         self.logger.debug(
             "Retriever embed done user_id=%s dims=%s",
             user_id,

@@ -226,7 +226,7 @@ services:
   
   # --- App Infrastructure ---
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: studybuddy-redis
     restart: unless-stopped
     ports:

@@ -83,7 +83,15 @@ def rewrite_query_prompt(
 
     if retrieve_rag:
         parts.append(
-            "Set rag_query to a rewritten search query for documents.\n"
+            "Set rag_query to a rewritten search query for documents. "
+            "Keep it concise and keyword-rich for hybrid search.\n"
+            "Set cache_query for semantic cache lookup. "
+            "Infuse as much useful context as needed so similar prior "
+            "questions can match: resolve pronouns/references, include "
+            "topic, chapter/section scope, constraints, and clarifying "
+            "details from summary and recent history. "
+            "Prefer a fuller standalone question over a short keyword query. "
+            "Do not answer the question.\n"
         )
         if section_keys:
             keys_list = ", ".join(section_keys)
@@ -100,6 +108,7 @@ def rewrite_query_prompt(
                 "chapter_1,chapter_2 -> [\"chapter_1\", \"chapter_2\"]; "
                 "'explain photosynthesis' (no chapter) -> [] or null.\n"
                 "Do not invent keys that are not in the available list.\n"
+                "Reflect any chapter scope in cache_query as well.\n"
             )
         else:
             parts.append(
@@ -108,7 +117,7 @@ def rewrite_query_prompt(
             )
     else:
         parts.append(
-            "Set rag_query to null and chapters to null "
+            "Set rag_query to null, cache_query to null, and chapters to null "
             "(document retrieval disabled).\n"
         )
 

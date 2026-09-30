@@ -6,6 +6,7 @@ from app.memory.schema import Memory
 class AgentState(MessagesState):
     query: str
     rewritten_query: str
+    cache_query: str | None
     conversation_id: str
     user_id: str
     document_id: str | None
@@ -15,6 +16,8 @@ class AgentState(MessagesState):
     conversation_summary: str | None
     rag_documents: list[FusedResult]
     tavily_results: list[dict]
+    semantic_cache_hit: bool
+    query_embedding: list[float] | None
 
     retrieve_rag: bool
     retrieve_conversation_history: bool

@@ -47,6 +47,7 @@ from app.core.elasticsearch_schema import FusedResult, IndexedRecord
 from app.core.embedding import EmbeddingManager
 from app.core.rabbitmq import RabbitMQ, RabbitMQConsumer, retry_queue_name
 from app.core.redis import RedisClient, SSE_PING_INTERVAL_MS
+from app.core.semantic_cache import SemanticCache
 from app.core.supabase import Supabase
 from app.handlers.index import Handlers
 from app.logging_config import init_logging
@@ -146,6 +147,17 @@ async def init_async_redis(redis_url: str) -> AsyncIterator[Redis]:
     )
     try:
         yield client
+    finally:
+        await client.aclose()
+
+
+async def init_semantic_cache(redis_url: str) -> AsyncIterator[SemanticCache]:
+    """Binary Redis client + semantic cache index (embeddings are float32 bytes)."""
+    client = Redis.from_url(redis_url, decode_responses=False)
+    cache = SemanticCache(redis=client)
+    await cache.create_index()
+    try:
+        yield cache
     finally:
         await client.aclose()
 
@@ -473,6 +485,11 @@ class Container(containers.DeclarativeContainer):
         redis_url=settings.provided.redis_url,
     )
 
+    semantic_cache = providers.Resource(
+        init_semantic_cache,
+        redis_url=settings.provided.redis_url,
+    )
+
     sync_engine = providers.Resource(
         init_sync_engine,
         database_url=settings.provided.sync_database_url,
@@ -638,6 +655,23 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
+    checkpoint_saver = providers.Resource(
+        init_checkpointer,
+        database_url=settings.provided.checkpoint_database_url,
+    )
+
+    study_cards_repository = providers.Factory(
+        StudyCardsRepository,
+        session_factory=async_session_factory,
+        logger=logger,
+    )
+
+    question_bank_repository = providers.Factory(
+        QuestionBankRepository,
+        session_factory=async_session_factory,
+        logger=logger,
+    )
+
     document_service = providers.Factory(
         DocumentService,
         repository=document_repository,
@@ -646,6 +680,9 @@ class Container(containers.DeclarativeContainer):
         rabbitmq=rabbitmq,
         elasticsearch=elasticsearch,
         supabase=async_supabase,
+        study_cards_repository=study_cards_repository,
+        question_bank_repository=question_bank_repository,
+        checkpointer=checkpoint_saver,
     )
 
     chat_model = providers.Singleton(
@@ -733,29 +770,12 @@ class Container(containers.DeclarativeContainer):
         logger=logger,
     )
 
-    checkpoint_saver = providers.Resource(
-        init_checkpointer,
-        database_url=settings.provided.checkpoint_database_url,
-    )
-
-    study_cards_repository = providers.Factory(
-        StudyCardsRepository,
-        session_factory=async_session_factory,
-        logger=logger,
-    )
-
     study_cards_service = providers.Factory(
         StudyCardsService,
         repository=study_cards_repository,
         document_service=document_service,
         rabbitmq=rabbitmq,
         checkpointer=checkpoint_saver,
-        logger=logger,
-    )
-
-    question_bank_repository = providers.Factory(
-        QuestionBankRepository,
-        session_factory=async_session_factory,
         logger=logger,
     )
 
@@ -783,6 +803,8 @@ class Container(containers.DeclarativeContainer):
         checkpointer=checkpoint_saver,
         rabbitmq=rabbitmq,
         tavily=tavily,
+        semantic_cache=semantic_cache,
+        embedding_manager=embedding_manager,
     )
 
     study_cards_graph = providers.Singleton(

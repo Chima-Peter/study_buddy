@@ -27,7 +27,6 @@ from app.core.elasticsearch_schema import DocumentMetadata, IndexedRecord
 from app.core.embedding import EmbeddingManager
 from app.core.supabase import Supabase
 from app.rag.document_parsers import parse_csv
-from app.rag.ocr_cleanup import clean_ocr_documents
 from app.rag.schema import ALLOWED_FILE_TYPES
 from app.rag.unstructured_api import normalize_unstructured_base_url
 from app.system.document.schema import IngestDocumentRequest
@@ -293,7 +292,7 @@ class IngestPipeline:
         self,
         payload: IngestDocumentRequest,
         file_path: str,
-        hi_res_strategy: str = "fast",
+        strategy: str = "fast",
     ) -> list[Document]:
         """Partition via the self-hosted Unstructured API (docker compose)."""
         file_name, user_id, document_id = self._ids(payload)
@@ -303,7 +302,7 @@ class IngestPipeline:
             url=self.unstructured_api_url,
             api_key=self.unstructured_api_key,
             mode="elements",
-            strategy=hi_res_strategy,
+            strategy=strategy,
             metadata_filename=file_name,
             chunking_strategy="by_title",
             max_characters=1500,
@@ -343,24 +342,8 @@ class IngestPipeline:
                     f"Should be one of: {', '.join(ALLOWED_FILE_TYPES)}"
                 )
 
-            strategy = "fast"
-            if suffix == ".pdf" and self._pdf_needs_hi_res(file_path):
-                strategy = "hi_res"
-                self.logger.info(
-                    "PDF needs hi_res file=%s user_id=%s document_id=%s",
-                    file_name,
-                    user_id,
-                    document_id,
-                )
-
-            documents = self.load_file(payload, file_path, strategy)
-            if not documents and strategy != "hi_res" and suffix == ".pdf":
-                self.logger.warning(
-                    "No document found file=%s; retrying with hi_res via Unstructured API",
-                    file_name,
-                )
-                documents = self.load_file(payload, file_path, "hi_res")
-            elif not documents:
+            documents = self.load_file(payload, file_path, strategy="fast")
+            if not documents:
                 self.logger.warning(
                     "No document found file=%s user_id=%s document_id=%s",
                     file_name,
@@ -368,18 +351,6 @@ class IngestPipeline:
                     document_id,
                 )
                 return []
-
-            if strategy == "hi_res" and documents:
-                pre_clean = len(documents)
-                documents = clean_ocr_documents(documents)
-                self.logger.info(
-                    "OCR cleanup file=%s user_id=%s document_id=%s before=%s after=%s",
-                    file_name,
-                    user_id,
-                    document_id,
-                    pre_clean,
-                    len(documents),
-                )
 
             for i, doc in enumerate(documents):
                 doc.metadata["source"] = payload.file_name
@@ -412,26 +383,6 @@ class IngestPipeline:
                 f"File could not be parsed ({payload.file_name}): {e}"
             ) from e
 
-    def _pdf_needs_hi_res(self, file_path: str) -> bool:
-        import fitz
-
-        drawing_threshold = 30
-
-        doc = fitz.open(file_path)
-        try:
-            for page in doc:
-                for img in page.get_images(full=True):
-                    xref = img[0]
-                    pix = fitz.Pixmap(doc, xref)
-                    if pix.width > 500 and pix.height > 500:
-                        return True
-                if len(page.get_drawings()) >= drawing_threshold:
-                    return True
-            return False
-        finally:
-            doc.close()
-
-    
     def _ids(self, payload: IngestDocumentRequest) -> tuple[str, str, str]:
         return payload.file_name, payload.user_id, payload.document_id
 

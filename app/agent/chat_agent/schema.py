@@ -76,6 +76,16 @@ class RewriteQueryResponse(BaseModel):
             "Null when document retrieval is not needed."
         ),
     )
+    cache_query: str | None = Field(
+        default=None,
+        description=(
+            "Context-rich query for semantic cache lookup. "
+            "May include conversation context, resolved references, "
+            "topic, chapter scope, and clarifying details needed to "
+            "match prior similar questions. "
+            "Null when document retrieval is not needed."
+        ),
+    )
     chapters: list[str] | None = Field(
         default=None,
         description=(

@@ -103,6 +103,7 @@ class RewriteQueryNode:
             )
             return {
                 "rewritten_query": state["query"],
+                "cache_query": None,
                 "memory_query": None,
                 "chapter_keys": None,
             }
@@ -166,15 +167,20 @@ class RewriteQueryNode:
                 )
             return {
                 "rewritten_query": state["query"],
+                "cache_query": state["query"] if retrieve_rag else None,
                 "memory_query": state["query"] if retrieve_memory else None,
                 "chapter_keys": None,
                 "document_sections": document_sections,
             }
 
         rewritten = state["query"]
+        cache_query = None
         chapter_keys = None
         if retrieve_rag:
             rewritten = (result.rag_query or "").strip() or state["query"]
+            cache_query = (
+                (result.cache_query or "").strip() or rewritten
+            )
             chapter_keys = _match_section_keys(result.chapters, section_keys)
 
         memory_query = None
@@ -183,16 +189,18 @@ class RewriteQueryNode:
 
         self.logger.info(
             "Rewrite query node completed id=%s user_id=%s original=%r "
-            "rewritten=%r chapter_keys=%s memory_query=%r",
+            "rewritten=%r cache_query=%r chapter_keys=%s memory_query=%r",
             state["conversation_id"],
             state["user_id"],
             state["query"],
             rewritten,
+            cache_query,
             chapter_keys,
             memory_query,
         )
         return {
             "rewritten_query": rewritten,
+            "cache_query": cache_query,
             "memory_query": memory_query,
             "chapter_keys": chapter_keys,
             "document_sections": document_sections,

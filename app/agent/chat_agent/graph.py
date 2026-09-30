@@ -23,6 +23,8 @@ from logging import Logger
 from app.system.user.repository import UserRepository
 from app.core.rabbitmq import RabbitMQ
 from app.memory.service import MemoryService
+from app.core.embedding import EmbeddingManager
+from app.core.semantic_cache import SemanticCache
 from app.rag.rag_retriever import RAGRetriever
 from app.system.chat.service import ChatService
 from app.system.conversation.service import ConversationService
@@ -44,6 +46,8 @@ class AgentGraph:
         checkpointer: AsyncPostgresSaver,
         rabbitmq: RabbitMQ,
         tavily: TavilyClient,
+        semantic_cache: SemanticCache,
+        embedding_manager: EmbeddingManager,
     ):
         self.retriever = retriever
         self.memory_service = memory_service
@@ -58,6 +62,8 @@ class AgentGraph:
         self.checkpointer = checkpointer
         self.rabbitmq = rabbitmq
         self.tavily = tavily
+        self.semantic_cache = semantic_cache
+        self.embedding_manager = embedding_manager
         graph = StateGraph(AgentState)
 
         self._raw_graph = graph
@@ -77,6 +83,8 @@ class AgentGraph:
             ),
             "retrieve_documents": RetrieveDocumentsNode(
                 retriever=self.retriever,
+                semantic_cache=self.semantic_cache,
+                embedding_manager=self.embedding_manager,
                 logger=self.logger,
             ),
             "tavily_retriever": TavilyRetrieverNode(
@@ -114,6 +122,7 @@ class AgentGraph:
             "cleanup": CleanupNode(
                 logger=self.logger,
                 document_service=self.document_service,
+                semantic_cache=self.semantic_cache,
             ),
         }
 
