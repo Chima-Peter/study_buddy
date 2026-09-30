@@ -219,6 +219,15 @@ class QuestionBankService:
         document_id: str,
         user_id: str,
     ) -> None:
+        deleted = await self.delete_if_exists(document_id, user_id)
+        if not deleted:
+            raise ValueError("Question bank not found")
+
+    async def delete_if_exists(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> bool:
         self.logger.info(
             "Deleting question bank document_id=%s user_id=%s",
             document_id,
@@ -226,14 +235,14 @@ class QuestionBankService:
         )
         existing = await self.repository.get_by_document(document_id, user_id)
         if existing is None:
-            raise ValueError("Question bank not found")
+            return False
 
         thread_id = question_bank_thread_id(user_id, document_id)
         await self.checkpointer.adelete_thread(thread_id)
 
         deleted = await self.repository.delete_by_document(document_id, user_id)
         if not deleted:
-            raise ValueError("Question bank not found")
+            return False
 
         self.logger.info(
             "Question bank deleted document_id=%s user_id=%s thread_id=%s",
@@ -241,6 +250,7 @@ class QuestionBankService:
             user_id,
             thread_id,
         )
+        return True
 
     async def list_by_user(
         self,

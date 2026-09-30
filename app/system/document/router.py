@@ -472,7 +472,10 @@ async def cancel_ingestion(
     "/{document_id}",
     response_model=ApiResponse,
     summary="Delete document",
-    description="Delete a document and its associated storage/vector data.",
+    description=(
+        "Delete a document and its associated storage/vector data, "
+        "study cards, and question bank."
+    ),
 )
 @inject
 async def delete_document(

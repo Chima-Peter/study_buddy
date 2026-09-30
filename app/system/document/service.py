@@ -1,6 +1,12 @@
+from __future__ import annotations
+
+from asyncio import TaskGroup
 from datetime import datetime, timezone
 from logging import Logger
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.core.elasticsearch import Elasticsearch
 from app.core.rabbitmq import RabbitMQ
@@ -22,6 +28,10 @@ from app.system.document.schema import (
 )
 from app.utils.errors.document import DocumentCreateError, DocumentNotRetryableError
 
+if TYPE_CHECKING:
+    from app.system.question_bank.repository import QuestionBankRepository
+    from app.system.study_cards.repository import StudyCardsRepository
+
 
 class DocumentService:
     def __init__(
@@ -32,6 +42,9 @@ class DocumentService:
         rabbitmq: RabbitMQ,
         elasticsearch: Elasticsearch,
         supabase: Supabase,
+        study_cards_repository: StudyCardsRepository,
+        question_bank_repository: QuestionBankRepository,
+        checkpointer: AsyncPostgresSaver,
     ):
         self.repository = repository
         self.logger = logger
@@ -39,6 +52,9 @@ class DocumentService:
         self.rabbitmq = rabbitmq
         self.elasticsearch = elasticsearch
         self.supabase = supabase
+        self.study_cards_repository = study_cards_repository
+        self.question_bank_repository = question_bank_repository
+        self.checkpointer = checkpointer
 
     async def create_document(
         self,
@@ -200,6 +216,75 @@ class DocumentService:
     async def delete_document(self, document_id: str, user_id: str) -> bool:
         document = await self._get_owned_document(document_id, user_id)
 
+        try:
+            async with TaskGroup() as tg:
+                tg.create_task(self._delete_study_cards(document_id, user_id))
+                tg.create_task(
+                    self._delete_question_bank(document_id, user_id)
+                )
+                tg.create_task(
+                    self._delete_elasticsearch_chunks(document_id, user_id)
+                )
+                if document.path:
+                    tg.create_task(self._delete_supabase_file(document.path))
+
+            deleted = await self.repository.delete(document_id)
+            if not deleted:
+                raise ValueError(f"Document not found: {document_id}")
+            return True
+        except Exception:
+            self.logger.exception(
+                "Failed to delete document id=%s user_id=%s",
+                document_id,
+                user_id,
+            )
+            raise
+
+    async def _delete_study_cards(self, document_id: str, user_id: str) -> None:
+        from app.system.study_cards.schema import study_cards_thread_id
+
+        study_cards = await self.study_cards_repository.get_by_document(
+            document_id, user_id
+        )
+        if study_cards is None:
+            return
+
+        await self.checkpointer.adelete_thread(
+            study_cards_thread_id(user_id, document_id)
+        )
+        await self.study_cards_repository.delete_by_document(document_id, user_id)
+        self.logger.info(
+            "Deleted study cards for document_id=%s user_id=%s",
+            document_id,
+            user_id,
+        )
+
+    async def _delete_question_bank(
+        self, document_id: str, user_id: str
+    ) -> None:
+        from app.system.question_bank.schema import question_bank_thread_id
+
+        question_bank = await self.question_bank_repository.get_by_document(
+            document_id, user_id
+        )
+        if question_bank is None:
+            return
+
+        await self.checkpointer.adelete_thread(
+            question_bank_thread_id(user_id, document_id)
+        )
+        await self.question_bank_repository.delete_by_document(
+            document_id, user_id
+        )
+        self.logger.info(
+            "Deleted question bank for document_id=%s user_id=%s",
+            document_id,
+            user_id,
+        )
+
+    async def _delete_elasticsearch_chunks(
+        self, document_id: str, user_id: str
+    ) -> None:
         deleted_chunks = await self.elasticsearch.delete_by_metadata(
             user_id, index="documents", document_id=document_id
         )
@@ -209,18 +294,9 @@ class DocumentService:
             document_id,
         )
 
-        if document.path:
-            await self.supabase.delete_file(document.path)
-
-        self.logger.info(
-            "Deleted file from Supabase for document_id=%s",
-            document_id,
-        )
-
-        deleted = await self.repository.delete(document_id)
-        if not deleted:
-            raise ValueError(f"Document not found: {document_id}")
-        return True
+    async def _delete_supabase_file(self, path: str) -> None:
+        await self.supabase.delete_file(path)
+        self.logger.info("Deleted file from Supabase path=%s", path)
 
     async def get_document_by_hash(
         self, file_hash: str, user_id: str

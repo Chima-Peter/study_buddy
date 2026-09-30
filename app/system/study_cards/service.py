@@ -214,6 +214,15 @@ class StudyCardsService:
         document_id: str,
         user_id: str,
     ) -> None:
+        deleted = await self.delete_if_exists(document_id, user_id)
+        if not deleted:
+            raise ValueError("Study cards not found")
+
+    async def delete_if_exists(
+        self,
+        document_id: str,
+        user_id: str,
+    ) -> bool:
         self.logger.info(
             "Deleting study cards document_id=%s user_id=%s",
             document_id,
@@ -221,14 +230,14 @@ class StudyCardsService:
         )
         existing = await self.repository.get_by_document(document_id, user_id)
         if existing is None:
-            raise ValueError("Study cards not found")
+            return False
 
         thread_id = study_cards_thread_id(user_id, document_id)
         await self.checkpointer.adelete_thread(thread_id)
 
         deleted = await self.repository.delete_by_document(document_id, user_id)
         if not deleted:
-            raise ValueError("Study cards not found")
+            return False
 
         self.logger.info(
             "Study cards deleted document_id=%s user_id=%s thread_id=%s",
@@ -236,6 +245,7 @@ class StudyCardsService:
             user_id,
             thread_id,
         )
+        return True
 
     async def list_by_user(
         self,
