@@ -146,3 +146,5 @@ class ParsedSections:
     title: str
     chapter_key: str
     file_path: str
+    chapter_number: int
+    start_page: int | None = None

@@ -166,10 +166,27 @@ async def process_with_chapters(
         for chunk in section_chunks:
             chunk.metadata["chapter"] = section.title
             chunk.metadata["chapter_key"] = section.chapter_key
+            chunk.metadata["chapter_number"] = section.chapter_number
+            relative_page = chunk.metadata.get("page")
+            if (
+                section.start_page is not None
+                and relative_page is not None
+            ):
+                try:
+                    # Chapter PDF pages are 1-based within the slice.
+                    chunk.metadata["page"] = (
+                        section.start_page + int(relative_page) - 1
+                    )
+                except (TypeError, ValueError):
+                    chunk.metadata["page"] = section.start_page
+            elif section.start_page is not None and relative_page is None:
+                chunk.metadata["page"] = section.start_page
         logger.info(
-            "Processed chapter=%s chapter_key=%s chunks=%s file=%s document_id=%s",
+            "Processed chapter=%s chapter_key=%s chapter_number=%s "
+            "chunks=%s file=%s document_id=%s",
             section.title,
             section.chapter_key,
+            section.chapter_number,
             len(section_chunks),
             payload.file_name,
             payload.document_id,
@@ -189,8 +206,7 @@ async def process_with_chapters(
             shutil.rmtree(directory, ignore_errors=True)
 
     for index, chunk in enumerate(chunks):
-        # ES maps metadata.page as integer; keep chapter identity in chapter_key.
-        chunk.metadata["page"] = index
+        chunk.metadata["chunk_index"] = index
         chunk.metadata["id"] = f"{payload.document_id}_{index}"
 
     chapters = [section.chapter_key for section in sections]

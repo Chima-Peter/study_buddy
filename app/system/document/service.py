@@ -315,7 +315,7 @@ class DocumentService:
             document_id,
             user_id,
             "processing",
-            ("pending", "processing"),
+            ("pending"),
         )
         return result.to_response() if result else None
 

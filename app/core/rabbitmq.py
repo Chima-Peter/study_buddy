@@ -275,7 +275,7 @@ class RabbitMQ:
         ]
 
     async def stop_consumers(self, consumers: list[RabbitMQConsumer]) -> None:
-        for consumer in consumers:
+        async def _cancel(consumer: RabbitMQConsumer) -> None:
             try:
                 await asyncio.wait_for(
                     consumer.queue.cancel(consumer.tag, nowait=True),
@@ -284,6 +284,8 @@ class RabbitMQ:
             except (asyncio.TimeoutError, asyncio.CancelledError, Exception) as e:
                 self.logger.debug(
                     "Consumer cancel interrupted tag=%s: %s", consumer.tag, e)
+
+        await asyncio.gather(*(_cancel(c) for c in consumers))
         self.logger.info("Stopped RabbitMQ consumers")
 
     async def _start_consumer(

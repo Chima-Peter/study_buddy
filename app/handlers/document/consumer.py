@@ -51,7 +51,6 @@ async def handle_document(
     indexed = False
     payload: dict | None = None
 
-    # requeue=False: soft failures schedule TTL backoff instead of immediate redelivery
     async with message.process(requeue=False, ignore_processed=True):
         try:
             payload = json.loads(message.body)
@@ -110,7 +109,7 @@ async def handle_document(
                     name=existing.name,
                     status=existing.status,
                     comment=(
-                        "This file has already been processed. "
+                        "This file is either currently being processed or has already been processed. "
                         "Check the document status."
                     ),
                 )

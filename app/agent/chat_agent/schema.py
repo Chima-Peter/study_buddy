@@ -2,7 +2,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
-SUMMARY_EVERY = 5
+SUMMARY_EVERY = 10
 SUMMARY_MAX_CHARS = 1500
 
 NON_ACADEMIC_FALLBACK = (

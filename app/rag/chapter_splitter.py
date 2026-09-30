@@ -203,6 +203,8 @@ class ChapterSplitter:
                 )
                 out_path = out_dir / f"{index:03d}_{safe_title}.pdf"
 
+                start_page = self._section_start_page(elements, section)
+
                 if source_doc is not None:
                     self._write_pdf_page_slice(
                         source_doc, elements, section, out_path
@@ -215,6 +217,8 @@ class ChapterSplitter:
                         title=section.title,
                         chapter_key=chapter_key,
                         file_path=str(out_path),
+                        chapter_number=index + 1,
+                        start_page=start_page,
                     )
                 )
                 self.logger.debug(
@@ -240,6 +244,17 @@ class ChapterSplitter:
             return int(page)
         except (TypeError, ValueError):
             return None
+
+    def _section_start_page(
+        self, elements: list[Element], section: ExtractedSection
+    ) -> int | None:
+        """Earliest 1-based source page covered by this section."""
+        pages = [
+            page
+            for i in range(section.start, section.end)
+            if (page := self._element_page(elements[i])) is not None
+        ]
+        return min(pages) if pages else None
 
     def _write_pdf_page_slice(
         self,

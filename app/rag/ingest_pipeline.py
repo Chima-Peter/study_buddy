@@ -353,12 +353,15 @@ class IngestPipeline:
                 return []
 
             for i, doc in enumerate(documents):
+                page = self._page_from_metadata(doc.metadata)
                 doc.metadata["source"] = payload.file_name
-                doc.metadata["page"] = i
+                if page is not None:
+                    doc.metadata["page"] = page
                 doc.metadata["category"] = payload.category
                 doc.metadata["name"] = payload.name
                 doc.metadata["user_id"] = payload.user_id
                 doc.metadata["document_id"] = payload.document_id
+                doc.metadata["chunk_index"] = i
                 doc.metadata["id"] = f"{payload.document_id}_{i}"
 
             self.logger.info(
@@ -385,6 +388,20 @@ class IngestPipeline:
 
     def _ids(self, payload: IngestDocumentRequest) -> tuple[str, str, str]:
         return payload.file_name, payload.user_id, payload.document_id
+
+    @staticmethod
+    def _page_from_metadata(metadata: dict) -> int | None:
+        """Prefer Unstructured page_number; fall back to loader page."""
+        raw = metadata.get("page_number", metadata.get("page"))
+        if raw is None:
+            return None
+        try:
+            page = int(raw)
+        except (TypeError, ValueError):
+            return None
+        if "page_number" not in metadata and "page" in metadata:
+            return page + 1
+        return page if page > 0 else None
 
     def _load_and_split(
         self,
