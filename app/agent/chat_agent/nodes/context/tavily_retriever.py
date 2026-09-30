@@ -3,7 +3,7 @@ from logging import Logger
 from langchain_google_genai import ChatGoogleGenerativeAI
 from tavily import TavilyClient
 
-from app.agent.chat_agent.messages import format_history
+from app.agent.chat_agent.utils import format_history
 from app.agent.chat_agent.prompts import tavily_query_rewriter_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY, TavilyQueryRewriteResponse
 from app.agent.chat_agent.state import AgentState

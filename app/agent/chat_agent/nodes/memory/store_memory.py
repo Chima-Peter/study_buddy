@@ -1,6 +1,6 @@
 from logging import Logger
 
-from app.agent.chat_agent.messages import format_history
+from app.agent.chat_agent.utils import format_history
 from app.agent.chat_agent.schema import SUMMARY_EVERY
 from app.agent.chat_agent.state import AgentState
 from app.core.rabbitmq import RabbitMQ

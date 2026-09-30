@@ -5,6 +5,7 @@ import numpy as np
 
 from app.agent.chat_agent.state import AgentState
 from app.agent.chat_agent.utils import format_rag_context
+
 from app.core.semantic_cache import SemanticCache
 
 if TYPE_CHECKING:

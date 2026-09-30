@@ -4,11 +4,10 @@ from langchain_core.messages import AIMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.config import get_stream_writer
 
-from app.agent.chat_agent.messages import format_history
 from app.agent.chat_agent.prompts import chat_response_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY
 from app.agent.chat_agent.state import AgentState
-from app.agent.chat_agent.utils import format_rag_context
+from app.agent.chat_agent.utils import format_history, format_rag_context
 from app.utils.llm import is_rate_limit_error
 
 

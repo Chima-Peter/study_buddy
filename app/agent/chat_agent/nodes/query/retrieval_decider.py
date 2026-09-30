@@ -2,7 +2,7 @@ from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from app.agent.chat_agent.messages import format_history
+from app.agent.chat_agent.utils import format_history
 from app.agent.chat_agent.prompts import retrieval_decider_prompt
 from app.agent.chat_agent.schema import NON_ACADEMIC_FALLBACK, SUMMARY_EVERY, DeciderResponse
 from app.agent.chat_agent.state import AgentState

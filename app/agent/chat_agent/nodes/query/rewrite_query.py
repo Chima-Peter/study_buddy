@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.agent.chat_agent.prompts import rewrite_query_prompt
-from app.agent.chat_agent.messages import format_history
+from app.agent.chat_agent.utils import format_history
 from app.agent.chat_agent.schema import RewriteQueryResponse
 from app.agent.chat_agent.state import AgentState
 from app.rag.schema import normalize_chapter_key

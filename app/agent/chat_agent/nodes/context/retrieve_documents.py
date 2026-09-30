@@ -1,7 +1,7 @@
 from logging import Logger
 
 from app.agent.chat_agent.state import AgentState
-from app.core.elasticsearch_schema import FusedResult, IndexedRecord
+from app.agent.chat_agent.utils import cache_hit_to_fused
 from app.core.embedding import EmbeddingManager
 from app.core.semantic_cache import CacheHit, SemanticCache
 from app.rag.rag_retriever import RAGRetriever
@@ -58,7 +58,7 @@ class RetrieveDocumentsNode:
                     len(cached.chunk_ids),
                 )
                 return {
-                    "rag_documents": [_hit_to_fused(cached)],
+                    "rag_documents": [cache_hit_to_fused(cached)],
                     "semantic_cache_hit": True,
                     "query_embedding": None,
                 }
@@ -80,17 +80,3 @@ class RetrieveDocumentsNode:
             "semantic_cache_hit": False,
             "query_embedding": cache_embedding_list,
         }
-
-
-def _hit_to_fused(hit: CacheHit) -> FusedResult:
-    return FusedResult(
-        document=IndexedRecord(
-            content=hit.context,
-            metadata={
-                "document_id": hit.document_id,
-                "id": ",".join(hit.chunk_ids),
-            },
-            embedding=[],
-        ),
-        score=max(0.0, 1.0 - hit.distance),
-    )
