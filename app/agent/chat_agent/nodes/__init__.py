@@ -6,7 +6,7 @@ from app.agent.chat_agent.nodes.conversation import (
 )
 from app.agent.chat_agent.nodes.memory import RetrieveMemoryNode, StoreMemoryNode
 from app.agent.chat_agent.nodes.query import RetrievalDeciderNode, RewriteQueryNode
-from app.agent.chat_agent.nodes.rag import RetrieveDocumentsNode
+from app.agent.chat_agent.nodes.context import RetrieveDocumentsNode
 from app.agent.chat_agent.nodes.response import GenerateResponseNode
 
 __all__ = [

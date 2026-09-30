@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from tavily import TavilyClient
 from psycopg_pool import AsyncConnectionPool
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -397,6 +398,9 @@ async def init_async_supabase(supabase_url: str, supabase_key: str) -> AsyncClie
         supabase_key=supabase_key,
     )
 
+async def init_tavily(tavily_api_key: str) -> TavilyClient:
+    return TavilyClient(tavily_api_key)
+
 async def init_smtp_pool(
     smtp_host: str,
     smtp_port: int,
@@ -570,6 +574,11 @@ class Container(containers.DeclarativeContainer):
         smtp_password=settings.provided.smtp_password,
         max_connections=settings.provided.smtp_max_connections,
         logger=logger,
+    )
+
+    tavily = providers.Resource(
+        init_tavily,
+        tavily_api_key=settings.provided.tavily_api_key,
     )
 
     auth_service = providers.Factory(
@@ -773,6 +782,7 @@ class Container(containers.DeclarativeContainer):
         summarizer_model=summarizer_model,
         checkpointer=checkpoint_saver,
         rabbitmq=rabbitmq,
+        tavily=tavily,
     )
 
     study_cards_graph = providers.Singleton(

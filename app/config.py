@@ -53,3 +53,5 @@ class Settings(BaseSettings):
     smtp_username: str = "your@email.com"
     smtp_password: str = "your-password"
     smtp_max_connections: int = 10
+
+    tavily_api_key: str = "tvly...."

@@ -51,6 +51,22 @@ class GenerateResponseNode:
         else:
             history_text = ""
 
+        tavily_hits = state.get("tavily_results") or []
+        if tavily_hits:
+            link_lines: list[str] = []
+            for hit in tavily_hits[:5]:
+                if not isinstance(hit, dict):
+                    continue
+                title = (hit.get("title") or "").strip() or "Resource"
+                url = (hit.get("url") or "").strip()
+                content = (hit.get("content") or "").strip()
+                if not url:
+                    continue
+                link_lines.append(f"- [{title}]: {url} -- {content}")
+            tavily_text = "\n".join(link_lines)
+        else:
+            tavily_text = ""
+
         prompt = chat_response_prompt(
             context=context,
             conversation_history_prompt=history_text,
@@ -59,6 +75,7 @@ class GenerateResponseNode:
             memories=memories_text,
             student_name=state.get("student_name"),
             student_gender=state.get("student_gender"),
+            tavily_results=tavily_text,
         )
 
         writer = get_stream_writer()

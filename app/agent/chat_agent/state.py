@@ -14,6 +14,7 @@ class AgentState(MessagesState):
     title: str | None
     conversation_summary: str | None
     rag_documents: list[FusedResult]
+    tavily_results: list[dict]
 
     retrieve_rag: bool
     retrieve_conversation_history: bool

@@ -97,3 +97,18 @@ class RewriteQueryResponse(BaseModel):
             "Do not include name/gender lookups; those come from profile."
         ),
     )
+
+
+class TavilyQueryRewriteResponse(BaseModel):
+    """Tavily search query for YouTube and Google article results."""
+
+    search_query: str | None = Field(
+        default=None,
+        description=(
+            "Search query in the form: 'provide some articles and youtube "
+            "videos on this: <topic>. stick only to youtube and google "
+            "website urls'. Insert the student's topic; do not answer it. "
+            "Null when the question (even with history/summary) lacks a clear "
+            "topic worth searching for."
+        ),
+    )

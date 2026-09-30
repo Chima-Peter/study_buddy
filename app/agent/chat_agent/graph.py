@@ -1,5 +1,7 @@
+from app.agent.chat_agent.nodes.context import TavilyRetrieverNode
 from app.agent.chat_agent.nodes.response.end_discussion import EndDiscussionNode
 from langchain_google_genai import ChatGoogleGenerativeAI
+from tavily import TavilyClient
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph.state import CompiledStateGraph
 from app.agent.chat_agent.edges import decide_retrieval_router
@@ -41,6 +43,7 @@ class AgentGraph:
         logger: Logger,
         checkpointer: AsyncPostgresSaver,
         rabbitmq: RabbitMQ,
+        tavily: TavilyClient,
     ):
         self.retriever = retriever
         self.memory_service = memory_service
@@ -54,6 +57,7 @@ class AgentGraph:
         self.summarizer_model = summarizer_model
         self.checkpointer = checkpointer
         self.rabbitmq = rabbitmq
+        self.tavily = tavily
         graph = StateGraph(AgentState)
 
         self._raw_graph = graph
@@ -74,6 +78,11 @@ class AgentGraph:
             "retrieve_documents": RetrieveDocumentsNode(
                 retriever=self.retriever,
                 logger=self.logger,
+            ),
+            "tavily_retriever": TavilyRetrieverNode(
+                tavily=self.tavily,
+                logger=self.logger,
+                query_model=self.query_model,
             ),
             "retrieve_memory": RetrieveMemoryNode(
                 memory_service=self.memory_service,
@@ -117,6 +126,7 @@ class AgentGraph:
             decide_retrieval_router,
             {
                 "rewrite_query": "rewrite_query",
+                "tavily_retriever": "tavily_retriever",
                 "end_discussion": "end_discussion",
             },
         )
@@ -126,6 +136,7 @@ class AgentGraph:
             [
                 "retrieve_documents",
                 "retrieve_memory",
+                "tavily_retriever",
             ],
             "generate_response",
         )

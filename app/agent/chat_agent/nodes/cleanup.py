@@ -54,6 +54,7 @@ class CleanupNode:
             "query": "",
             "rewritten_query": "",
             "rag_documents": [],
+            "tavily_results": [],
             "retrieve_rag": False,
             "retrieve_conversation_history": False,
             "retrieve_memory": False,
