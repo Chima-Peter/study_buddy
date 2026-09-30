@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from app.agent.chat_agent.state import AgentState
+from app.agent.chat_agent.utils import format_rag_context
 from app.core.semantic_cache import SemanticCache
 
 if TYPE_CHECKING:
@@ -88,7 +89,7 @@ class CleanupNode:
             return
 
         try:
-            context = "\n\n".join(r.document.content for r in rag_documents)
+            context = format_rag_context(rag_documents)
             chunk_ids = [
                 str(cid)
                 for r in rag_documents

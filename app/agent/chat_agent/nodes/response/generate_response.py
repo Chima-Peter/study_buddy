@@ -8,6 +8,7 @@ from app.agent.chat_agent.messages import format_history
 from app.agent.chat_agent.prompts import chat_response_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY
 from app.agent.chat_agent.state import AgentState
+from app.agent.chat_agent.utils import format_rag_context
 from app.utils.llm import is_rate_limit_error
 
 
@@ -37,7 +38,7 @@ class GenerateResponseNode:
             )
             context = ""
         else:
-            context = "\n\n".join(r.document.content for r in rag_documents)
+            context = format_rag_context(rag_documents)
 
         if memories:
             memories_text = "\n".join(
