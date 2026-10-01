@@ -176,6 +176,7 @@ class QuestionBankRepository:
         question_count: int,
         status: QuestionBankStatus = "success",
         reason: str | None = None,
+        audit: dict | None = None,
     ) -> QuestionBankModel | None:
         async with self.session_factory() as session:
             row = await session.execute(
@@ -192,6 +193,8 @@ class QuestionBankRepository:
             db_row.question_count = question_count
             db_row.status = status
             db_row.reason = reason
+            if audit is not None:
+                db_row.audit = audit
             db_row.updated_at = datetime.now(timezone.utc)
             await session.commit()
             await session.refresh(db_row)

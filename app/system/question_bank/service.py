@@ -142,6 +142,7 @@ class QuestionBankService:
         user_id: str,
         result: list,
         reason: str | None = None,
+        audit: dict | None = None,
     ) -> QuestionBankModel:
         self.logger.info(
             "Updating question bank result document_id=%s user_id=%s",
@@ -156,6 +157,7 @@ class QuestionBankService:
             question_count,
             status="success",
             reason=reason,
+            audit=audit,
         )
         if question_bank is None:
             raise ValueError("Question bank not found")

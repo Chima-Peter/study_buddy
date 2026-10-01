@@ -21,6 +21,7 @@ class QuestionBankModel(BaseModel):
     document_id: str = Field(min_length=36, max_length=36)
     status: QuestionBankStatus = "pending"
     result: Optional[Any] = None
+    audit: dict[str, Any] = Field(default_factory=dict)
     question_count: int = 0
     reason: Optional[str] = None
     created_at: datetime = Field(
@@ -41,6 +42,7 @@ class QuestionBankModel(BaseModel):
             "document_id": self.document_id,
             "status": self.status,
             "result": self.result,
+            "audit": self.audit,
             "question_count": self.question_count,
             "reason": self.reason,
             "created_at": self.created_at,
@@ -106,6 +108,11 @@ class QuestionBankDBModel(Base):
         JSONB,
         nullable=True,
     )
+    audit: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=sa.text("'{}'::jsonb"),
+    )
     reason: Mapped[Optional[str]] = mapped_column(
         sa.String(255),
         nullable=True,
@@ -129,6 +136,7 @@ class QuestionBankDBModel(Base):
             "document_id": str(self.document_id),
             "status": self.status,
             "result": self.result,
+            "audit": self.audit or {},
             "question_count": self.question_count,
             "reason": self.reason,
             "created_at": self.created_at.isoformat(),

@@ -21,11 +21,26 @@ class SaveNode:
             for question in chapter.questions
         ]
 
+        chapter_records = state.get("chapter_records") or {}
+        audit = {
+            "source": {
+                chapter_key: [
+                    {
+                        "content": record.content,
+                        "metadata": record.metadata,
+                    }
+                    for record in records
+                ]
+                for chapter_key, records in chapter_records.items()
+            }
+        }
+
         try:
             await self.question_bank_service.update_result(
                 state["document_id"],
                 state["user_id"],
                 payload,
+                audit=audit,
             )
         except Exception:
             self.logger.exception(
