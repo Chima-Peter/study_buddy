@@ -39,6 +39,7 @@ async def register(
     service: AuthService = Depends(Provide[Container.auth_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info("Processing register email=%s", data.email)
     try:
         response = await service.register(data)
     except EmailAlreadyExistsError:
@@ -53,6 +54,7 @@ async def register(
             detail="Internal server error",
         )
 
+    logger.info("Processed register email=%s", data.email)
     return BasicResponse(
         data=response.model_dump(mode="json"),
         message="User registered successfully",
@@ -71,6 +73,7 @@ async def login(
     service: AuthService = Depends(Provide[Container.auth_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info("Processing login email=%s", data.email)
     try:
         response = await service.login(request=data)
     except (InvalidCredentialsError, UserNotFoundError):
@@ -85,6 +88,7 @@ async def login(
             detail="Internal server error",
         )
 
+    logger.info("Processed login email=%s", data.email)
     return BasicResponse(
         data=response.model_dump(mode="json"),
         message="Login successful",
@@ -106,6 +110,7 @@ async def forgot_password(
     service: AuthService = Depends(Provide[Container.auth_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info("Processing forgot password email=%s", data.email)
     try:
         await service.forgot_password(data)
     except UserNotFoundError:
@@ -122,6 +127,7 @@ async def forgot_password(
             detail="Internal server error",
         )
 
+    logger.info("Processed forgot password email=%s", data.email)
     return BasicResponse(
         message="If an account exists for that email, a reset code has been sent",
     )
@@ -142,6 +148,7 @@ async def verify_reset_code(
     service: AuthService = Depends(Provide[Container.auth_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info("Processing verify reset code email=%s", data.email)
     try:
         response = await service.verify_reset_code(data)
     except InvalidResetCodeError:
@@ -158,6 +165,7 @@ async def verify_reset_code(
             detail="Internal server error",
         )
 
+    logger.info("Processed verify reset code email=%s", data.email)
     return BasicResponse(
         data=response.model_dump(mode="json"),
         message="Reset code verified successfully",
@@ -176,6 +184,7 @@ async def reset_password(
     service: AuthService = Depends(Provide[Container.auth_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info("Processing reset password")
     try:
         await service.reset_password(data)
     except (InvalidResetTokenError, UserNotFoundError):
@@ -190,6 +199,7 @@ async def reset_password(
             detail="Internal server error",
         )
 
+    logger.info("Processed reset password")
     return BasicResponse(message="Password reset successfully")
 
 
@@ -209,6 +219,7 @@ async def logout(
     service: AuthService = Depends(Provide[Container.auth_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info("Processing logout")
     try:
         await service.logout(credentials.credentials)
     except InvalidCredentialsError:
@@ -223,4 +234,5 @@ async def logout(
             detail="Internal server error",
         )
 
+    logger.info("Processed logout")
     return BasicResponse(message="Logged out successfully")

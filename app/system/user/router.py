@@ -21,13 +21,18 @@ user_router = APIRouter(prefix="/users", tags=["users"])
     response_model=ApiResponse,
     summary="Get current user profile",
 )
+@inject
 async def get_profile(
     user: Annotated[UserResponse, Depends(get_current_user)],
+    logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
-    return BasicResponse(
+    logger.info("Processing get profile user_id=%s", user.id)
+    response = BasicResponse(
         data=user.model_dump(mode="json"),
         message="Profile retrieved successfully",
     )
+    logger.info("Processed get profile user_id=%s", user.id)
+    return response
 
 
 @user_router.patch(
@@ -42,6 +47,7 @@ async def update_profile(
     service: UserService = Depends(Provide[Container.user_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info("Processing update profile user_id=%s", user.id)
     try:
         response = await service.update_profile(user.id, data)
     except EmailAlreadyExistsError:
@@ -63,6 +69,7 @@ async def update_profile(
             detail="Internal server error",
         )
 
+    logger.info("Processed update profile user_id=%s", user.id)
     return BasicResponse(
         data=response.model_dump(mode="json"),
         message="Profile updated successfully",
@@ -82,6 +89,7 @@ async def delete_account(
     auth_service: AuthService = Depends(Provide[Container.auth_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info("Processing delete account user_id=%s", user.id)
     try:
         await user_service.delete_account(user.id)
         await auth_service.logout(credentials.credentials)
@@ -99,4 +107,5 @@ async def delete_account(
             detail="Internal server error",
         )
 
+    logger.info("Processed delete account user_id=%s", user.id)
     return BasicResponse(message="Account deleted successfully")

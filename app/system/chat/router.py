@@ -59,6 +59,7 @@ async def websocket_endpoint(
         await websocket.accept()
         await redis_service.incr_connection_count(user.id)
         connection_counted = True
+        logger.info("Started websocket connection user_id=%s", user.id)
         drain_task = chat_service.start_drain(websocket, out_queue)
 
         refreshed_token = getattr(websocket.state, "refreshed_token", None)
@@ -125,34 +126,35 @@ async def websocket_endpoint(
                 continue
 
             try:
-                message: dict[str, Any] = chat_task.result()
-                payload, error = chat_service.validate_websocket_message(
-                    message,
-                    user_id=user.id,
-                )
-                if error or not payload:
-                    await out_queue.put({
-                        "type": "chat.error",
-                        "message": error or "Invalid message",
-                        "request_id": (
-                            message.get("request_id")
-                            if isinstance(message, dict)
-                            else None
-                        ),
-                        "conversation_id": (
-                            message.get("conversation_id")
-                            if isinstance(message, dict)
-                            else None
-                        ),
-                    })
-                    continue
-
-                query = payload.get("query")
-                conversation_id = payload.get("conversation_id")
-                request_id = payload.get("request_id")
-                message_type = payload.get("type")
-
                 with correlation_id_scope():
+                    logger.info("Processing websocket message user_id=%s", user.id)
+                    message: dict[str, Any] = chat_task.result()
+                    payload, error = chat_service.validate_websocket_message(
+                        message,
+                        user_id=user.id,
+                    )
+                    if error or not payload:
+                        await out_queue.put({
+                            "type": "chat.error",
+                            "message": error or "Invalid message",
+                            "request_id": (
+                                message.get("request_id")
+                                if isinstance(message, dict)
+                                else None
+                            ),
+                            "conversation_id": (
+                                message.get("conversation_id")
+                                if isinstance(message, dict)
+                                else None
+                            ),
+                        })
+                        continue
+
+                    query = payload.get("query")
+                    conversation_id = payload.get("conversation_id")
+                    request_id = payload.get("request_id")
+                    message_type = payload.get("type")
+
                     if query == "ping":
                         await out_queue.put({
                             "type": "heartbeat",
@@ -208,6 +210,7 @@ async def websocket_endpoint(
                             queue=out_queue,
                         )
                     )
+                    logger.info("Processed websocket message user_id=%s", user.id)
             except json.JSONDecodeError:
                 logger.warning(
                     "Invalid JSON message user_id=%s", user.id,
@@ -246,6 +249,8 @@ async def websocket_endpoint(
             reason="Internal server error",
         )
     finally:
+        if connection_counted:
+            logger.info("Processed websocket connection user_id=%s", user.id)
         await chat_service.stop_drain(out_queue, drain_task)
         if connection_counted:
             await redis_service.decr_connection_count(user.id)

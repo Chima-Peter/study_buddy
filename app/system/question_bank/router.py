@@ -62,6 +62,7 @@ async def list_question_banks(
         Query(alias="status", description="Filter by question bank status"),
     ] = None,
 ) -> BasicResponse:
+    logger.info("Processing list question banks user_id=%s", user.id)
     try:
         result = await service.list_by_user(
             user.id,
@@ -79,6 +80,11 @@ async def list_question_banks(
             detail="An error occurred while listing question banks. Please try again later.",
         )
 
+    logger.info(
+        "Processed list question banks user_id=%s count=%s",
+        user.id,
+        len(result.items),
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Question banks retrieved successfully",
@@ -113,6 +119,11 @@ async def generate_question_bank(
     ),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing generate question bank user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         result = await service.enqueue_generate(document_id, user.id)
     except QuestionBankAlreadyExistsError as e:
@@ -147,6 +158,11 @@ async def generate_question_bank(
             detail="An error occurred while queuing question bank generation. Please try again later.",
         )
 
+    logger.info(
+        "Processed generate question bank user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Question bank generation started successfully",
@@ -182,6 +198,11 @@ async def retry_question_bank_generation(
     ),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing retry question bank generation user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         result = await service.retry_generation(document_id, user.id)
     except QuestionBankNotRetryableError as e:
@@ -214,6 +235,11 @@ async def retry_question_bank_generation(
             detail="An error occurred while queuing question bank regeneration. Please try again later.",
         )
 
+    logger.info(
+        "Processed retry question bank generation user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Question bank regeneration queued successfully",
@@ -239,6 +265,11 @@ async def get_question_bank(
     ),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing get question bank user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         question_bank = await service.get_by_document(document_id, user.id)
     except ValueError:
@@ -258,6 +289,11 @@ async def get_question_bank(
             detail="An error occurred while getting question bank. Please try again later.",
         )
 
+    logger.info(
+        "Processed get question bank user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=question_bank.to_response().model_dump(mode="json"),
         message="Question bank retrieved successfully",
@@ -282,6 +318,11 @@ async def delete_question_bank(
     ),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing delete question bank user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         await service.delete(document_id, user.id)
     except ValueError:
@@ -301,4 +342,9 @@ async def delete_question_bank(
             detail="An error occurred while deleting question bank. Please try again later.",
         )
 
+    logger.info(
+        "Processed delete question bank user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(message="Question bank deleted successfully")

@@ -64,6 +64,11 @@ async def create_upload_url(
     supabase: Supabase = Depends(Provide[Container.async_supabase]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing create upload url user_id=%s file_name=%s",
+        user.id,
+        request.file_name,
+    )
     try:
         file_extension = Path(request.file_name).suffix.lower()
         if file_extension not in ALL_ALLOWED_EXTENSIONS:
@@ -81,6 +86,11 @@ async def create_upload_url(
             upload["path"],
         )
 
+        logger.info(
+            "Processed create upload url user_id=%s document_id=%s",
+            user.id,
+            document.id,
+        )
         return BasicResponse(
             data=UploadUrlResponseData(
                 upload_url=upload["signed_url"],
@@ -139,6 +149,11 @@ async def create_download_url(
     supabase: Supabase = Depends(Provide[Container.async_supabase]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing create download url user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         document = await document_service.get_document_by_id(document_id, user.id)
         if document.path is None:
@@ -160,6 +175,11 @@ async def create_download_url(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed create download url user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data={
             "download_url": download_url,
@@ -185,6 +205,11 @@ async def start_ingestion(
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing start ingestion user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         document = await service.start_ingestion(document_id, user.id)
     except ValueError as exc:
@@ -209,6 +234,11 @@ async def start_ingestion(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed start ingestion user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=document.model_dump(mode="json"),
         message="Document ingestion started successfully",
@@ -234,6 +264,11 @@ async def retry_ingestion(
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing retry ingestion user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         document = await service.retry_ingestion(document_id, user.id)
     except DocumentNotRetryableError as exc:
@@ -263,6 +298,11 @@ async def retry_ingestion(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed retry ingestion user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=document.model_dump(mode="json"),
         message="Document ingestion retry queued successfully",
@@ -317,6 +357,7 @@ async def list_documents(
         Query(description="Include documents created at or before this timestamp (ISO 8601)"),
     ] = None,
 ) -> BasicResponse:
+    logger.info("Processing list documents user_id=%s", user.id)
     if (
         created_after is not None
         and created_before is not None
@@ -346,6 +387,11 @@ async def list_documents(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed list documents user_id=%s count=%s",
+        user.id,
+        len(result.items),
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Documents retrieved successfully",
@@ -365,6 +411,11 @@ async def get_document(
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing get document user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         document = await service.get_document_by_id(document_id, user.id)
     except ValueError:
@@ -383,6 +434,11 @@ async def get_document(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed get document user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=document.model_dump(mode="json"),
         message="Document retrieved successfully",
@@ -406,6 +462,11 @@ async def update_document(
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing update document user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         # prevent sections from being updated by the user
         request.sections = None
@@ -426,6 +487,11 @@ async def update_document(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed update document user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=document.model_dump(mode="json"),
         message="Document updated successfully",
@@ -446,6 +512,11 @@ async def cancel_ingestion(
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing cancel ingestion user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         document = await service.cancel_ingestion(document_id, user.id)
     except ValueError as exc:
@@ -464,6 +535,11 @@ async def cancel_ingestion(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed cancel ingestion user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=document.model_dump(mode="json"),
         message="Document ingestion cancellation initiated successfully",
@@ -485,6 +561,11 @@ async def delete_document(
     service: DocumentService = Depends(Provide[Container.document_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing delete document user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         await service.delete_document(document_id, user.id)
     except ValueError:
@@ -503,4 +584,9 @@ async def delete_document(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed delete document user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(message="Document deleted successfully")

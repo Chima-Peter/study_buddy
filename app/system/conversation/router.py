@@ -49,7 +49,7 @@ async def list_conversations(
         Query(description="Cursor from previous page's next_cursor"),
     ] = None
 ) -> BasicResponse:
-    logger.info("List conversations request user_id=%s", user.id)
+    logger.info("Processing list conversations user_id=%s", user.id)
     try:
         result = await service.list_by_user(
             user.id,
@@ -57,7 +57,7 @@ async def list_conversations(
             cursor=cursor,
         )
         logger.info(
-            "List conversations request completed user_id=%s count=%s",
+            "Processed list conversations user_id=%s count=%s",
             user.id,
             len(result.items),
         )
@@ -91,7 +91,7 @@ async def branch_conversation(
     agent_graph: AgentGraph = Depends(Provide[Container.agent_graph]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
-    logger.info("Branch conversation request user_id=%s", user.id)
+    logger.info("Processing branch conversation user_id=%s", user.id)
     try:
         conversation = await service.branch(
             graph=agent_graph.start(),
@@ -99,7 +99,7 @@ async def branch_conversation(
             request=request,
         )
         logger.info(
-            "Branch conversation request completed new_id=%s user_id=%s",
+            "Processed branch conversation new_id=%s user_id=%s",
             conversation.id,
             user.id,
         )
@@ -145,7 +145,7 @@ async def get_conversation(
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     logger.info(
-        "Get conversation request id=%s user_id=%s",
+        "Processing get conversation id=%s user_id=%s",
         conversation_id,
         user.id,
     )
@@ -154,7 +154,7 @@ async def get_conversation(
         if conversation is None:
             raise ValueError("Conversation not found")
         logger.info(
-            "Get conversation request completed id=%s user_id=%s",
+            "Processed get conversation id=%s user_id=%s",
             conversation_id,
             user.id,
         )
@@ -204,7 +204,7 @@ async def patch_conversation(
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     logger.info(
-        "Update conversation request id=%s user_id=%s",
+        "Processing update conversation id=%s user_id=%s",
         conversation_id,
         user.id,
     )
@@ -215,7 +215,7 @@ async def patch_conversation(
             payload=request,
         )
         logger.info(
-            "Update conversation request completed id=%s user_id=%s",
+            "Processed update conversation id=%s user_id=%s",
             conversation_id,
             user.id,
         )

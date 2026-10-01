@@ -56,6 +56,7 @@ async def list_study_cards(
         Query(alias="status", description="Filter by study cards status"),
     ] = None,
 ) -> BasicResponse:
+    logger.info("Processing list study cards user_id=%s", user.id)
     try:
         result = await service.list_by_user(
             user.id,
@@ -73,6 +74,11 @@ async def list_study_cards(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed list study cards user_id=%s count=%s",
+        user.id,
+        len(result.items),
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Study cards retrieved successfully",
@@ -104,6 +110,11 @@ async def generate_study_cards(
     service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing generate study cards user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         result = await service.enqueue_generate(document_id, user.id)
     except StudyCardsAlreadyExistsError as e:
@@ -138,6 +149,11 @@ async def generate_study_cards(
             detail="An error occurred while queuing study cards generation. Please try again later.",
         )
 
+    logger.info(
+        "Processed generate study cards user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Study cards generation started successfully",
@@ -169,6 +185,11 @@ async def retry_study_cards_generation(
     service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing retry study cards generation user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         result = await service.retry_generation(document_id, user.id)
     except StudyCardsNotRetryableError as e:
@@ -201,6 +222,11 @@ async def retry_study_cards_generation(
             detail="An error occurred while queuing study cards regeneration. Please try again later.",
         )
 
+    logger.info(
+        "Processed retry study cards generation user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Study cards regeneration queued successfully",
@@ -221,6 +247,11 @@ async def get_study_cards(
     service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing get study cards user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         study_card = await service.get_by_document(document_id, user.id)
     except ValueError:
@@ -240,6 +271,11 @@ async def get_study_cards(
             detail="An error occurred while getting study cards. Please try again later.",
         )
 
+    logger.info(
+        "Processed get study cards user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(
         data=study_card.to_response().model_dump(mode="json"),
         message="Study cards retrieved successfully",
@@ -262,6 +298,11 @@ async def delete_study_cards(
     service: StudyCardsService = Depends(Provide[Container.study_cards_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing delete study cards user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     try:
         await service.delete(document_id, user.id)
     except ValueError:
@@ -281,4 +322,9 @@ async def delete_study_cards(
             detail="An error occurred while deleting study cards. Please try again later.",
         )
 
+    logger.info(
+        "Processed delete study cards user_id=%s document_id=%s",
+        user.id,
+        document_id,
+    )
     return BasicResponse(message="Study cards deleted successfully")

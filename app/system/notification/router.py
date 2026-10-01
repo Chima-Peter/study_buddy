@@ -73,6 +73,7 @@ async def list_notifications(
         Query(description="If true, only return notifications that have not been read"),
     ] = False,
 ) -> BasicResponse:
+    logger.info("Processing list notifications user_id=%s", user.id)
     if (
         created_after is not None
         and created_before is not None
@@ -101,6 +102,11 @@ async def list_notifications(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed list notifications user_id=%s count=%s",
+        user.id,
+        len(result.items),
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Notifications retrieved successfully",
@@ -122,6 +128,11 @@ async def mark_notifications_read(
     ),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing mark notifications read user_id=%s count=%s",
+        user.id,
+        len(request.ids),
+    )
     try:
         result = await service.mark_many_as_read(request.ids, user.id)
     except NotificationNotFoundError as e:
@@ -140,6 +151,11 @@ async def mark_notifications_read(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed mark notifications read user_id=%s count=%s",
+        user.id,
+        result.marked_count,
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Notifications marked as read",
@@ -161,6 +177,11 @@ async def mark_notification_read(
     ),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
+    logger.info(
+        "Processing mark notification read user_id=%s notification_id=%s",
+        user.id,
+        notification_id,
+    )
     try:
         result = await service.mark_as_read(notification_id, user.id)
     except NotificationNotFoundError as e:
@@ -179,6 +200,11 @@ async def mark_notification_read(
             detail="Internal server error",
         )
 
+    logger.info(
+        "Processed mark notification read user_id=%s notification_id=%s",
+        user.id,
+        notification_id,
+    )
     return BasicResponse(
         data=result.model_dump(mode="json"),
         message="Notification marked as read",
@@ -205,6 +231,7 @@ async def live_stream(
 ) -> StreamingResponse:
     cursor = last_event_id or "0"
     stream_name = await redis_service.orchestrate_stream(user.id)
+    logger.info("Processing live notification stream user_id=%s", user.id)
 
     async def event_generator() -> AsyncIterator[str]:
         nonlocal cursor
@@ -298,6 +325,7 @@ async def live_stream(
             )
             raise
         finally:
+            logger.info("Processed live notification stream user_id=%s", user.id)
             await redis_service.expire_connection(user.id)
 
     return StreamingResponse(
