@@ -249,6 +249,8 @@ class DocumentRepository:
         comment: str | None = None,
     ) -> DocumentModel | None:
         """Atomically move status only if current status is in from_statuses."""
+        if isinstance(from_statuses, str):
+            from_statuses = (from_statuses,)
         values: dict = {
             "status": to_status,
             "comment": comment or DOCUMENT_STATUS_COMMENTS[to_status],
@@ -271,6 +273,12 @@ class DocumentRepository:
             )
             db_document = result.scalar_one_or_none()
             if db_document is None:
+                self.logger.warning(
+                    "Document not found id=%s user_id=%s from_statuses=%s",
+                    document_id,
+                    user_id,
+                    from_statuses,
+                )
                 await session.rollback()
                 return None
             try:
