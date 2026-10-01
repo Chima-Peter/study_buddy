@@ -140,7 +140,13 @@ async def handle_document(
                 tmp.flush()
                 tmp.seek(0)
 
-                file_hash = hashlib.sha256(tmp.read()).hexdigest()
+                digest = hashlib.sha256()
+                while True:
+                    chunk = tmp.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                file_hash = digest.hexdigest()
                 existing = await document_service.get_document_by_hash(
                     file_hash, user_id
                 )
