@@ -186,7 +186,17 @@ class GenerateChapterNode:
         return chapter.model_dump_json()
 
     @staticmethod
-    def _extract_learning_preferences(memories: list[Memory]) -> list[str] | None:
-        if not memories or len(memories) == 0:
+    def _extract_learning_preferences(
+        memories: list[Memory] | list[dict] | None,
+    ) -> list[str] | None:
+        if not memories:
             return None
-        return [m.content for m in memories]
+        prefs: list[str] = []
+        for memory in memories:
+            if isinstance(memory, dict):
+                content = (memory.get("content") or "").strip()
+            else:
+                content = (getattr(memory, "content", None) or "").strip()
+            if content:
+                prefs.append(content)
+        return prefs or None
