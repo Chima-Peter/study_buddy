@@ -1,5 +1,6 @@
 import logging
 import re
+import shutil
 import tempfile
 from dataclasses import dataclass
 from logging import Logger
@@ -52,7 +53,9 @@ class ChapterSplitter:
 
     def initiate_chapter_split(self, filepath: str) -> list[ParsedSections]:
         """
-        Split a document into chapter-level sections using fitz text extraction.
+        Split a document into chapter-level sections.
+        PDFs prefer built-in outline/bookmarks (like pdf-chapter-splitter);
+        otherwise fall back to text heading detection via fitz.
         Each section is written as a PDF so embedded images are preserved.
         """
         self.logger.info(f"Initiating chapter split for file: {filepath}")
@@ -61,6 +64,20 @@ class ChapterSplitter:
         if suffix not in ALLOWED_FILE_TYPES:
             raise NonRetryableIngestError(
                 f"Unsupported file type: {suffix}. Should be one of: {ALLOWED_FILE_TYPES}"
+            )
+
+        if suffix == "pdf":
+            outline_sections = self._split_from_outline(filepath)
+            if outline_sections:
+                self.logger.info(
+                    "Split via PDF outline bookmarks count=%s file=%s",
+                    len(outline_sections),
+                    filepath,
+                )
+                return outline_sections
+            self.logger.info(
+                "No usable PDF outline; falling back to text headings file=%s",
+                filepath,
             )
 
         elements = self._partition_file(filepath)
@@ -97,6 +114,105 @@ class ChapterSplitter:
         )
 
         return final_parsed_documents
+
+    def _split_from_outline(self, filepath: str) -> list[ParsedSections]:
+        """
+        Split a PDF using its outline/bookmarks (top-level entries only).
+        Returns [] when the file has no usable outline.
+        """
+        try:
+            doc = fitz.open(filepath)
+        except Exception as e:
+            self.logger.warning("Could not open PDF for outline split file=%s: %s", filepath, e)
+            return []
+
+        try:
+            toc = doc.get_toc(simple=True)
+            if not toc:
+                return []
+
+            # Top-level bookmarks only (level 1), same idea as pdf-chapter-splitter.
+            top_level: list[tuple[str, int]] = []
+            for entry in toc:
+                if len(entry) < 3:
+                    continue
+                level, title, page = entry[0], str(entry[1]).strip(), int(entry[2])
+                if level != 1 or not title or page < 1:
+                    continue
+                # Keep first bookmark when several share the same start page.
+                if top_level and top_level[-1][1] == page:
+                    continue
+                top_level.append((title, page))
+
+            if len(top_level) < 1:
+                return []
+
+            total_pages = doc.page_count
+            self.logger.info(
+                "Found %s top-level outline bookmarks for file: %s",
+                len(top_level),
+                filepath,
+            )
+
+            out_dir = Path(tempfile.mkdtemp(prefix=f"chapters_{Path(filepath).stem}_"))
+            written: list[ParsedSections] = []
+            used_keys: dict[str, int] = {}
+
+            try:
+                for index, (title, start_page) in enumerate(top_level):
+                    if index + 1 < len(top_level):
+                        end_page = top_level[index + 1][1] - 1
+                    else:
+                        end_page = total_pages
+                    end_page = max(start_page, min(end_page, total_pages))
+
+                    base_key = normalize_chapter_key(title)
+                    count = used_keys.get(base_key, 0) + 1
+                    used_keys[base_key] = count
+                    chapter_key = base_key if count == 1 else f"{base_key}_{count}"
+
+                    safe_title = (
+                        re.sub(r"[^\w\-]+", "_", title).strip("_")[:60] or "chapter"
+                    )
+                    out_path = out_dir / f"{index:03d}_{safe_title}.pdf"
+
+                    out = fitz.open()
+                    try:
+                        out.insert_pdf(
+                            doc,
+                            from_page=start_page - 1,
+                            to_page=end_page - 1,
+                        )
+                        out.save(out_path)
+                    finally:
+                        out.close()
+
+                    written.append(
+                        ParsedSections(
+                            title=title,
+                            chapter_key=chapter_key,
+                            file_path=str(out_path),
+                            chapter_number=index + 1,
+                            start_page=start_page,
+                        )
+                    )
+                    self.logger.debug(
+                        "Wrote outline chapter title=%s chapter_key=%s pages=%s-%s",
+                        title,
+                        chapter_key,
+                        start_page,
+                        end_page,
+                    )
+            except Exception:
+                shutil.rmtree(out_dir, ignore_errors=True)
+                raise
+
+            return written
+        except Exception:
+            self.logger.exception("Outline-based chapter split failed file=%s", filepath)
+            return []
+        finally:
+            doc.close()
 
     def _partition_file(self, filepath: str) -> list[TextElement]:
         """Partition document into text elements via fitz (Unstructured disabled)."""
