@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.authentication.router import authentication_router
 from app.config import Settings
 from app.container import Container
-from app.core.middleware import SecurityHeadersMiddleware
+from app.core.correlation import CORRELATION_HEADER
+from app.core.middleware import CorrelationIdMiddleware, SecurityHeadersMiddleware
 from app.core.response import (
     ApiResponse,
     BasicResponse,
@@ -53,8 +54,10 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-New-Token"],
+        expose_headers=["X-New-Token", CORRELATION_HEADER],
     )
+    
+    app.add_middleware(CorrelationIdMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
 
     api_router = APIRouter(prefix="/api")

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from logging import Logger
 from typing import Any
 
+from app.core.correlation import spawn_task
 from app.core.redis import RedisClient
 import uuid_utils
 from fastapi import WebSocket, WebSocketDisconnect, status
@@ -54,7 +55,7 @@ class ChatService:
         queue: Queue,
     ) -> Task[None]:
         """Start a single connection-scoped drain task."""
-        return asyncio.create_task(
+        return spawn_task(
             self._drain_websocket(websocket, queue),
             name="chat_ws_drain",
         )
@@ -1101,7 +1102,7 @@ class ChatService:
 
         if fork_chat_id:
             graph_input["fork_chat_id"] = fork_chat_id
-            asyncio.create_task(
+            spawn_task(
                 self.delete_chats_after(
                     chat_id=fork_chat_id,
                     user_id=user_id,
@@ -1304,7 +1305,7 @@ class ChatService:
                 response_message_id=response_message_id,
                 secret=self.continuation_secret,
             )
-            asyncio.create_task(
+            spawn_task(
                 self.update_continuation_key(
                     chat_id=chat_id,
                     continuation_key=continuation_key,

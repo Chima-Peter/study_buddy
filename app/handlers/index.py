@@ -8,6 +8,11 @@ from aio_pika.abc import AbstractIncomingMessage
 from app.agent.question_bank.graph import QuestionBankGraph
 from app.agent.study_cards_agent.graph import StudyCardsGraph
 from app.config import Settings
+from app.core.correlation import (
+    correlation_id_scope,
+    read_correlation_id,
+    spawn_task,
+)
 from app.core.elasticsearch import Elasticsearch
 from app.core.embedding import EmbeddingManager
 from app.core.rabbitmq import RabbitMQ
@@ -85,9 +90,11 @@ class Handlers:
         coro: Coroutine[Any, Any, Any] | Awaitable[Any],
         *,
         label: str,
+        message: AbstractIncomingMessage,
     ) -> None:
         """Schedule work without blocking the RabbitMQ consumer callback."""
-        task = asyncio.create_task(coro, name=label)
+        with correlation_id_scope(read_correlation_id(message.headers)):
+            task = spawn_task(coro, name=label)
         self._background_tasks.add(task)
 
         def _on_done(done: asyncio.Task[Any]) -> None:
@@ -118,6 +125,7 @@ class Handlers:
                 app_name=self._settings.app_name,
             ),
             label="handle_mail",
+            message=message,
         )
 
     async def handle_document(self, message: AbstractIncomingMessage) -> None:
@@ -136,6 +144,7 @@ class Handlers:
                 self._notification_service,
             ),
             label="handle_document",
+            message=message,
         )
 
     async def handle_memory_extract(
@@ -149,6 +158,7 @@ class Handlers:
                 rabbitmq=self._rabbitmq,
             ),
             label="handle_memory_extract",
+            message=message,
         )
 
     async def handle_study_cards_generate(
@@ -165,6 +175,7 @@ class Handlers:
                 notification_service=self._notification_service,
             ),
             label="handle_study_cards_generate",
+            message=message,
         )
 
     async def handle_question_bank_generate(
@@ -181,6 +192,7 @@ class Handlers:
                 notification_service=self._notification_service,
             ),
             label="handle_question_bank_generate",
+            message=message,
         )
 
     async def handle_mail_dead_letter_queue(
@@ -189,6 +201,7 @@ class Handlers:
         self._fire_and_forget(
             handle_mail_dead_letter_queue(message, self._logger),
             label="handle_mail_dead_letter_queue",
+            message=message,
         )
 
     async def handle_document_dead_letter_queue(
@@ -203,6 +216,7 @@ class Handlers:
                 self._notification_service,
             ),
             label="handle_document_dead_letter_queue",
+            message=message,
         )
 
     async def handle_memory_extract_dead_letter_queue(
@@ -211,6 +225,7 @@ class Handlers:
         self._fire_and_forget(
             handle_memory_extract_dead_letter_queue(message, self._logger),
             label="handle_memory_extract_dead_letter_queue",
+            message=message,
         )
 
     async def handle_study_cards_generate_dead_letter_queue(
@@ -222,6 +237,7 @@ class Handlers:
                 self._logger,
             ),
             label="handle_study_cards_generate_dead_letter_queue",
+            message=message,
         )
 
     async def handle_question_bank_generate_dead_letter_queue(
@@ -233,4 +249,5 @@ class Handlers:
                 self._logger,
             ),
             label="handle_question_bank_generate_dead_letter_queue",
+            message=message,
         )

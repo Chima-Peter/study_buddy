@@ -11,6 +11,8 @@ from aio_pika.exceptions import DeliveryError
 from fastapi import HTTPException
 import uuid_utils
 
+from app.core.correlation import CORRELATION_AMQP_HEADER, get_correlation_id
+
 RETRY_COUNT_HEADER = "x-retry-count"
 
 
@@ -119,10 +121,15 @@ class RabbitMQ:
         try:
             self.logger.info(
                 "Publishing message to %s on retry %s", queue_name, retry_count)
+            headers: dict[str, Any] = {}
+            cid = get_correlation_id()
+            if cid != "-":
+                headers[CORRELATION_AMQP_HEADER] = cid
             message = Message(
                 body=json.dumps(payload).encode(),
                 delivery_mode=DeliveryMode.PERSISTENT,
                 message_id=str(uuid_utils.uuid7()),
+                headers=headers or None,
             )
             channel = self._channel_for_queue(queue_name)
             await channel.default_exchange.publish(

@@ -16,6 +16,7 @@ from fastapi import (
 
 from app.system.user.schema import UserResponse
 from app.container import Container
+from app.core.correlation import correlation_id_scope, spawn_task
 from app.core.redis import RedisClient
 from app.core.security import get_current_user_websocket
 from app.system.chat.service import ChatService
@@ -151,61 +152,62 @@ async def websocket_endpoint(
                 request_id = payload.get("request_id")
                 message_type = payload.get("type")
 
-                if query == "ping":
-                    await out_queue.put({
-                        "type": "heartbeat",
-                        "message": "Pong",
-                    })
-                    continue
-
-                if conversation_id is None:
-                    if message_type in ("queue.delete", "queue.edit"):
+                with correlation_id_scope():
+                    if query == "ping":
                         await out_queue.put({
-                            "type": "chat.error",
-                            "message": "conversation_id is required for queue operations",
-                            "request_id": request_id,
+                            "type": "heartbeat",
+                            "message": "Pong",
                         })
                         continue
-                    conversation = await conversation_service.create(
-                        CreateConversationRequest(title="New Conversation"),
-                        user_id=user.id,
-                    )
-                    conversation_id = conversation.id
-                    logger.info(
-                        "Created conversation id=%s user_id=%s",
-                        conversation_id,
-                        user.id,
-                    )
-                    await out_queue.put({
-                        "type": "chat.started",
-                        "conversation_id": conversation_id,
-                        "request_id": request_id,
-                    })
 
-                logger.info(
-                    "Received message user_id=%s conversation_id=%s "
-                    "type=%s document_id=%s",
-                    user.id,
-                    conversation_id,
-                    message_type,
-                    payload.get("document_id"),
-                )
-
-                graph = (
-                    None
-                    if message_type in ("queue.delete", "queue.edit")
-                    else agent_graph.start()
-                )
-                asyncio.create_task(
-                    chat_service.handle_chat_queue(
-                        graph,
-                        payload={
-                            **payload,
+                    if conversation_id is None:
+                        if message_type in ("queue.delete", "queue.edit"):
+                            await out_queue.put({
+                                "type": "chat.error",
+                                "message": "conversation_id is required for queue operations",
+                                "request_id": request_id,
+                            })
+                            continue
+                        conversation = await conversation_service.create(
+                            CreateConversationRequest(title="New Conversation"),
+                            user_id=user.id,
+                        )
+                        conversation_id = conversation.id
+                        logger.info(
+                            "Created conversation id=%s user_id=%s",
+                            conversation_id,
+                            user.id,
+                        )
+                        await out_queue.put({
+                            "type": "chat.started",
                             "conversation_id": conversation_id,
-                        },
-                        queue=out_queue,
+                            "request_id": request_id,
+                        })
+
+                    logger.info(
+                        "Received message user_id=%s conversation_id=%s "
+                        "type=%s document_id=%s",
+                        user.id,
+                        conversation_id,
+                        message_type,
+                        payload.get("document_id"),
                     )
-                )
+
+                    graph = (
+                        None
+                        if message_type in ("queue.delete", "queue.edit")
+                        else agent_graph.start()
+                    )
+                    spawn_task(
+                        chat_service.handle_chat_queue(
+                            graph,
+                            payload={
+                                **payload,
+                                "conversation_id": conversation_id,
+                            },
+                            queue=out_queue,
+                        )
+                    )
             except json.JSONDecodeError:
                 logger.warning(
                     "Invalid JSON message user_id=%s", user.id,
