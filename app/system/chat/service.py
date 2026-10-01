@@ -24,7 +24,14 @@ from app.utils.continuation_key import (
 SAVE_MAX_ATTEMPTS = 3
 MAX_PAYLOAD_SIZE = 64 * 1024
 MESSAGE_ID_LENGTH = 36
-WEBSOCKET_MESSAGE_TYPES = frozenset({"chat", "edit", "retry"})
+WEBSOCKET_MESSAGE_TYPES = frozenset({
+    "chat",
+    "edit",
+    "retry",
+    "queue.delete",
+    "queue.edit",
+})
+QUEUE_MESSAGE_TYPES = frozenset({"queue.delete", "queue.edit"})
 CHAT_QUEUED = "queued"
 
 
@@ -190,8 +197,54 @@ class ChatService:
                 user_id,
                 message_type,
             )
-            return None, "type must be one of: chat, edit, retry"
+            return None, "type must be one of: chat, edit, retry, queue.delete, queue.edit"
 
+        conversation_id = message.get("conversation_id")
+
+        if message_type in QUEUE_MESSAGE_TYPES:
+            if not conversation_id or not isinstance(conversation_id, str):
+                return None, "conversation_id is required for queue operations"
+
+            if message_type == "queue.delete":
+                return {
+                    "type": message_type,
+                    "conversation_id": conversation_id,
+                    "user_id": user_id,
+                    "request_id": request_id,
+                }, None
+
+            query = message.get("query")
+            if not query:
+                self.logger.warning(
+                    "No query in queue.edit user_id=%s",
+                    user_id,
+                )
+                return None, "No query in message"
+            if len(query.encode("utf-8")) > MAX_PAYLOAD_SIZE:
+                self.logger.warning(
+                    "Query too big user_id=%s size=%d",
+                    user_id,
+                    len(query),
+                )
+                return None, "Query too big"
+
+            document_id = message.get("document_id")
+            if not document_id:
+                return None, "document_id is required for queue.edit"
+            if not isinstance(document_id, str) or not document_id.strip():
+                return None, "document_id is required for queue.edit"
+            document_id = document_id.strip()
+
+            return {
+                "type": message_type,
+                "query": query,
+                "conversation_id": conversation_id,
+                "document_id": document_id,
+                "user_id": user_id,
+                "request_id": request_id,
+            }, None
+
+        query = message.get("query")
         if not query:
             self.logger.warning(
                 "No query in message user_id=%s",
@@ -207,7 +260,6 @@ class ChatService:
             )
             return None, "Query too big"
 
-        conversation_id = message.get("conversation_id")
         document_id = message.get("document_id")
         if not document_id:
             return None, "document_id is required for chat"
@@ -783,7 +835,7 @@ class ChatService:
 
     async def handle_chat_queue(
         self,
-        graph: CompiledStateGraph,
+        graph: CompiledStateGraph | None,
         *,
         payload: dict[str, Any],
         queue: Queue,
@@ -794,6 +846,29 @@ class ChatService:
         failure, or None on success.
         """
         message_type = payload["type"]
+        if message_type == "queue.delete":
+            return await self.handle_queue_delete(payload=payload, queue=queue)
+        if message_type == "queue.edit":
+            return await self.handle_queue_edit(payload=payload, queue=queue)
+
+        if graph is None:
+            self.logger.warning(
+                "No graph provided for chat turn user_id=%s conversation_id=%s",
+                payload.get("user_id"),
+                payload.get("conversation_id"),
+            )
+            await queue.put(
+                self._event_with_request_id(
+                    {
+                        "type": "chat.error",
+                        "message": "Internal error. Try again later.",
+                        "conversation_id": payload.get("conversation_id"),
+                    },
+                    payload.get("request_id"),
+                )
+            )
+            return "Internal error. Try again later."
+
         if message_type in ("edit", "retry"):
             turn_error = await self.handle_retry_and_edit_turns(
                 graph,
@@ -859,7 +934,114 @@ class ChatService:
             next_payload["checkpointer_id"] = checkpointer_id
             current = next_payload
             lock_token = next_payload["request_id"]
-        
+
+    async def handle_queue_delete(
+        self,
+        *,
+        payload: dict[str, Any],
+        queue: Queue,
+    ) -> str | None:
+        """Map ``queue.delete`` to Redis ``delete_hash_item``."""
+        user_id = payload["user_id"]
+        conversation_id = payload["conversation_id"]
+        request_id = payload["request_id"]
+        _, queue_key, items_key = self._chat_queue_keys(user_id, conversation_id)
+
+        deleted = await self.redis.delete_hash_item(
+            queue_key=queue_key,
+            items_key=items_key,
+            item_id=request_id,
+        )
+        if not deleted:
+            error = "Queued message not found or already processing"
+            await queue.put(
+                self._event_with_request_id(
+                    {
+                        "type": "queue.delete.error",
+                        "message": error,
+                        "conversation_id": conversation_id,
+                    },
+                    request_id,
+                )
+            )
+            return error
+
+        self.logger.info(
+            "Queue item deleted user_id=%s conversation_id=%s request_id=%s",
+            user_id,
+            conversation_id,
+            request_id,
+        )
+        await queue.put(
+            self._event_with_request_id(
+                {
+                    "type": "queue.delete.success",
+                    "conversation_id": conversation_id,
+                },
+                request_id,
+            )
+        )
+        return None
+
+    async def handle_queue_edit(
+        self,
+        *,
+        payload: dict[str, Any],
+        queue: Queue,
+    ) -> str | None:
+        """Map ``queue.edit`` to a single Redis ``edit_hash_item`` call.
+
+        Client must provide the full replacement item (query, document_id, etc.).
+        """
+        user_id = payload["user_id"]
+        conversation_id = payload["conversation_id"]
+        request_id = payload["request_id"]
+        _, queue_key, items_key = self._chat_queue_keys(user_id, conversation_id)
+
+        item = {
+            **payload,
+            "type": "chat",
+        }
+
+        edited = await self.redis.edit_hash_item(
+            queue_key=queue_key,
+            items_key=items_key,
+            item_id=request_id,
+            item=item,
+        )
+        if not edited:
+            error = "Queued message not found or already processing"
+            await queue.put(
+                self._event_with_request_id(
+                    {
+                        "type": "queue.edit.error",
+                        "message": error,
+                        "conversation_id": conversation_id,
+                    },
+                    request_id,
+                )
+            )
+            return error
+
+        self.logger.info(
+            "Queue item edited user_id=%s conversation_id=%s request_id=%s",
+            user_id,
+            conversation_id,
+            request_id,
+        )
+        await queue.put(
+            self._event_with_request_id(
+                {
+                    "type": "queue.edit.success",
+                    "conversation_id": conversation_id,
+                    "query": payload["query"],
+                    "document_id": payload["document_id"],
+                },
+                request_id,
+            )
+        )
+        return None
+
     async def handle_retry_and_edit_turns(
         self,
         graph: CompiledStateGraph,

@@ -309,6 +309,28 @@ class RedisClient:
             )
         return value
 
+    async def get_hash_item(
+        self,
+        *,
+        items_key: str,
+        item_id: str,
+    ) -> dict[str, Any] | None:
+        """Return the JSON object for ``item_id``, or None if missing."""
+        self._logger.debug(
+            "Redis HASH GET items=%s item_id=%s",
+            items_key,
+            item_id,
+        )
+        raw = await self._redis.hget(items_key, item_id)
+        if raw is None:
+            return None
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise TypeError(
+                f"Redis hash item expected object, got {type(value).__name__}"
+            )
+        return value
+
     async def delete_hash_item(
         self,
         *,

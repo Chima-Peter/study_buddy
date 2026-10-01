@@ -146,9 +146,10 @@ async def websocket_endpoint(
                     })
                     continue
 
-                query = payload["query"]
+                query = payload.get("query")
                 conversation_id = payload.get("conversation_id")
                 request_id = payload.get("request_id")
+                message_type = payload.get("type")
 
                 if query == "ping":
                     await out_queue.put({
@@ -158,6 +159,13 @@ async def websocket_endpoint(
                     continue
 
                 if conversation_id is None:
+                    if message_type in ("queue.delete", "queue.edit"):
+                        await out_queue.put({
+                            "type": "chat.error",
+                            "message": "conversation_id is required for queue operations",
+                            "request_id": request_id,
+                        })
+                        continue
                     conversation = await conversation_service.create(
                         CreateConversationRequest(title="New Conversation"),
                         user_id=user.id,
@@ -179,11 +187,15 @@ async def websocket_endpoint(
                     "type=%s document_id=%s",
                     user.id,
                     conversation_id,
-                    payload["type"],
-                    payload["document_id"],
+                    message_type,
+                    payload.get("document_id"),
                 )
 
-                graph = agent_graph.start()
+                graph = (
+                    None
+                    if message_type in ("queue.delete", "queue.edit")
+                    else agent_graph.start()
+                )
                 asyncio.create_task(
                     chat_service.handle_chat_queue(
                         graph,
