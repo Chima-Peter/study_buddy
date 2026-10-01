@@ -296,6 +296,7 @@ class ChatService:
         query: str,
         response: str,
         source: list[dict[str, Any]],
+        tavily: list[dict[str, Any]] | None = None,
         query_message_id: str | None = None,
         response_message_id: str | None = None,
         chat_id: str | None = None,
@@ -308,7 +309,7 @@ class ChatService:
             "chat": response,
             "query_message_id": query_message_id,
             "response_message_id": response_message_id,
-            "audit": {"source": source},
+            "audit": {"source": source, "tavily": tavily or []},
             "continuation_key": continuation_key,
         }
         if chat_id:
@@ -348,6 +349,7 @@ class ChatService:
         query: str,
         response: str,
         source: list[dict[str, Any]],
+        tavily: list[dict[str, Any]] | None = None,
         query_message_id: str | None = None,
         response_message_id: str | None = None,
     ) -> ChatResponse | None:
@@ -361,7 +363,7 @@ class ChatService:
                     response=response,
                     query_message_id=query_message_id,
                     response_message_id=response_message_id,
-                    audit={"source": source},
+                    audit={"source": source, "tavily": tavily or []},
                 )
                 if record is None:
                     self.logger.error(
@@ -544,7 +546,9 @@ class ChatService:
 
         query = str(human_message.content)
         response = str(ai_message.content)
-        source = list((source_chat.audit or {}).get("source") or [])
+        audit = source_chat.audit or {}
+        source = list(audit.get("source") or [])
+        tavily = list(audit.get("tavily") or [])
 
         new_thread_config = {"configurable": {"thread_id": new_conversation_id}}
         new_config = await graph.aupdate_state(
@@ -610,6 +614,7 @@ class ChatService:
             query=query,
             response=response,
             source=source,
+            tavily=tavily,
             query_message_id=new_query_message_id,
             response_message_id=new_response_message_id,
             chat_id=new_chat_id,

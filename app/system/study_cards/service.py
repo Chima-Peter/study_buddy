@@ -143,6 +143,7 @@ class StudyCardsService:
         user_id: str,
         result: dict,
         reason: str | None = None,
+        audit: dict | None = None,
     ) -> StudyCardsModel:
         self.logger.info(
             "Updating study cards result document_id=%s user_id=%s",
@@ -160,6 +161,7 @@ class StudyCardsService:
             chapter_count,
             status="success",
             reason=reason,
+            audit=audit,
         )
         if study_card is None:
             raise ValueError("Study cards not found")

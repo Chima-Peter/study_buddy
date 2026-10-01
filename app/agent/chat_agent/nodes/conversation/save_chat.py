@@ -20,6 +20,11 @@ class SaveChatNode:
             }
             for r in (state.get("rag_documents") or [])
         ]
+        tavily = [
+            hit
+            for hit in (state.get("tavily_results") or [])
+            if isinstance(hit, dict)
+        ]
 
         query_message_id = None
         response_message_id = None
@@ -34,12 +39,13 @@ class SaveChatNode:
         fork_chat_id = state.get("fork_chat_id")
         turn_type = state.get("turn_type")
         self.logger.info(
-            "Save chat node started id=%s user_id=%s sources=%s "
+            "Save chat node started id=%s user_id=%s sources=%s tavily=%s "
             "query_message_id=%s response_message_id=%s turn_type=%s "
             "fork_chat_id=%s",
             state.get("conversation_id"),
             state.get("user_id"),
             len(sources),
+            len(tavily),
             query_message_id,
             response_message_id,
             turn_type,
@@ -52,6 +58,7 @@ class SaveChatNode:
                 query=state.get("query"),
                 response=state.get("response"),
                 source=sources,
+                tavily=tavily,
                 query_message_id=query_message_id,
                 response_message_id=response_message_id,
             )
@@ -62,6 +69,7 @@ class SaveChatNode:
                 query=state.get("query"),
                 response=state.get("response"),
                 source=sources,
+                tavily=tavily,
                 query_message_id=query_message_id,
                 response_message_id=response_message_id,
             )

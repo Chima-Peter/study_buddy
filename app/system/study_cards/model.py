@@ -18,6 +18,7 @@ class StudyCardsModel(BaseModel):
     document_id: str = Field(min_length=36, max_length=36)
     status: StudyCardsStatus = "pending"
     result: Optional[dict[str, Any]] = None
+    audit: dict[str, Any] = Field(default_factory=dict)
     question_count: int = 0
     chapter_count: int = 0
     reason: Optional[str] = None
@@ -39,6 +40,7 @@ class StudyCardsModel(BaseModel):
             "document_id": self.document_id,
             "status": self.status,
             "result": self.result,
+            "audit": self.audit,
             "question_count": self.question_count,
             "chapter_count": self.chapter_count,
             "reason": self.reason,
@@ -101,6 +103,11 @@ class StudyCardsDBModel(Base):
         JSONB,
         nullable=True,
     )
+    audit: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=sa.text("'{}'::jsonb"),
+    )
     question_count: Mapped[int] = mapped_column(
         sa.Integer(),
         nullable=False,
@@ -138,6 +145,7 @@ class StudyCardsDBModel(Base):
             "question_count": self.question_count,
             "chapter_count": self.chapter_count,
             "result": self.result,
+            "audit": self.audit or {},
             "reason": self.reason,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

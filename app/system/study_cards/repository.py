@@ -175,6 +175,7 @@ class StudyCardsRepository:
         chapter_count: int,
         status: StudyCardsStatus = "success",
         reason: str | None = None,
+        audit: dict | None = None,
     ) -> StudyCardsModel | None:
         async with self.session_factory() as session:
             row = await session.execute(
@@ -192,6 +193,8 @@ class StudyCardsRepository:
             db_row.chapter_count = chapter_count
             db_row.status = status
             db_row.reason = reason
+            if audit is not None:
+                db_row.audit = audit
             db_row.updated_at = datetime.now(timezone.utc)
             await session.commit()
             await session.refresh(db_row)

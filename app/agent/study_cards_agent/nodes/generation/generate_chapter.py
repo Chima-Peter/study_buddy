@@ -187,6 +187,6 @@ class GenerateChapterNode:
 
     @staticmethod
     def _extract_learning_preferences(memories: list[Memory]) -> list[str] | None:
-        if not memories:
+        if not memories or len(memories) == 0:
             return None
         return [m.content for m in memories]
