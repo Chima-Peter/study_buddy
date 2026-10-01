@@ -128,6 +128,35 @@ def normalize_chapter_key(title: str) -> str:
     return (slug[:80] or "section")
 
 
+def chapter_number_from_title(title: str) -> int | None:
+    """
+    Book chapter number from a heading/bookmark title, if present.
+
+    Examples:
+      "Chapter 1: Foundations" -> 1
+      "1 Python Primer" -> 1
+      "Preface" -> None
+    """
+    raw = (title or "").strip()
+    if not raw:
+        return None
+
+    kind_match = _CHAPTER_KIND_RE.match(raw)
+    if kind_match:
+        number = kind_match.group(2)
+        if number.isdigit():
+            return int(number)
+        return None
+
+    numbered = _NUMBERED_SECTION_RE.match(raw)
+    if numbered:
+        token = numbered.group(1)
+        # Top-level "1 …" only; skip subsection ids like "1.1".
+        if token.isdigit():
+            return int(token)
+    return None
+
+
 @dataclass
 class SectionCandidate:
     title: str
@@ -146,5 +175,5 @@ class ParsedSections:
     title: str
     chapter_key: str
     file_path: str
-    chapter_number: int
+    chapter_number: int | None
     start_page: int | None = None

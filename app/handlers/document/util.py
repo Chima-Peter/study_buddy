@@ -175,7 +175,8 @@ async def process_with_chapters(
         for chunk in section_chunks:
             chunk.metadata["chapter"] = section.title
             chunk.metadata["chapter_key"] = section.chapter_key
-            chunk.metadata["chapter_number"] = section.chapter_number
+            if section.chapter_number is not None:
+                chunk.metadata["chapter_number"] = section.chapter_number
             relative_page = chunk.metadata.get("page")
             if (
                 section.start_page is not None

@@ -21,6 +21,7 @@ from app.rag.schema import (
     ExtractedSection,
     ParsedSections,
     SectionCandidate,
+    chapter_number_from_title,
     is_section_heading,
     named_section_key,
     normalize_chapter_key,
@@ -192,7 +193,7 @@ class ChapterSplitter:
                             title=title,
                             chapter_key=chapter_key,
                             file_path=str(out_path),
-                            chapter_number=index + 1,
+                            chapter_number=chapter_number_from_title(title),
                             start_page=start_page,
                         )
                     )
@@ -381,7 +382,7 @@ class ChapterSplitter:
                         title=section.title,
                         chapter_key=chapter_key,
                         file_path=str(out_path),
-                        chapter_number=index + 1,
+                        chapter_number=chapter_number_from_title(section.title),
                         start_page=start_page,
                     )
                 )

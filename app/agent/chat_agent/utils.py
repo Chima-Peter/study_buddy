@@ -103,11 +103,20 @@ def format_rag_chunk(result: FusedResult) -> str:
     page = meta.get("page")
 
     if chapter_number is not None and chapter:
-        labels.append(f"Chapter {chapter_number}: {chapter}")
+        title = str(chapter).strip()
+        # Avoid "Chapter 1: 1 Python Primer"
+        stripped = re.sub(
+            rf"^(?:chapter\s+)?{int(chapter_number)}(?:\.\d+)*[.:\s—–-]*",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        ).strip()
+        label_title = stripped or title
+        labels.append(f"Chapter {chapter_number}: {label_title}")
     elif chapter_number is not None:
         labels.append(f"Chapter {chapter_number}")
     elif chapter:
-        labels.append(f"Chapter: {chapter}")
+        labels.append(str(chapter))
 
     if page is not None:
         labels.append(f"Page {page}")
