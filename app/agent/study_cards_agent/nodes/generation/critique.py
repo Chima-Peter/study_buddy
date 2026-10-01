@@ -4,6 +4,10 @@ from logging import Logger
 from app.agent.study_cards_agent.prompts import critique_chapter_prompt
 from app.agent.study_cards_agent.schema import ChapterResult, Critique
 from app.agent.study_cards_agent.state import StudyCardsState
+from app.agent.study_cards_agent.utils import (
+    format_source_content,
+    format_tavily_results,
+)
 from app.core.elasticsearch_schema import IndexedRecord
 from app.utils.llm import is_rate_limit_error
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -19,6 +23,7 @@ class CritiqueNode:
         chapter_keys = state["chapter_keys"]
         retry_count = state["retry_count"]
         document_sections = state["document_sections"]
+        tavily_by_chapter = state.get("tavily_results") or {}
         approved_chapters = set(state["approved_chapters"])
         missing_chapters = [
             chapter_key
@@ -80,6 +85,7 @@ class CritiqueNode:
                         chapter_key,
                         chapter,
                         document_sections.get(chapter_key, []),
+                        tavily_by_chapter.get(chapter_key) or [],
                     )
                 )
                 for chapter_key, chapter in generated_chapters.items()
@@ -132,15 +138,18 @@ class CritiqueNode:
         chapter_key: str,
         chapter: ChapterResult,
         source_records: list[IndexedRecord],
+        tavily_hits: list[dict] | None = None,
     ) -> Critique | None:
         generated_chapter = chapter.model_dump_json()
-        source_content = "\n".join(record.content for record in source_records)
+        source_content = format_source_content(source_records)
+        tavily_text = format_tavily_results(tavily_hits)
         self.logger.info(
             "Critiquing chapter chapter_key=%s generated_len=%s source_len=%s "
-            "for study cards agent",
+            "tavily_hits=%s for study cards agent",
             chapter_key,
             len(generated_chapter),
             len(source_content),
+            len(tavily_hits or []),
         )
 
         try:
@@ -149,6 +158,7 @@ class CritiqueNode:
                     chapter_key,
                     generated_chapter,
                     source_content,
+                    tavily_text,
                 )
             )
             result = response.model_copy(update={"chapter_key": chapter_key})

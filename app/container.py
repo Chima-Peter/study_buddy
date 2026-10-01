@@ -816,6 +816,7 @@ class Container(containers.DeclarativeContainer):
         study_cards_service=study_cards_service,
         checkpointer=checkpoint_saver,
         memory_service=memory_service,
+        tavily=tavily,
     )
 
     question_bank_graph = providers.Singleton(

@@ -4,6 +4,10 @@ from logging import Logger
 from app.agent.study_cards_agent.prompts import generate_chapter_prompt
 from app.agent.study_cards_agent.schema import ChapterResult, Critique
 from app.agent.study_cards_agent.state import StudyCardsState
+from app.agent.study_cards_agent.utils import (
+    format_source_content,
+    format_tavily_results,
+)
 from app.core.elasticsearch_schema import IndexedRecord
 from app.memory.schema import Memory
 from app.utils.llm import is_rate_limit_error
@@ -63,6 +67,7 @@ class GenerateChapterNode:
 
         memories = state.get("memories", [])
         learning_preferences = self._extract_learning_preferences(memories)
+        tavily_by_chapter = state.get("tavily_results") or {}
 
         async with TaskGroup() as tg:
             tasks = [
@@ -73,6 +78,7 @@ class GenerateChapterNode:
                         self._critique_comment(critique, chapter_key),
                         self._previous_draft(generated_chapters, chapter_key),
                         learning_preferences,
+                        tavily_by_chapter.get(chapter_key) or [],
                     )
                 )
                 for chapter_key in chapter_keys_to_generate
@@ -106,17 +112,20 @@ class GenerateChapterNode:
         critique_comment: str | None = None,
         previous_draft: str | None = None,
         learning_preferences: list[str] | None = None,
+        tavily_hits: list[dict] | None = None,
     ) -> ChapterResult | None:
-        content = "\n".join([record.content for record in section])
+        content = format_source_content(section)
+        tavily_text = format_tavily_results(tavily_hits)
         self.logger.info(
             "Generating chapter for section chapter_key=%s content_len=%s "
             "has_critique=%s has_previous_draft=%s has_preferences=%s "
-            "for study cards agent",
+            "tavily_hits=%s for study cards agent",
             chapter_key,
             len(content),
             bool(critique_comment),
             bool(previous_draft),
             bool(learning_preferences),
+            len(tavily_hits or []),
         )
 
         try:
@@ -127,6 +136,7 @@ class GenerateChapterNode:
                     critique_comment,
                     previous_draft,
                     learning_preferences,
+                    tavily_text,
                 )
             )
             result = response.model_copy(update={"chapter_key": chapter_key})

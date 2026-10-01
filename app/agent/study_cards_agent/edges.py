@@ -5,8 +5,9 @@ from app.agent.study_cards_agent.state import StudyCardsState
 
 RouteTarget = Literal[
     "retrieve_chapter_keys",
-    "retrieve_sessions",
+    "retrieve_sections",
     "retrieve_memories",
+    "tavily_retriever",
     "generate",
     "critique",
     "consolidate",
@@ -27,6 +28,7 @@ def route_next(state: StudyCardsState) -> RouteTarget | list[str]:
         state.get("chapter_keys") is None
         or state.get("document_sections") is None
         or state.get("memories") is None
+        or state.get("tavily_results") is None
     ):
         return ["retrieve_memories", "retrieve_chapter_keys"]
 

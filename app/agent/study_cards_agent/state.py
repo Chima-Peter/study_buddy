@@ -12,6 +12,7 @@ class StudyCardsState(TypedDict):
     user_id: str
     memories: list[Memory]
     chapter_keys: list[str]
+    tavily_results: dict[str, list[dict]]
     generated_chapters: dict[str, ChapterResult]
     approved_chapters: Annotated[list[str], operator.add]
     pending_chapters: list[str]

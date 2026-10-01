@@ -7,6 +7,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from tavily import TavilyClient
 
 from app.agent.study_cards_agent.edges import route_next
 from app.agent.study_cards_agent.nodes import (
@@ -14,9 +15,10 @@ from app.agent.study_cards_agent.nodes import (
     CritiqueNode,
     GenerateChapterNode,
     RetrieveChaptersNode,
-    RetrieveSessionsNode,
+    RetrieveSectionsNode,
     RouterNode,
     SaveNode,
+    TavilyRetrieverNode,
 )
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.core.elasticsearch import Elasticsearch
@@ -34,6 +36,7 @@ class StudyCardsGraph:
         study_cards_service: StudyCardsService,
         checkpointer: AsyncPostgresSaver,
         memory_service: MemoryService,
+        tavily: TavilyClient,
     ):
         self.logger = logger
         self.document_service = document_service
@@ -42,7 +45,8 @@ class StudyCardsGraph:
         self.study_cards_service = study_cards_service
         self.checkpointer = checkpointer
         self.memory_service = memory_service
-        
+        self.tavily = tavily
+
         graph = StateGraph(StudyCardsState)
         self._raw_graph = graph
 
@@ -53,13 +57,17 @@ class StudyCardsGraph:
                 logger=self.logger,
                 document_service=self.document_service,
             ),
-            "retrieve_sessions": RetrieveSessionsNode(
+            "retrieve_sections": RetrieveSectionsNode(
                 logger=self.logger,
                 elasticsearch=self.elasticsearch,
             ),
             "retrieve_memories": RetrieveMemoriesNode(
                 logger=self.logger,
                 memory_service=self.memory_service,
+            ),
+            "tavily_retriever": TavilyRetrieverNode(
+                tavily=self.tavily,
+                logger=self.logger,
             ),
             "generate": GenerateChapterNode(
                 logger=self.logger,
@@ -87,7 +95,8 @@ class StudyCardsGraph:
             {
                 "retrieve_memories": "retrieve_memories",
                 "retrieve_chapter_keys": "retrieve_chapter_keys",
-                "retrieve_sessions": "retrieve_sessions",
+                "retrieve_sections": "retrieve_sections",
+                "tavily_retriever": "tavily_retriever",
                 "generate": "generate",
                 "critique": "critique",
                 "consolidate": "consolidate",
@@ -95,10 +104,11 @@ class StudyCardsGraph:
                 "END": END,
             },
         )
-      
-        graph.add_edge("retrieve_chapter_keys", "retrieve_sessions")
+
+        graph.add_edge("retrieve_chapter_keys", "retrieve_sections")
+        graph.add_edge("retrieve_chapter_keys", "tavily_retriever")
         graph.add_edge(
-            ["retrieve_memories", "retrieve_sessions"],
+            ["retrieve_memories", "retrieve_sections", "tavily_retriever"],
             "router",
         )
         graph.add_edge("generate", "router")

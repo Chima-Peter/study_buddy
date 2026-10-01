@@ -22,15 +22,17 @@ CHAPTER_REQUIREMENTS = (
     "fenced code blocks when useful, and Markdown tables for comparisons, "
     "definitions, formulas, or structured facts. Do not invent facts absent "
     "from the source\n"
-    "  - references: short citations or quotes pointing to supporting "
-    "passages in the source (e.g. page hints, heading names, or brief "
-    "quoted fragments)\n"
-    "  - external_references: optional related external resources "
-    "(URLs, papers, textbooks, youtube tutorials, articles, etc). "
-    "Use an empty list when none apply. Every link or resource must be "
-    "correct, directly related to the chapter material, and valid "
-    "(real, working URLs or accurately named resources). Do not invent "
-    "or guess links\n"
+    "  - references: short internal citations pointing to supporting "
+    "passages in the source. When Source content includes labels like "
+    "[Chapter N: … | Page X] or [Page X], include those page (and chapter) "
+    "numbers for the passages that support the section. You may also use "
+    "heading names or brief quoted fragments alongside page refs. "
+    "Use an empty list only when the source has no usable location hints\n"
+    "  - external_references: related external resources drawn from "
+    "Additional Links when provided (prefer those URLs/titles). "
+    "Use an empty list when Additional Links is (none) or none apply. "
+    "Every entry must be a real URL from Additional Links or an accurately "
+    "named resource tied to that link. Do not invent or guess links\n"
     "- mnemonics: a dict of short memorable memory aids "
     "(key = concept or section title, value = the mnemonic text).\n"
     "  For main/substantive learning chapters: include at least one unique "
@@ -76,8 +78,10 @@ CHAPTER_REQUIREMENTS = (
     "6. Quiz questions must be answerable from the chapter; each must "
     "have exactly one correct option at correct_option_index; distractors "
     "should be plausible but wrong; avoid trivial questions\n"
-    "7. External references must be correct, related to the material, "
-    "and valid; prefer an empty list over invented or broken links\n"
+    "7. When page labels appear in Source content, section references "
+    "must mention those pages where applicable\n"
+    "8. External references must come from Additional Links when present; "
+    "prefer an empty list over invented or broken links\n"
 )
 
 
@@ -87,6 +91,7 @@ def generate_chapter_prompt(
     critique_comment: str | None = None,
     previous_draft: str | None = None,
     learning_preferences: list[str] | None = None,
+    tavily_results: str = "",
 ) -> str:
     revision_section = ""
     if critique_comment and previous_draft:
@@ -124,7 +129,8 @@ def generate_chapter_prompt(
         f"Produce a ChapterResult that meets all of the following.\n\n"
         f"{CHAPTER_REQUIREMENTS}\n"
         f"Chapter key: {chapter_key}\n\n"
-        f"Source content:\n{chapter_content or '(none)'}\n"
+        f"Source content:\n{chapter_content or '(none)'}\n\n"
+        f"Additional Links:\n{tavily_results or '(none)'}\n"
     )
 
 
@@ -132,6 +138,7 @@ def critique_chapter_prompt(
     chapter_key: str,
     generated_chapter: str,
     source_content: str,
+    tavily_results: str = "",
 ) -> str:
     return (
         "You are a strict study-card reviewer. Critique the generated "
@@ -150,8 +157,12 @@ def critique_chapter_prompt(
         "style rules fail (missing per-section mnemonics, reused "
         "metaphors/mnemonics, heavy empire/colonial themes, or dry "
         "content with no light humor/analogies). For non-main chapters, "
-        "reject if quiz or mnemonics are non-empty.\n\n"
+        "reject if quiz or mnemonics are non-empty. Reject invented "
+        "external links that are not in Additional Links. Reject when "
+        "Source content has page labels but section references omit them "
+        "where they clearly apply.\n\n"
         f"Chapter key: {chapter_key}\n\n"
         f"Generated chapter:\n{generated_chapter or '(none)'}\n\n"
-        f"Source content:\n{source_content or '(none)'}\n"
+        f"Source content:\n{source_content or '(none)'}\n\n"
+        f"Additional Links:\n{tavily_results or '(none)'}\n"
     )

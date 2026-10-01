@@ -7,8 +7,11 @@ from app.agent.study_cards_agent.nodes.generation.save import SaveNode
 from app.agent.study_cards_agent.nodes.retrieval.retrieve_chapter_keys import (
     RetrieveChaptersNode,
 )
-from app.agent.study_cards_agent.nodes.retrieval.retrieve_sessions import (
-    RetrieveSessionsNode,
+from app.agent.study_cards_agent.nodes.retrieval.retrieve_sections import (
+    RetrieveSectionsNode,
+)
+from app.agent.study_cards_agent.nodes.retrieval.tavily_retriever import (
+    TavilyRetrieverNode,
 )
 from app.agent.study_cards_agent.nodes.router import RouterNode
 
@@ -17,7 +20,8 @@ __all__ = [
     "CritiqueNode",
     "GenerateChapterNode",
     "RetrieveChaptersNode",
-    "RetrieveSessionsNode",
+    "RetrieveSectionsNode",
     "RouterNode",
     "SaveNode",
+    "TavilyRetrieverNode",
 ]
