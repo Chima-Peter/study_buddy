@@ -25,7 +25,12 @@ class QuestionCritique(BaseModel):
 
 
 class QuestionBankCritique(BaseModel):
+    chapter_key: str
     questions: list[QuestionCritique]
+
+
+class QuestionBankCritiqueResult(BaseModel):
+    critiques: list[QuestionBankCritique]
 
 
 class QuestionBankResult(BaseModel):

@@ -60,52 +60,89 @@ CHAPTER_QUESTION_REQUIREMENTS = (
 )
 
 
-def generate_chapter_questions_prompt(
-    chapter_key: str,
-    chapter_content: str,
-    critique_comment: str | None = None,
-    previous_draft: str | None = None,
-) -> str:
-    revision_section = ""
-    if critique_comment and previous_draft:
-        revision_section = (
-            "You are revising a rejected draft. Fix the issues below.\n\n"
-            "Previous draft:\n"
-            f"{previous_draft}\n\n"
-            "Critique (fix these issues):\n"
-            f"{critique_comment}\n\n"
-            "Address every point in the critique. Keep what was correct, "
-            "fix what was wrong.\n\n"
-        )
-    elif critique_comment:
-        revision_section = (
-            "Previous critique (fix these issues in the new draft):\n"
-            f"{critique_comment}\n\n"
-            "Address every point in the critique while still obeying the "
-            "requirements below. Do not ignore the feedback.\n\n"
+def generate_chapters_questions_prompt(chapters: list[dict]) -> str:
+    """Build one prompt that requests a QuestionBankResult for the given chapters.
+
+    Each item in ``chapters`` is a dict with:
+    - chapter_key: str
+    - content: str
+    - critique_comment: str | None (optional)
+    - previous_draft: str | None (optional)
+    """
+    keys: list[str] = []
+    chapter_blocks: list[str] = []
+    for chapter in chapters:
+        chapter_key = chapter["chapter_key"]
+        keys.append(chapter_key)
+        revision_section = ""
+        critique_comment = chapter.get("critique_comment")
+        previous_draft = chapter.get("previous_draft")
+        if critique_comment and previous_draft:
+            revision_section = (
+                "You are revising a rejected draft for this chapter. "
+                "Fix the issues below.\n\n"
+                "Previous draft:\n"
+                f"{previous_draft}\n\n"
+                "Critique (fix these issues):\n"
+                f"{critique_comment}\n\n"
+                "Address every point in the critique. Keep what was correct, "
+                "fix what was wrong.\n\n"
+            )
+        elif critique_comment:
+            revision_section = (
+                "Previous critique (fix these issues in the new draft):\n"
+                f"{critique_comment}\n\n"
+                "Address every point in the critique while still obeying the "
+                "requirements below. Do not ignore the feedback.\n\n"
+            )
+
+        chapter_blocks.append(
+            f"=== Chapter key: {chapter_key} ===\n"
+            f"{revision_section}"
+            f"Source content:\n{chapter.get('content') or '(none)'}\n"
         )
 
+    keys_list = ", ".join(keys)
     return (
-        "You are a question-bank generator. Turn the source chapter "
-        "material into a structured multiple-choice question bank.\n\n"
-        f"{revision_section}"
-        "Produce a ChapterQuestionBank that meets all of the following.\n\n"
+        "You are a question-bank generator. Turn each source chapter "
+        "below into a structured multiple-choice question bank.\n\n"
+        "Produce a QuestionBankResult whose chapters list has exactly one "
+        "ChapterQuestionBank for each of these chapter keys "
+        f"(and no extras): {keys_list}.\n"
+        "Each ChapterQuestionBank must meet all of the following.\n\n"
         f"{CHAPTER_QUESTION_REQUIREMENTS}\n"
-        f"Chapter key: {chapter_key}\n\n"
-        f"Source content:\n{chapter_content or '(none)'}\n"
+        + "\n".join(chapter_blocks)
     )
 
 
-def critique_chapter_questions_prompt(
-    chapter_key: str,
-    generated_chapter: str,
-    source_content: str,
-) -> str:
+def critique_chapters_questions_prompt(chapters: list[dict]) -> str:
+    """Build one prompt that requests a QuestionBankCritiqueResult.
+
+    Each item in ``chapters`` is a dict with:
+    - chapter_key: str
+    - generated_chapter: str
+    - source_content: str
+    """
+    keys = [chapter["chapter_key"] for chapter in chapters]
+    keys_list = ", ".join(keys)
+    chapter_blocks: list[str] = []
+    for chapter in chapters:
+        chapter_blocks.append(
+            f"=== Chapter key: {chapter['chapter_key']} ===\n"
+            f"Generated chapter question bank:\n"
+            f"{chapter.get('generated_chapter') or '(none)'}\n\n"
+            f"Source content:\n{chapter.get('source_content') or '(none)'}\n"
+        )
+
     return (
-        "You are a strict question-bank reviewer. Critique the generated "
+        "You are a strict question-bank reviewer. Critique each generated "
         "chapter question bank against its source material using the same "
         "requirements the generator was given.\n\n"
-        "Produce a QuestionBankCritique with:\n"
+        "Produce a QuestionBankCritiqueResult whose critiques list has "
+        "exactly one QuestionBankCritique for each of these chapter keys "
+        f"(and no extras): {keys_list}.\n"
+        "Each QuestionBankCritique must include:\n"
+        "- chapter_key: set this exactly to the provided chapter key\n"
         "- questions: one QuestionCritique entry per generated question, "
         "in the same order as the draft. Each entry must include:\n"
         "  - question: the QuestionSchema under review, copied as-is "
@@ -131,9 +168,6 @@ def critique_chapter_questions_prompt(
         "Reject any question that violates a requirement above. Approve "
         "only when all of its requirements are met. For non-main "
         "chapters, reject if questions is non-empty.\n\n"
-        f"Chapter key: {chapter_key}\n\n"
-        f"Generated chapter question bank:\n"
-        f"{generated_chapter or '(none)'}\n\n"
-        f"Source content:\n{source_content or '(none)'}\n"
+        + "\n".join(chapter_blocks)
     )
 

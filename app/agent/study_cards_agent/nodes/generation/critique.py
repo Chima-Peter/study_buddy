@@ -1,22 +1,20 @@
-from asyncio import TaskGroup
 from logging import Logger
 
-from app.agent.study_cards_agent.prompts import critique_chapter_prompt
-from app.agent.study_cards_agent.schema import ChapterResult, Critique
+from app.agent.study_cards_agent.prompts import critique_chapters_prompt
+from app.agent.study_cards_agent.schema import CritiqueResult
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.agent.study_cards_agent.utils import (
     format_source_content,
     format_tavily_results,
 )
-from app.core.elasticsearch_schema import IndexedRecord
-from app.utils.llm import is_rate_limit_error
+from app.utils.llm import is_rate_limit_error, with_rate_limit_retry
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
 class CritiqueNode:
     def __init__(self, logger: Logger, model: ChatGoogleGenerativeAI):
         self.logger = logger
-        self.model = model.with_structured_output(Critique)
+        self.model = model.with_structured_output(CritiqueResult)
 
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         generated_chapters = state["generated_chapters"]
@@ -74,51 +72,53 @@ class CritiqueNode:
             "chapters=%s retry_count=%s for study cards agent",
             state["document_id"],
             state["user_id"],
-            len(generated_chapters),
+            len(chapter_keys_to_critique),
             retry_count["critique"],
         )
 
-        async with TaskGroup() as tg:
-            tasks = [
-                tg.create_task(
-                    self.critique_chapter(
-                        chapter_key,
-                        chapter,
-                        document_sections.get(chapter_key, []),
-                        tavily_by_chapter.get(chapter_key) or [],
-                    )
-                )
-                for chapter_key, chapter in generated_chapters.items()
-                if chapter_key in chapter_keys_to_critique
+        if chapter_keys_to_critique:
+            chapter_inputs = [
+                {
+                    "chapter_key": chapter_key,
+                    "generated_chapter": generated_chapters[
+                        chapter_key
+                    ].model_dump_json(),
+                    "source_content": format_source_content(
+                        document_sections.get(chapter_key, [])
+                    ),
+                    "tavily_results": format_tavily_results(
+                        tavily_by_chapter.get(chapter_key) or []
+                    ),
+                }
+                for chapter_key in chapter_keys_to_critique
             ]
+            result = await self.critique_chapters(
+                chapter_inputs,
+                expected_keys=set(chapter_keys_to_critique),
+            )
+            completed_keys: set[str] = set()
+            if result is not None:
+                for entry in result.critiques:
+                    critique[entry.chapter_key] = entry
+                    completed_keys.add(entry.chapter_key)
+                    if entry.status == "approved":
+                        newly_approved_chapters.append(entry.chapter_key)
+                    else:
+                        pending_chapters.append(entry.chapter_key)
 
-        for task in tasks:
-            result = task.result()
-            if result is None:
-                continue
-            critique[result.chapter_key] = result
-            if result.status == "approved":
-                newly_approved_chapters.append(result.chapter_key)
-            else:
-                pending_chapters.append(result.chapter_key)
-
-        completed_keys = [
-            task.result().chapter_key
-            for task in tasks
-            if task.result() is not None
-        ]
-        for chapter_key in chapter_keys_to_critique:
-            if chapter_key not in completed_keys:
-                undone_critique_chapters.append(chapter_key)
+            for chapter_key in chapter_keys_to_critique:
+                if chapter_key not in completed_keys:
+                    undone_critique_chapters.append(chapter_key)
 
         self.logger.info(
             "Critique node completed document_id=%s user_id=%s "
-            "approved=%s pending=%s missing=%s for study cards agent",
+            "approved=%s pending=%s missing=%s undone=%s for study cards agent",
             state["document_id"],
             state["user_id"],
             len(newly_approved_chapters),
             len(pending_chapters),
             len(missing_chapters),
+            len(undone_critique_chapters),
         )
 
         return {
@@ -133,51 +133,51 @@ class CritiqueNode:
             },
         }
 
-    async def critique_chapter(
+    async def critique_chapters(
         self,
-        chapter_key: str,
-        chapter: ChapterResult,
-        source_records: list[IndexedRecord],
-        tavily_hits: list[dict] | None = None,
-    ) -> Critique | None:
-        generated_chapter = chapter.model_dump_json()
-        source_content = format_source_content(source_records)
-        tavily_text = format_tavily_results(tavily_hits)
+        chapters: list[dict],
+        expected_keys: set[str] | None = None,
+    ) -> CritiqueResult | None:
+        keys = [chapter["chapter_key"] for chapter in chapters]
         self.logger.info(
-            "Critiquing chapter chapter_key=%s generated_len=%s source_len=%s "
-            "tavily_hits=%s for study cards agent",
-            chapter_key,
-            len(generated_chapter),
-            len(source_content),
-            len(tavily_hits or []),
+            "Critiquing chapters chapter_keys=%s count=%s for study cards agent",
+            keys,
+            len(chapters),
         )
 
         try:
-            response = await self.model.ainvoke(
-                critique_chapter_prompt(
-                    chapter_key,
-                    generated_chapter,
-                    source_content,
-                    tavily_text,
+            response = await with_rate_limit_retry(
+                lambda: self.model.ainvoke(critique_chapters_prompt(chapters)),
+                logger=self.logger,
+                label=f"study cards critique chapters={keys}",
+            )
+            if expected_keys is not None:
+                response = CritiqueResult(
+                    critiques=[
+                        entry
+                        for entry in response.critiques
+                        if entry.chapter_key in expected_keys
+                    ]
                 )
-            )
-            result = response.model_copy(update={"chapter_key": chapter_key})
+
             self.logger.info(
-                "Critiqued chapter chapter_key=%s status=%s for study cards agent",
-                chapter_key,
-                result.status,
+                "Critiqued chapters returned=%s expected=%s "
+                "for study cards agent",
+                [c.chapter_key for c in response.critiques],
+                keys,
             )
-            return result
+            return response
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
-                    "Rate limit error critiquing chapter chapter_key=%s "
+                    "Rate limit error critiquing chapters chapter_keys=%s "
                     "for study cards agent",
-                    chapter_key,
+                    keys,
                 )
-                raise e
+                raise
             self.logger.exception(
-                "Error critiquing chapter chapter_key=%s for study cards agent",
-                chapter_key,
+                "Error critiquing chapters chapter_keys=%s "
+                "for study cards agent",
+                keys,
             )
             return None

@@ -1,18 +1,19 @@
-from asyncio import TaskGroup
 from logging import Logger
 
-from app.agent.question_bank.prompts import critique_chapter_questions_prompt
-from app.agent.question_bank.schema import ChapterQuestionBank, QuestionBankCritique
+from app.agent.question_bank.prompts import critique_chapters_questions_prompt
+from app.agent.question_bank.schema import (
+    QuestionBankCritique,
+    QuestionBankCritiqueResult,
+)
 from app.agent.question_bank.state import QuestionBankState
-from app.core.elasticsearch_schema import IndexedRecord
-from app.utils.llm import is_rate_limit_error
+from app.utils.llm import is_rate_limit_error, with_rate_limit_retry
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
 class CritiqueQuestionsNode:
     def __init__(self, logger: Logger, model: ChatGoogleGenerativeAI):
         self.logger = logger
-        self.model = model.with_structured_output(QuestionBankCritique)
+        self.model = model.with_structured_output(QuestionBankCritiqueResult)
 
     async def __call__(self, state: QuestionBankState) -> dict:
         generated_chapters = state.get("generated_chapters") or {}
@@ -66,28 +67,38 @@ class CritiqueQuestionsNode:
             retry_count["critique"],
         )
 
-        async with TaskGroup() as tg:
-            tasks = {
-                chapter_key: tg.create_task(
-                    self.critique_questions(
-                        chapter_key,
-                        generated_chapters[chapter_key],
-                        chapter_records.get(chapter_key, []),
-                    )
-                )
-                for chapter_key in chapter_keys_to_critique
+        chapter_inputs = [
+            {
+                "chapter_key": chapter_key,
+                "generated_chapter": generated_chapters[
+                    chapter_key
+                ].model_dump_json(),
+                "source_content": "\n".join(
+                    record.content
+                    for record in chapter_records.get(chapter_key, [])
+                ),
             }
+            for chapter_key in chapter_keys_to_critique
+        ]
+
+        result = await self.critique_questions(
+            chapter_inputs,
+            expected_keys=set(chapter_keys_to_critique),
+        )
 
         newly_approved: list[str] = []
         newly_skipped: list[str] = []
-        for chapter_key, task in tasks.items():
-            result = task.result()
-            if result is None:
+        completed_keys: set[str] = set()
+        if result is not None:
+            for entry in result.critiques:
+                critique[entry.chapter_key] = entry
+                completed_keys.add(entry.chapter_key)
+                if self._is_approved(entry):
+                    newly_approved.append(entry.chapter_key)
+
+        for chapter_key in chapter_keys_to_critique:
+            if chapter_key not in completed_keys:
                 newly_skipped.append(chapter_key)
-                continue
-            critique[chapter_key] = result
-            if self._is_approved(result):
-                newly_approved.append(chapter_key)
 
         self.logger.info(
             "Critique questions node completed document_id=%s user_id=%s "
@@ -110,49 +121,52 @@ class CritiqueQuestionsNode:
 
     async def critique_questions(
         self,
-        chapter_key: str,
-        chapter: ChapterQuestionBank,
-        source_records: list[IndexedRecord],
-    ) -> QuestionBankCritique | None:
-        generated_chapter = chapter.model_dump_json()
-        source_content = "\n".join(record.content for record in source_records)
+        chapters: list[dict],
+        expected_keys: set[str] | None = None,
+    ) -> QuestionBankCritiqueResult | None:
+        keys = [chapter["chapter_key"] for chapter in chapters]
         self.logger.info(
-            "Critiquing questions chapter_key=%s generated_len=%s "
-            "source_len=%s for question agent",
-            chapter_key,
-            len(generated_chapter),
-            len(source_content),
+            "Critiquing questions chapter_keys=%s count=%s for question agent",
+            keys,
+            len(chapters),
         )
 
         try:
-            result = await self.model.ainvoke(
-                critique_chapter_questions_prompt(
-                    chapter_key,
-                    generated_chapter,
-                    source_content,
+            response = await with_rate_limit_retry(
+                lambda: self.model.ainvoke(
+                    critique_chapters_questions_prompt(chapters)
+                ),
+                logger=self.logger,
+                label=f"question bank critique chapters={keys}",
+            )
+            if expected_keys is not None:
+                response = QuestionBankCritiqueResult(
+                    critiques=[
+                        entry
+                        for entry in response.critiques
+                        if entry.chapter_key in expected_keys
+                    ]
                 )
-            )
-            approved = self._is_approved(result)
+
             self.logger.info(
-                "Critiqued questions chapter_key=%s approved=%s "
-                "questions=%s for question agent",
-                chapter_key,
-                approved,
-                len(result.questions),
+                "Critiqued questions returned=%s expected=%s "
+                "for question agent",
+                [c.chapter_key for c in response.critiques],
+                keys,
             )
-            return result
+            return response
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
                     "Rate limit error critiquing questions "
-                    "chapter_key=%s for question agent",
-                    chapter_key,
+                    "chapter_keys=%s for question agent",
+                    keys,
                 )
                 raise
             self.logger.exception(
-                "Error critiquing questions chapter_key=%s "
+                "Error critiquing questions chapter_keys=%s "
                 "for question agent",
-                chapter_key,
+                keys,
             )
             return None
 

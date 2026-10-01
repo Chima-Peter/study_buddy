@@ -1,23 +1,21 @@
-from asyncio import TaskGroup
 from logging import Logger
 
-from app.agent.study_cards_agent.prompts import generate_chapter_prompt
-from app.agent.study_cards_agent.schema import ChapterResult, Critique
+from app.agent.study_cards_agent.prompts import generate_chapters_prompt
+from app.agent.study_cards_agent.schema import ChapterResult, Critique, StudyCardsResult
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.agent.study_cards_agent.utils import (
     format_source_content,
     format_tavily_results,
 )
-from app.core.elasticsearch_schema import IndexedRecord
 from app.memory.schema import Memory
-from app.utils.llm import is_rate_limit_error
+from app.utils.llm import is_rate_limit_error, with_rate_limit_retry
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 
 class GenerateChapterNode:
     def __init__(self, logger: Logger, model: ChatGoogleGenerativeAI):
         self.logger = logger
-        self.model = model.with_structured_output(ChapterResult)
+        self.model = model.with_structured_output(StudyCardsResult)
 
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         sections = state["document_sections"]
@@ -69,25 +67,29 @@ class GenerateChapterNode:
         learning_preferences = self._extract_learning_preferences(memories)
         tavily_by_chapter = state.get("tavily_results") or {}
 
-        async with TaskGroup() as tg:
-            tasks = [
-                tg.create_task(
-                    self.generate_chapter(
-                        chapter_key,
-                        sections[chapter_key],
-                        self._critique_comment(critique, chapter_key),
-                        self._previous_draft(generated_chapters, chapter_key),
-                        learning_preferences,
-                        tavily_by_chapter.get(chapter_key) or [],
-                    )
-                )
-                for chapter_key in chapter_keys_to_generate
-            ]
+        chapter_inputs = [
+            {
+                "chapter_key": chapter_key,
+                "content": format_source_content(sections[chapter_key]),
+                "tavily_results": format_tavily_results(
+                    tavily_by_chapter.get(chapter_key) or []
+                ),
+                "critique_comment": self._critique_comment(critique, chapter_key),
+                "previous_draft": self._previous_draft(
+                    generated_chapters, chapter_key
+                ),
+            }
+            for chapter_key in chapter_keys_to_generate
+        ]
 
-        for task in tasks:
-            result = task.result()
-            if result is not None:
-                generated_chapters[result.chapter_key] = result
+        result = await self.generate_chapters(
+            chapter_inputs,
+            learning_preferences,
+            expected_keys=set(chapter_keys_to_generate),
+        )
+        if result is not None:
+            for chapter in result.chapters:
+                generated_chapters[chapter.chapter_key] = chapter
 
         self.logger.info(
             "Generated chapters for document_id=%s user_id=%s "
@@ -105,59 +107,57 @@ class GenerateChapterNode:
             },
         }
 
-    async def generate_chapter(
+    async def generate_chapters(
         self,
-        chapter_key: str,
-        section: list[IndexedRecord],
-        critique_comment: str | None = None,
-        previous_draft: str | None = None,
+        chapters: list[dict],
         learning_preferences: list[str] | None = None,
-        tavily_hits: list[dict] | None = None,
-    ) -> ChapterResult | None:
-        content = format_source_content(section)
-        tavily_text = format_tavily_results(tavily_hits)
+        expected_keys: set[str] | None = None,
+    ) -> StudyCardsResult | None:
+        keys = [chapter["chapter_key"] for chapter in chapters]
         self.logger.info(
-            "Generating chapter for section chapter_key=%s content_len=%s "
-            "has_critique=%s has_previous_draft=%s has_preferences=%s "
-            "tavily_hits=%s for study cards agent",
-            chapter_key,
-            len(content),
-            bool(critique_comment),
-            bool(previous_draft),
+            "Generating chapters chapter_keys=%s count=%s "
+            "has_preferences=%s for study cards agent",
+            keys,
+            len(chapters),
             bool(learning_preferences),
-            len(tavily_hits or []),
         )
 
         try:
-            response = await self.model.ainvoke(
-                generate_chapter_prompt(
-                    chapter_key,
-                    content,
-                    critique_comment,
-                    previous_draft,
-                    learning_preferences,
-                    tavily_text,
-                )
+            response = await with_rate_limit_retry(
+                lambda: self.model.ainvoke(
+                    generate_chapters_prompt(chapters, learning_preferences)
+                ),
+                logger=self.logger,
+                label=f"study cards generate chapters={keys}",
             )
-            result = response.model_copy(update={"chapter_key": chapter_key})
+            if expected_keys is not None:
+                response = StudyCardsResult(
+                    chapters=[
+                        chapter
+                        for chapter in response.chapters
+                        if chapter.chapter_key in expected_keys
+                    ]
+                )
 
             self.logger.info(
-                "Generated chapter for section chapter_key=%s for study cards agent",
-                chapter_key,
+                "Generated chapters returned=%s expected=%s "
+                "for study cards agent",
+                [c.chapter_key for c in response.chapters],
+                keys,
             )
-            return result
+            return response
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
-                    "Rate limit error generating chapter for section "
-                    "chapter_key=%s for study cards agent",
-                    chapter_key,
+                    "Rate limit error generating chapters chapter_keys=%s "
+                    "for study cards agent",
+                    keys,
                 )
                 raise
             self.logger.exception(
-                "Error generating chapter for section chapter_key=%s "
+                "Error generating chapters chapter_keys=%s "
                 "for study cards agent",
-                chapter_key,
+                keys,
             )
             return None
 

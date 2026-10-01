@@ -29,3 +29,7 @@ class Critique(BaseModel):
     chapter_key: str
     status: Literal["approved", "rejected"]
     comment: str | None
+
+
+class CritiqueResult(BaseModel):
+    critiques: list[Critique]
