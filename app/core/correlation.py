@@ -5,6 +5,8 @@ from contextvars import ContextVar, Token
 from typing import Any
 from uuid import uuid4
 
+import sentry_sdk
+
 CORRELATION_HEADER = "X-Correlation-ID"
 CORRELATION_AMQP_HEADER = "x-correlation-id"
 
@@ -63,6 +65,9 @@ def spawn_task(
         token = set_correlation_id(cid)
         try:
             return await coro
+        except Exception as exc:
+            sentry_sdk.capture_exception(exc)
+            raise
         finally:
             reset_correlation_id(token)
 

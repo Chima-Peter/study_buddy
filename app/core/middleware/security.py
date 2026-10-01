@@ -1,6 +1,5 @@
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 # Strict CSP for API responses.
 _API_CSP = "default-src 'self'"
@@ -32,13 +31,28 @@ SECURITY_HEADERS = {
 }
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next) -> Response:
-        response = await call_next(request)
-        for header, value in SECURITY_HEADERS.items():
-            response.headers.setdefault(header, value)
+class SecurityHeadersMiddleware:
+    """Pure ASGI middleware — BaseHTTPMiddleware breaks exception propagation."""
 
-        path = request.url.path
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self, scope: Scope, receive: Receive, send: Send
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
         csp = _DOCS_CSP if path in _DOCS_PATHS else _API_CSP
-        response.headers["Content-Security-Policy"] = csp
-        return response
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for header, value in SECURITY_HEADERS.items():
+                    headers.setdefault(header, value)
+                headers["Content-Security-Policy"] = csp
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)

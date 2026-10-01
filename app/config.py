@@ -55,3 +55,7 @@ class Settings(BaseSettings):
     smtp_max_connections: int = 10
 
     tavily_api_key: str = "tvly...."
+
+    sentry_dsn: str | None = None
+
+    environment: str = "dev"
