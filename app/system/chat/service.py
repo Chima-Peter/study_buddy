@@ -799,7 +799,7 @@ class ChatService:
                 await queue.put(
                     self._event_with_request_id(
                         {
-                            "type": "error",
+                            "type": "chat.error",
                             "message": turn_error,
                             "conversation_id": payload.get("conversation_id"),
                         },

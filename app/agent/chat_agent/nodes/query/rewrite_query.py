@@ -140,7 +140,7 @@ class RewriteQueryNode:
         recent_history = format_history(state.get("messages"), limit=10)
         prompt = rewrite_query_prompt(
             query=state["query"],
-            conversation_summary=state["conversation_summary"],
+            conversation_summary=state.get("conversation_summary"),
             recent_history=recent_history or "(none)",
             retrieve_rag=retrieve_rag,
             retrieve_memory=retrieve_memory,

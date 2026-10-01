@@ -35,7 +35,9 @@ def format_rag_chunk(result: FusedResult) -> str:
     chapter = meta.get("chapter") or meta.get("chapter_key")
     page = meta.get("page")
 
-    if chapter_number is not None:
+    if chapter_number is not None and chapter:
+        labels.append(f"Chapter {chapter_number}: {chapter}")
+    elif chapter_number is not None:
         labels.append(f"Chapter {chapter_number}")
     elif chapter:
         labels.append(f"Chapter: {chapter}")

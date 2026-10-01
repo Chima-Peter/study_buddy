@@ -131,13 +131,24 @@ async def websocket_endpoint(
                 )
                 if error or not payload:
                     await out_queue.put({
-                        "type": "error",
+                        "type": "chat.error",
                         "message": error or "Invalid message",
+                        "request_id": (
+                            message.get("request_id")
+                            if isinstance(message, dict)
+                            else None
+                        ),
+                        "conversation_id": (
+                            message.get("conversation_id")
+                            if isinstance(message, dict)
+                            else None
+                        ),
                     })
                     continue
 
                 query = payload["query"]
-                conversation_id = payload["conversation_id"]
+                conversation_id = payload.get("conversation_id")
+                request_id = payload.get("request_id")
 
                 if query == "ping":
                     await out_queue.put({
@@ -146,7 +157,7 @@ async def websocket_endpoint(
                     })
                     continue
 
-                if not conversation_id:
+                if conversation_id is None:
                     conversation = await conversation_service.create(
                         CreateConversationRequest(title="New Conversation"),
                         user_id=user.id,
@@ -160,7 +171,7 @@ async def websocket_endpoint(
                     await out_queue.put({
                         "type": "chat.started",
                         "conversation_id": conversation_id,
-                        "request_id": payload.get("request_id"),
+                        "request_id": request_id,
                     })
 
                 logger.info(
@@ -188,7 +199,7 @@ async def websocket_endpoint(
                     "Invalid JSON message user_id=%s", user.id,
                 )
                 await out_queue.put({
-                    "type": "error",
+                    "type": "chat.error",
                     "message": "Invalid JSON message",
                 })
                 continue
