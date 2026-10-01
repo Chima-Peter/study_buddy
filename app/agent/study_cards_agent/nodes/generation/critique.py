@@ -1,7 +1,8 @@
+import asyncio
 from logging import Logger
 
-from app.agent.study_cards_agent.prompts import critique_chapters_prompt
-from app.agent.study_cards_agent.schema import CritiqueResult
+from app.agent.study_cards_agent.prompts import critique_chapter_prompt
+from app.agent.study_cards_agent.schema import Critique
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.agent.study_cards_agent.utils import (
     format_source_content,
@@ -14,7 +15,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 class CritiqueNode:
     def __init__(self, logger: Logger, model: ChatGoogleGenerativeAI):
         self.logger = logger
-        self.model = model.with_structured_output(CritiqueResult)
+        self.model = model.with_structured_output(Critique)
 
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         generated_chapters = state["generated_chapters"]
@@ -92,19 +93,24 @@ class CritiqueNode:
                 }
                 for chapter_key in chapter_keys_to_critique
             ]
-            result = await self.critique_chapters(
-                chapter_inputs,
-                expected_keys=set(chapter_keys_to_critique),
+            results = await asyncio.gather(
+                *[self.critique_chapter(chapter) for chapter in chapter_inputs],
+                return_exceptions=True,
             )
             completed_keys: set[str] = set()
-            if result is not None:
-                for entry in result.critiques:
-                    critique[entry.chapter_key] = entry
-                    completed_keys.add(entry.chapter_key)
-                    if entry.status == "approved":
-                        newly_approved_chapters.append(entry.chapter_key)
-                    else:
-                        pending_chapters.append(entry.chapter_key)
+            for entry in results:
+                if isinstance(entry, Exception):
+                    if is_rate_limit_error(entry):
+                        raise entry
+                    continue
+                if entry is None:
+                    continue
+                critique[entry.chapter_key] = entry
+                completed_keys.add(entry.chapter_key)
+                if entry.status == "approved":
+                    newly_approved_chapters.append(entry.chapter_key)
+                else:
+                    pending_chapters.append(entry.chapter_key)
 
             for chapter_key in chapter_keys_to_critique:
                 if chapter_key not in completed_keys:
@@ -133,51 +139,46 @@ class CritiqueNode:
             },
         }
 
-    async def critique_chapters(
-        self,
-        chapters: list[dict],
-        expected_keys: set[str] | None = None,
-    ) -> CritiqueResult | None:
-        keys = [chapter["chapter_key"] for chapter in chapters]
+    async def critique_chapter(self, chapter: dict) -> Critique | None:
+        chapter_key = chapter["chapter_key"]
         self.logger.info(
-            "Critiquing chapters chapter_keys=%s count=%s for study cards agent",
-            keys,
-            len(chapters),
+            "Critiquing chapter chapter_key=%s for study cards agent",
+            chapter_key,
         )
 
         try:
             response = await with_rate_limit_retry(
-                lambda: self.model.ainvoke(critique_chapters_prompt(chapters)),
+                lambda: self.model.ainvoke(critique_chapter_prompt(chapter)),
                 logger=self.logger,
-                label=f"study cards critique chapters={keys}",
+                label=f"study cards critique chapter={chapter_key}",
             )
-            if expected_keys is not None:
-                response = CritiqueResult(
-                    critiques=[
-                        entry
-                        for entry in response.critiques
-                        if entry.chapter_key in expected_keys
-                    ]
+            if response.chapter_key != chapter_key:
+                self.logger.warning(
+                    "Critique chapter key mismatch expected=%s got=%s "
+                    "for study cards agent",
+                    chapter_key,
+                    response.chapter_key,
                 )
+                return None
 
             self.logger.info(
-                "Critiqued chapters returned=%s expected=%s "
+                "Critiqued chapter chapter_key=%s status=%s "
                 "for study cards agent",
-                [c.chapter_key for c in response.critiques],
-                keys,
+                chapter_key,
+                response.status,
             )
             return response
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
-                    "Rate limit error critiquing chapters chapter_keys=%s "
+                    "Rate limit error critiquing chapter chapter_key=%s "
                     "for study cards agent",
-                    keys,
+                    chapter_key,
                 )
                 raise
             self.logger.exception(
-                "Error critiquing chapters chapter_keys=%s "
+                "Error critiquing chapter chapter_key=%s "
                 "for study cards agent",
-                keys,
+                chapter_key,
             )
             return None

@@ -85,13 +85,13 @@ CHAPTER_REQUIREMENTS = (
 )
 
 
-def generate_chapters_prompt(
-    chapters: list[dict],
+def generate_chapter_prompt(
+    chapter: dict,
     learning_preferences: list[str] | None = None,
 ) -> str:
-    """Build one prompt that requests a StudyCardsResult for the given chapters.
+    """Build a prompt that requests a ChapterResult for one chapter.
 
-    Each item in ``chapters`` is a dict with:
+    ``chapter`` is a dict with:
     - chapter_key: str
     - content: str
     - tavily_results: str
@@ -107,83 +107,61 @@ def generate_chapters_prompt(
             f"{prefs}\n\n"
         )
 
-    chapter_blocks: list[str] = []
-    keys: list[str] = []
-    for chapter in chapters:
-        chapter_key = chapter["chapter_key"]
-        keys.append(chapter_key)
-        revision_section = ""
-        critique_comment = chapter.get("critique_comment")
-        previous_draft = chapter.get("previous_draft")
-        if critique_comment and previous_draft:
-            revision_section = (
-                "You are revising a rejected draft for this chapter. "
-                "Fix the issues below.\n\n"
-                "Previous draft:\n"
-                f"{previous_draft}\n\n"
-                "Critique (fix these issues):\n"
-                f"{critique_comment}\n\n"
-                "Address every point in the critique. Keep what was correct, "
-                "fix what was wrong.\n\n"
-            )
-        elif critique_comment:
-            revision_section = (
-                "Previous critique (fix these issues in the new draft):\n"
-                f"{critique_comment}\n\n"
-                "Address every point in the critique while still obeying the "
-                "requirements below. Do not ignore the feedback.\n\n"
-            )
-
-        chapter_blocks.append(
-            f"=== Chapter key: {chapter_key} ===\n"
-            f"{revision_section}"
-            f"Source content:\n{chapter.get('content') or '(none)'}\n\n"
-            f"Additional Links:\n{chapter.get('tavily_results') or '(none)'}\n"
+    chapter_key = chapter["chapter_key"]
+    revision_section = ""
+    critique_comment = chapter.get("critique_comment")
+    previous_draft = chapter.get("previous_draft")
+    if critique_comment and previous_draft:
+        revision_section = (
+            "You are revising a rejected draft for this chapter. "
+            "Fix the issues below.\n\n"
+            "Previous draft:\n"
+            f"{previous_draft}\n\n"
+            "Critique (fix these issues):\n"
+            f"{critique_comment}\n\n"
+            "Address every point in the critique. Keep what was correct, "
+            "fix what was wrong.\n\n"
+        )
+    elif critique_comment:
+        revision_section = (
+            "Previous critique (fix these issues in the new draft):\n"
+            f"{critique_comment}\n\n"
+            "Address every point in the critique while still obeying the "
+            "requirements below. Do not ignore the feedback.\n\n"
         )
 
-    keys_list = ", ".join(keys)
     return (
-        "You are a study-card generator. Turn each source chapter below "
+        "You are a study-card generator. Turn the source chapter below "
         "into a structured study guide.\n\n"
         f"{preferences_section}"
-        "Produce a StudyCardsResult whose chapters list has exactly one "
-        "ChapterResult for each of these chapter keys "
-        f"(and no extras): {keys_list}.\n"
-        "Each ChapterResult must meet all of the following.\n\n"
+        "Produce a ChapterResult for this chapter key "
+        f"(and no other): {chapter_key}.\n"
+        "The ChapterResult must meet all of the following.\n\n"
         f"{CHAPTER_REQUIREMENTS}\n"
-        + "\n".join(chapter_blocks)
+        f"=== Chapter key: {chapter_key} ===\n"
+        f"{revision_section}"
+        f"Source content:\n{chapter.get('content') or '(none)'}\n\n"
+        f"Additional Links:\n{chapter.get('tavily_results') or '(none)'}\n"
     )
 
 
-def critique_chapters_prompt(chapters: list[dict]) -> str:
-    """Build one prompt that requests a CritiqueResult for the given chapters.
+def critique_chapter_prompt(chapter: dict) -> str:
+    """Build a prompt that requests a Critique for one chapter.
 
-    Each item in ``chapters`` is a dict with:
+    ``chapter`` is a dict with:
     - chapter_key: str
     - generated_chapter: str
     - source_content: str
     - tavily_results: str
     """
-    keys = [chapter["chapter_key"] for chapter in chapters]
-    keys_list = ", ".join(keys)
-    chapter_blocks: list[str] = []
-    for chapter in chapters:
-        chapter_blocks.append(
-            f"=== Chapter key: {chapter['chapter_key']} ===\n"
-            f"Generated chapter:\n"
-            f"{chapter.get('generated_chapter') or '(none)'}\n\n"
-            f"Source content:\n{chapter.get('source_content') or '(none)'}\n\n"
-            f"Additional Links:\n{chapter.get('tavily_results') or '(none)'}\n"
-        )
-
+    chapter_key = chapter["chapter_key"]
     return (
-        "You are a strict study-card reviewer. Critique each generated "
+        "You are a strict study-card reviewer. Critique the generated "
         "chapter against its source material using the same requirements "
         "the generator was given.\n\n"
-        "Produce a CritiqueResult whose critiques list has exactly one "
-        "Critique for each of these chapter keys "
-        f"(and no extras): {keys_list}.\n"
-        "Each Critique must include:\n"
+        "Produce a Critique for this chapter key "
+        f"(and no other): {chapter_key}.\n"
+        "The Critique must include:\n"
         "- chapter_key: set this exactly to the provided chapter key\n"
         "- status: \"approved\" if the chapter meets every requirement "
         "below; \"rejected\" if it fails any of them\n"
@@ -200,5 +178,9 @@ def critique_chapters_prompt(chapters: list[dict]) -> str:
         "external links that are not in Additional Links. Reject when "
         "Source content has page labels but section references omit them "
         "where they clearly apply.\n\n"
-        + "\n".join(chapter_blocks)
+        f"=== Chapter key: {chapter_key} ===\n"
+        f"Generated chapter:\n"
+        f"{chapter.get('generated_chapter') or '(none)'}\n\n"
+        f"Source content:\n{chapter.get('source_content') or '(none)'}\n\n"
+        f"Additional Links:\n{chapter.get('tavily_results') or '(none)'}\n"
     )

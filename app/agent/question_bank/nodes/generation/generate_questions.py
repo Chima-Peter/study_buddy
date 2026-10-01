@@ -1,8 +1,9 @@
+import asyncio
 from logging import Logger
 
 from app.agent.question_bank.edges import chapters_needing_generation
-from app.agent.question_bank.prompts import generate_chapters_questions_prompt
-from app.agent.question_bank.schema import QuestionBankResult
+from app.agent.question_bank.prompts import generate_chapter_questions_prompt
+from app.agent.question_bank.schema import ChapterQuestionBank
 from app.agent.question_bank.state import QuestionBankState
 from app.agent.question_bank.utils import critique_comment, previous_draft
 from app.utils.llm import is_rate_limit_error, with_rate_limit_retry
@@ -12,7 +13,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 class GenerateQuestionsNode:
     def __init__(self, logger: Logger, model: ChatGoogleGenerativeAI):
         self.logger = logger
-        self.model = model.with_structured_output(QuestionBankResult)
+        self.model = model.with_structured_output(ChapterQuestionBank)
 
     async def __call__(self, state: QuestionBankState) -> dict:
         chapter_records = state.get("chapter_records") or {}
@@ -58,17 +59,26 @@ class GenerateQuestionsNode:
             for chapter_key in chapter_keys_to_generate
         ]
 
-        expected_keys = set(chapter_keys_to_generate)
-        result = await self.generate_questions(chapter_inputs, expected_keys)
+        results = await asyncio.gather(
+            *[self.generate_questions(chapter) for chapter in chapter_inputs],
+            return_exceptions=True,
+        )
+        completed_keys: set[str] = set()
+        for result in results:
+            if isinstance(result, Exception):
+                if is_rate_limit_error(result):
+                    raise result
+                continue
+            if result is None:
+                continue
+            generated_chapters[result.chapter_key] = result
+            completed_keys.add(result.chapter_key)
+
         newly_skipped = [
             chapter_key
             for chapter_key in chapter_keys_to_generate
-            if result is None
-            or chapter_key not in {c.chapter_key for c in result.chapters}
+            if chapter_key not in completed_keys
         ]
-        if result is not None:
-            for chapter in result.chapters:
-                generated_chapters[chapter.chapter_key] = chapter
 
         self.logger.info(
             "Generate questions node completed document_id=%s user_id=%s "
@@ -90,51 +100,47 @@ class GenerateQuestionsNode:
 
     async def generate_questions(
         self,
-        chapters: list[dict],
-        expected_keys: set[str] | None = None,
-    ) -> QuestionBankResult | None:
-        keys = [chapter["chapter_key"] for chapter in chapters]
+        chapter: dict,
+    ) -> ChapterQuestionBank | None:
+        chapter_key = chapter["chapter_key"]
         self.logger.info(
-            "Generating questions chapter_keys=%s count=%s for question agent",
-            keys,
-            len(chapters),
+            "Generating questions chapter_key=%s for question agent",
+            chapter_key,
         )
 
         try:
             response = await with_rate_limit_retry(
                 lambda: self.model.ainvoke(
-                    generate_chapters_questions_prompt(chapters)
+                    generate_chapter_questions_prompt(chapter)
                 ),
                 logger=self.logger,
-                label=f"question bank generate chapters={keys}",
+                label=f"question bank generate chapter={chapter_key}",
             )
-            if expected_keys is not None:
-                response = QuestionBankResult(
-                    chapters=[
-                        chapter
-                        for chapter in response.chapters
-                        if chapter.chapter_key in expected_keys
-                    ]
+            if response.chapter_key != chapter_key:
+                self.logger.warning(
+                    "Generated questions key mismatch expected=%s got=%s "
+                    "for question agent",
+                    chapter_key,
+                    response.chapter_key,
                 )
+                return None
 
             self.logger.info(
-                "Generated questions returned=%s expected=%s "
-                "for question agent",
-                [c.chapter_key for c in response.chapters],
-                keys,
+                "Generated questions chapter_key=%s for question agent",
+                chapter_key,
             )
             return response
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
                     "Rate limit error generating questions "
-                    "chapter_keys=%s for question agent",
-                    keys,
+                    "chapter_key=%s for question agent",
+                    chapter_key,
                 )
                 raise
             self.logger.exception(
-                "Error generating questions chapter_keys=%s "
+                "Error generating questions chapter_key=%s "
                 "for question agent",
-                keys,
+                chapter_key,
             )
             return None

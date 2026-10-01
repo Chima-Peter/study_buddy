@@ -698,7 +698,7 @@ class Container(containers.DeclarativeContainer):
         ChatGoogleGenerativeAI,
         model=settings.provided.study_cards_model_name,
         temperature=0.7,
-        max_tokens=65536,
+        max_tokens=8156,
         max_retries=3,
         google_api_key=settings.provided.google_api_key,
     )

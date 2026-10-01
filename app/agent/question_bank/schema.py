@@ -29,9 +29,5 @@ class QuestionBankCritique(BaseModel):
     questions: list[QuestionCritique]
 
 
-class QuestionBankCritiqueResult(BaseModel):
-    critiques: list[QuestionBankCritique]
-
-
 class QuestionBankResult(BaseModel):
     chapters: list[ChapterQuestionBank]

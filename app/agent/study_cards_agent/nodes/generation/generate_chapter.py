@@ -1,7 +1,8 @@
+import asyncio
 from logging import Logger
 
-from app.agent.study_cards_agent.prompts import generate_chapters_prompt
-from app.agent.study_cards_agent.schema import StudyCardsResult
+from app.agent.study_cards_agent.prompts import generate_chapter_prompt
+from app.agent.study_cards_agent.schema import ChapterResult
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.agent.study_cards_agent.utils import (
     critique_comment,
@@ -17,7 +18,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 class GenerateChapterNode:
     def __init__(self, logger: Logger, model: ChatGoogleGenerativeAI):
         self.logger = logger
-        self.model = model.with_structured_output(StudyCardsResult)
+        self.model = model.with_structured_output(ChapterResult)
 
     async def __call__(self, state: StudyCardsState) -> StudyCardsState:
         sections = state["document_sections"]
@@ -82,14 +83,20 @@ class GenerateChapterNode:
             for chapter_key in chapter_keys_to_generate
         ]
 
-        result = await self.generate_chapters(
-            chapter_inputs,
-            learning_preferences,
-            expected_keys=set(chapter_keys_to_generate),
+        results = await asyncio.gather(
+            *[
+                self.generate_chapter(chapter, learning_preferences)
+                for chapter in chapter_inputs
+            ],
+            return_exceptions=True,
         )
-        if result is not None:
-            for chapter in result.chapters:
-                generated_chapters[chapter.chapter_key] = chapter
+        for result in results:
+            if isinstance(result, Exception):
+                if is_rate_limit_error(result):
+                    raise result
+                continue
+            if result is not None:
+                generated_chapters[result.chapter_key] = result
 
         self.logger.info(
             "Generated chapters for document_id=%s user_id=%s "
@@ -107,56 +114,52 @@ class GenerateChapterNode:
             },
         }
 
-    async def generate_chapters(
+    async def generate_chapter(
         self,
-        chapters: list[dict],
+        chapter: dict,
         learning_preferences: list[str] | None = None,
-        expected_keys: set[str] | None = None,
-    ) -> StudyCardsResult | None:
-        keys = [chapter["chapter_key"] for chapter in chapters]
+    ) -> ChapterResult | None:
+        chapter_key = chapter["chapter_key"]
         self.logger.info(
-            "Generating chapters chapter_keys=%s count=%s "
-            "has_preferences=%s for study cards agent",
-            keys,
-            len(chapters),
+            "Generating chapter chapter_key=%s has_preferences=%s "
+            "for study cards agent",
+            chapter_key,
             bool(learning_preferences),
         )
 
         try:
             response = await with_rate_limit_retry(
                 lambda: self.model.ainvoke(
-                    generate_chapters_prompt(chapters, learning_preferences)
+                    generate_chapter_prompt(chapter, learning_preferences)
                 ),
                 logger=self.logger,
-                label=f"study cards generate chapters={keys}",
+                label=f"study cards generate chapter={chapter_key}",
             )
-            if expected_keys is not None:
-                response = StudyCardsResult(
-                    chapters=[
-                        chapter
-                        for chapter in response.chapters
-                        if chapter.chapter_key in expected_keys
-                    ]
+            if response.chapter_key != chapter_key:
+                self.logger.warning(
+                    "Generated chapter key mismatch expected=%s got=%s "
+                    "for study cards agent",
+                    chapter_key,
+                    response.chapter_key,
                 )
+                return None
 
             self.logger.info(
-                "Generated chapters returned=%s expected=%s "
-                "for study cards agent",
-                [c.chapter_key for c in response.chapters],
-                keys,
+                "Generated chapter chapter_key=%s for study cards agent",
+                chapter_key,
             )
             return response
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
-                    "Rate limit error generating chapters chapter_keys=%s "
+                    "Rate limit error generating chapter chapter_key=%s "
                     "for study cards agent",
-                    keys,
+                    chapter_key,
                 )
                 raise
             self.logger.exception(
-                "Error generating chapters chapter_keys=%s "
+                "Error generating chapter chapter_key=%s "
                 "for study cards agent",
-                keys,
+                chapter_key,
             )
             return None
