@@ -135,7 +135,11 @@ class StudyCardsService:
             document_id,
             user_id,
         )
-        return StudyCardsGenerateAccepted(document_id=document_id)
+        return StudyCardsGenerateAccepted(
+            document_id=document_id,
+            name=document.name,
+            status="pending",
+        )
     
     async def update_result(
         self,
