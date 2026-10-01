@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 
 
-ALLOWED_FILE_TYPES = ["pdf", "docx", "txt", "md", "doc", "rtf", "odt", "epub"]
+ALLOWED_FILE_TYPES = ["pdf"]
 
 MIN_SECTION_CHARS = 200
 # Body paragraphs that start with "Part I …" must not count as headings.

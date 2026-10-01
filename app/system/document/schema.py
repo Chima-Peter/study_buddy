@@ -5,13 +5,6 @@ from pydantic import BaseModel, Field, model_validator
 
 FileType = Literal[
     "pdf",
-    "docx",
-    "txt",
-    "md",
-    "doc",
-    "rtf",
-    "odt",
-    "epub",
 ]
 
 DocumentStatus = Literal[
@@ -35,13 +28,6 @@ DOCUMENT_STATUS_COMMENTS: dict[DocumentStatus, str] = {
 
 ALLOWED_EXTENSIONS: dict[FileType, set[str]] = {
     "pdf": {".pdf"},
-    "docx": {".docx"},
-    "txt": {".txt"},
-    "md": {".md", ".markdown"},
-    "doc": {".doc"},
-    "rtf": {".rtf"},
-    "odt": {".odt"},
-    "epub": {".epub"},
 }
 
 DEFAULT_LIST_LIMIT = 20
