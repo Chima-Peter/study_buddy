@@ -1,9 +1,20 @@
+import re
 from logging import Logger
+from pathlib import Path
 from typing import IO
 
 import httpx
 import uuid_utils
 from supabase import AsyncClient
+
+# Supabase/S3-safe object key chars (see storage mustBeValidKey).
+_SAFE_STORAGE_FILENAME = re.compile(r"[^A-Za-z0-9_!\-\.\*'\(\) &$@=;:+,?]+")
+
+
+def _sanitize_storage_filename(file_name: str) -> str:
+    """Strip path segments and chars Storage rejects (e.g. []{}#%)."""
+    name = Path(file_name).name.strip() or "file"
+    return _SAFE_STORAGE_FILENAME.sub("_", name) or "file"
 
 
 class Supabase:
@@ -12,7 +23,8 @@ class Supabase:
         self.logger = logger
 
     async def create_upload_url(self, user_id, file_name: str) -> dict[str, str]:
-        storage_path = f"{user_id}/{uuid_utils.uuid4()}-{file_name}"
+        safe_name = _sanitize_storage_filename(file_name)
+        storage_path = f"{user_id}/{uuid_utils.uuid4()}-{safe_name}"
         response = await self.supabase.storage.from_("documents").create_signed_upload_url(
             path=storage_path,
         )
