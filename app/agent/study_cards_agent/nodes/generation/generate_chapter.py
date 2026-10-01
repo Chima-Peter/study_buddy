@@ -1,13 +1,15 @@
 from logging import Logger
 
 from app.agent.study_cards_agent.prompts import generate_chapters_prompt
-from app.agent.study_cards_agent.schema import ChapterResult, Critique, StudyCardsResult
+from app.agent.study_cards_agent.schema import StudyCardsResult
 from app.agent.study_cards_agent.state import StudyCardsState
 from app.agent.study_cards_agent.utils import (
+    critique_comment,
+    extract_learning_preferences,
     format_source_content,
     format_tavily_results,
+    previous_draft,
 )
-from app.memory.schema import Memory
 from app.utils.llm import is_rate_limit_error, with_rate_limit_retry
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -64,7 +66,7 @@ class GenerateChapterNode:
             return state
 
         memories = state.get("memories", [])
-        learning_preferences = self._extract_learning_preferences(memories)
+        learning_preferences = extract_learning_preferences(memories)
         tavily_by_chapter = state.get("tavily_results") or {}
 
         chapter_inputs = [
@@ -74,10 +76,8 @@ class GenerateChapterNode:
                 "tavily_results": format_tavily_results(
                     tavily_by_chapter.get(chapter_key) or []
                 ),
-                "critique_comment": self._critique_comment(critique, chapter_key),
-                "previous_draft": self._previous_draft(
-                    generated_chapters, chapter_key
-                ),
+                "critique_comment": critique_comment(critique, chapter_key),
+                "previous_draft": previous_draft(generated_chapters, chapter_key),
             }
             for chapter_key in chapter_keys_to_generate
         ]
@@ -160,43 +160,3 @@ class GenerateChapterNode:
                 keys,
             )
             return None
-
-    @staticmethod
-    def _critique_comment(
-        critique: dict[str, Critique] | None, chapter_key: str
-    ) -> str | None:
-        if critique is None:
-            return None
-        entry = critique.get(chapter_key)
-        if entry is None or entry.status != "rejected":
-            return None
-        return (
-            entry.comment
-            or "Rejected without detailed feedback. Revise against all "
-            "ChapterResult requirements and quality rules."
-        )
-
-    @staticmethod
-    def _previous_draft(
-        generated_chapters: dict[str, ChapterResult], chapter_key: str
-    ) -> str | None:
-        chapter = generated_chapters.get(chapter_key)
-        if chapter is None:
-            return None
-        return chapter.model_dump_json()
-
-    @staticmethod
-    def _extract_learning_preferences(
-        memories: list[Memory] | list[dict] | None,
-    ) -> list[str] | None:
-        if not memories:
-            return None
-        prefs: list[str] = []
-        for memory in memories:
-            if isinstance(memory, dict):
-                content = (memory.get("content") or "").strip()
-            else:
-                content = (getattr(memory, "content", None) or "").strip()
-            if content:
-                prefs.append(content)
-        return prefs or None

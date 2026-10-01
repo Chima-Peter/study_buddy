@@ -3,9 +3,9 @@ from typing import Literal
 from app.agent.question_bank.schema import (
     MAX_CRITIQUE_RETRIES,
     MAX_GENERATE_RETRIES,
-    QuestionBankCritique,
 )
 from app.agent.question_bank.state import QuestionBankState
+from app.agent.question_bank.utils import has_rejection
 
 RouteTarget = Literal[
     "retrieve_chapter_keys",
@@ -106,12 +106,6 @@ def chapters_needing_generation(state: QuestionBankState) -> list[str]:
         if chapter_key in skipped_generated or chapter_key not in generated:
             needing.append(chapter_key)
             continue
-        if _has_rejection(critique.get(chapter_key)):
+        if has_rejection(critique.get(chapter_key)):
             needing.append(chapter_key)
     return needing
-
-
-def _has_rejection(entry: QuestionBankCritique | None) -> bool:
-    if entry is None:
-        return False
-    return any(item.critique for item in entry.questions)

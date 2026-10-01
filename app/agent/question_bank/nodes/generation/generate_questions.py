@@ -2,12 +2,9 @@ from logging import Logger
 
 from app.agent.question_bank.edges import chapters_needing_generation
 from app.agent.question_bank.prompts import generate_chapters_questions_prompt
-from app.agent.question_bank.schema import (
-    ChapterQuestionBank,
-    QuestionBankCritique,
-    QuestionBankResult,
-)
+from app.agent.question_bank.schema import QuestionBankResult
 from app.agent.question_bank.state import QuestionBankState
+from app.agent.question_bank.utils import critique_comment, previous_draft
 from app.utils.llm import is_rate_limit_error, with_rate_limit_retry
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -55,10 +52,8 @@ class GenerateQuestionsNode:
                 "content": "\n".join(
                     record.content for record in chapter_records[chapter_key]
                 ),
-                "critique_comment": self._critique_comment(critique, chapter_key),
-                "previous_draft": self._previous_draft(
-                    generated_chapters, chapter_key
-                ),
+                "critique_comment": critique_comment(critique, chapter_key),
+                "previous_draft": previous_draft(generated_chapters, chapter_key),
             }
             for chapter_key in chapter_keys_to_generate
         ]
@@ -143,30 +138,3 @@ class GenerateQuestionsNode:
                 keys,
             )
             return None
-
-    @staticmethod
-    def _critique_comment(
-        critique: dict[str, QuestionBankCritique],
-        chapter_key: str,
-    ) -> str | None:
-        entry = critique.get(chapter_key)
-        if entry is None:
-            return None
-        comments = [
-            f"Q{i + 1}: {item.critique}"
-            for i, item in enumerate(entry.questions)
-            if item.critique
-        ]
-        if not comments:
-            return None
-        return "\n".join(comments)
-
-    @staticmethod
-    def _previous_draft(
-        generated_chapters: dict[str, ChapterQuestionBank],
-        chapter_key: str,
-    ) -> str | None:
-        chapter = generated_chapters.get(chapter_key)
-        if chapter is None:
-            return None
-        return chapter.model_dump_json()

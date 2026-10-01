@@ -1,6 +1,8 @@
 import re
 
+from app.agent.study_cards_agent.schema import ChapterResult, Critique
 from app.core.elasticsearch_schema import IndexedRecord
+from app.memory.schema import Memory
 
 
 def format_source_record(record: IndexedRecord) -> str:
@@ -53,3 +55,43 @@ def format_tavily_results(hits: list[dict] | None, *, limit: int = 5) -> str:
             continue
         link_lines.append(f"- [{title}]: {url} -- {content}")
     return "\n".join(link_lines)
+
+
+def critique_comment(
+    critique: dict[str, Critique] | None, chapter_key: str
+) -> str | None:
+    if critique is None:
+        return None
+    entry = critique.get(chapter_key)
+    if entry is None or entry.status != "rejected":
+        return None
+    return (
+        entry.comment
+        or "Rejected without detailed feedback. Revise against all "
+        "ChapterResult requirements and quality rules."
+    )
+
+
+def previous_draft(
+    generated_chapters: dict[str, ChapterResult], chapter_key: str
+) -> str | None:
+    chapter = generated_chapters.get(chapter_key)
+    if chapter is None:
+        return None
+    return chapter.model_dump_json()
+
+
+def extract_learning_preferences(
+    memories: list[Memory] | list[dict] | None,
+) -> list[str] | None:
+    if not memories:
+        return None
+    prefs: list[str] = []
+    for memory in memories:
+        if isinstance(memory, dict):
+            content = (memory.get("content") or "").strip()
+        else:
+            content = (getattr(memory, "content", None) or "").strip()
+        if content:
+            prefs.append(content)
+    return prefs or None

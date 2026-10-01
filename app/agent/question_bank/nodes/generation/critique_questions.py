@@ -1,11 +1,9 @@
 from logging import Logger
 
 from app.agent.question_bank.prompts import critique_chapters_questions_prompt
-from app.agent.question_bank.schema import (
-    QuestionBankCritique,
-    QuestionBankCritiqueResult,
-)
+from app.agent.question_bank.schema import QuestionBankCritiqueResult
 from app.agent.question_bank.state import QuestionBankState
+from app.agent.question_bank.utils import is_critique_approved
 from app.utils.llm import is_rate_limit_error, with_rate_limit_retry
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -93,7 +91,7 @@ class CritiqueQuestionsNode:
             for entry in result.critiques:
                 critique[entry.chapter_key] = entry
                 completed_keys.add(entry.chapter_key)
-                if self._is_approved(entry):
+                if is_critique_approved(entry):
                     newly_approved.append(entry.chapter_key)
 
         for chapter_key in chapter_keys_to_critique:
@@ -169,7 +167,3 @@ class CritiqueQuestionsNode:
                 keys,
             )
             return None
-
-    @staticmethod
-    def _is_approved(result: QuestionBankCritique) -> bool:
-        return all(not item.critique for item in result.questions)
