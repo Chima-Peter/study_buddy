@@ -36,6 +36,10 @@ async def with_rate_limit_retry(
         try:
             return await call()
         except Exception as e:
+            logger.error(
+                "Error in with_rate_limit_retry: %s",
+                e,
+            )
             if not is_rate_limit_error(e):
                 raise
             attempt += 1

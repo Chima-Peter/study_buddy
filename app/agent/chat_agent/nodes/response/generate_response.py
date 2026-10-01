@@ -99,17 +99,22 @@ class GenerateResponseNode:
                     state.get("user_id"),
                 )
                 writer({
-                    "type": "chat.response",
+                    "type": "chat.error",
                     "response": "I'm sorry, I'm experiencing a technical issue. Please try again later.",
                     "conversation_id": state.get("conversation_id"),
                 })
+                response = "I'm sorry, I'm experiencing a technical issue. Please try again later."
+                return {
+                    "response": response,
+                    "messages": [AIMessage(content=response)],
+                }
             else:
                 self.logger.exception(
                     "Generate response node failed id=%s user_id=%s",
                     state.get("conversation_id"),
                     state.get("user_id"),
                 )
-            raise
+                raise
 
         self.logger.info(
             "Generate response node completed id=%s user_id=%s response_chars=%s",
