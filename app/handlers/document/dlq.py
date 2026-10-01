@@ -5,10 +5,6 @@ from aio_pika.abc import AbstractIncomingMessage
 
 from app.core.redis import RedisClient
 from app.handlers.document.util import notify_document_status
-from app.system.document.schema import (
-    DOCUMENT_STATUS_COMMENTS,
-    ingest_failure_comment,
-)
 from app.system.document.service import DocumentService
 from app.system.notification.service import NotificationService
 
@@ -32,15 +28,14 @@ async def handle_document_dead_letter_queue(
         try:
             payload = json.loads(message.body)
         except json.JSONDecodeError:
-            logger.exception(
-                "Invalid document DLQ payload; cannot mark document failed"
-            )
+            logger.exception("Invalid document DLQ payload")
             return
 
         document_id = payload.get("document_id")
         user_id = payload.get("user_id")
         if not document_id or not user_id:
             return
+
         try:
             existing = await document_service.get_document_by_id(
                 document_id, user_id
@@ -53,62 +48,19 @@ async def handle_document_dead_letter_queue(
             )
             return
 
-        comment = ingest_failure_comment(
-            "processing could not be completed",
-            exhausted_retries=True,
-        )
-
-        if existing.status == "failed" and existing.comment not in (
-            None,
-            DOCUMENT_STATUS_COMMENTS["failed"],
-        ):
-            logger.info(
-                "DLQ skipped comment overwrite document_id=%s user_id=%s "
-                "comment=%s",
-                document_id,
-                user_id,
-                comment,
-            )
-            await notify_document_status(
-                redis,
-                logger,
-                user_id,
-                notification_service,
-                document_id=existing.id,
-                name=existing.name,
-                status=existing.status,
-                comment=existing.comment,
-            )
-            return
-
-        updated = await document_service.update_status(
-            document_id,
-            "failed",
-            user_id,
-            from_statuses=("pending", "processing", "failed"),
-            comment=comment,
-        )
-        if updated is None:
-            logger.warning(
-                "Could not mark document failed from DLQ document_id=%s user_id=%s",
-                document_id,
-                user_id,
-            )
-            return
-
         await notify_document_status(
             redis,
             logger,
             user_id,
             notification_service,
-            document_id=updated.id,
-            name=updated.name,
-            status=updated.status,
-            comment=updated.comment,
+            document_id=existing.id,
+            name=existing.name,
+            status=existing.status,
+            comment=existing.comment,
         )
         logger.info(
-            "Marked document failed from DLQ document_id=%s user_id=%s comment=%s",
+            "DLQ notified document_id=%s user_id=%s status=%s",
             document_id,
             user_id,
-            comment,
+            existing.status,
         )

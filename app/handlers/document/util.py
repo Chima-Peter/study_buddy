@@ -160,11 +160,10 @@ async def process_with_chapters(
     async def _process_section(section: ParsedSections) -> list[Document]:
         logger.info(
             "Processing chapter=%s chapter_key=%s chapter_number=%s "
-            "chunks=%s file=%s document_id=%s",
+            "file=%s document_id=%s",
             section.title,
             section.chapter_key,
             section.chapter_number,
-            len(section_chunks),
             payload.file_name,
             payload.document_id,
         )

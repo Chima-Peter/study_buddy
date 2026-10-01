@@ -351,24 +351,13 @@ async def handle_document(
                 reason,
             )
             if user_id and document_id:
-                failed = await document_service.update_status(
+                await document_service.update_status(
                     document_id,
                     "failed",
                     user_id,
                     from_statuses=("pending", "processing", "failed"),
                     comment=comment,
                 )
-                if failed is not None:
-                    await notify_document_status(
-                        redis,
-                        logger,
-                        user_id,
-                        notification_service,
-                        document_id=failed.id,
-                        name=failed.name,
-                        status=failed.status,
-                        comment=failed.comment,
-                    )
             await message.reject(requeue=False)
             return
         except Exception as e:
