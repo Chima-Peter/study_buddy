@@ -37,8 +37,8 @@ class SaveChatNode:
             "Save chat node started id=%s user_id=%s sources=%s "
             "query_message_id=%s response_message_id=%s turn_type=%s "
             "fork_chat_id=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
             len(sources),
             query_message_id,
             response_message_id,
@@ -48,19 +48,19 @@ class SaveChatNode:
         if fork_chat_id:
             chat = await self.chat_service.replace_turn(
                 chat_id=fork_chat_id,
-                user_id=state["user_id"],
-                query=state["query"],
-                response=state["response"],
+                user_id=state.get("user_id"),
+                query=state.get("query"),
+                response=state.get("response"),
                 source=sources,
                 query_message_id=query_message_id,
                 response_message_id=response_message_id,
             )
         else:
             chat = await self.chat_service.save(
-                user_id=state["user_id"],
-                conversation_id=state["conversation_id"],
-                query=state["query"],
-                response=state["response"],
+                user_id=state.get("user_id"),
+                conversation_id=state.get("conversation_id"),
+                query=state.get("query"),
+                response=state.get("response"),
                 source=sources,
                 query_message_id=query_message_id,
                 response_message_id=response_message_id,
@@ -70,12 +70,12 @@ class SaveChatNode:
         if chat is None:
             self.logger.warning(
                 "Save chat node failed id=%s user_id=%s",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
             )
             writer({
                 "type": "chat.done",
-                "conversation_id": state["conversation_id"],
+                "conversation_id": state.get("conversation_id"),
                 "query_message_id": query_message_id,
                 "response_message_id": response_message_id,
             })
@@ -84,15 +84,15 @@ class SaveChatNode:
         writer({
             "type": "chat.done",
             "chat_id": chat.id,
-            "conversation_id": state["conversation_id"],
+            "conversation_id": state.get("conversation_id"),
             "query_message_id": query_message_id,
             "response_message_id": response_message_id,
         })
 
         self.logger.info(
             "Save chat node completed id=%s user_id=%s chat_id=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
             chat.id,
         )
         return {}

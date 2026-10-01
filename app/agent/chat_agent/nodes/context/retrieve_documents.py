@@ -21,10 +21,10 @@ class RetrieveDocumentsNode:
         self.logger = logger
 
     async def __call__(self, state: AgentState) -> AgentState:
-        if not state["retrieve_rag"]:
+        if not state.get("retrieve_rag"):
             self.logger.info(
                 "Retrieve documents node skipped user_id=%s",
-                state["user_id"],
+                state.get("user_id"),
             )
             return {
                 "rag_documents": [],
@@ -33,11 +33,11 @@ class RetrieveDocumentsNode:
             }
 
         document_id = state.get("document_id")
-        rag_query = state["rewritten_query"]
+        rag_query = state.get("rewritten_query")
         cache_query = (state.get("cache_query") or "").strip() or rag_query
         self.logger.info(
             "Retrieve documents node started user_id=%s chapter_keys=%s",
-            state["user_id"],
+            state.get("user_id"),
             state.get("chapter_keys"),
         )
 
@@ -52,7 +52,7 @@ class RetrieveDocumentsNode:
                 self.logger.info(
                     "Semantic cache hit user_id=%s document_id=%s "
                     "distance=%.3f chunks=%s",
-                    state["user_id"],
+                    state.get("user_id"),
                     document_id,
                     cached.distance,
                     len(cached.chunk_ids),
@@ -64,7 +64,7 @@ class RetrieveDocumentsNode:
                 }
 
         results = await self.retriever.retrieve(
-            user_id=state["user_id"],
+            user_id=state.get("user_id"),
             query=rag_query,
             document_ids=[document_id] if document_id else None,
             chapter_keys=state.get("chapter_keys"),
@@ -72,7 +72,7 @@ class RetrieveDocumentsNode:
 
         self.logger.info(
             "Retrieve documents node completed user_id=%s count=%s",
-            state["user_id"],
+            state.get("user_id"),
             len(results),
         )
         return {

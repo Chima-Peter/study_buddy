@@ -24,10 +24,10 @@ class TavilyRetrieverNode:
     async def __call__(self, state: AgentState) -> AgentState:
         self.logger.info(
             "Tavily retriever node started id=%s user_id=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
         )
-        query = (state["query"] or "").strip()
+        query = (state.get("query") or "").strip()
         if not query:
             return {"tavily_results": []}
 
@@ -50,22 +50,22 @@ class TavilyRetrieverNode:
             if is_rate_limit_error(e):
                 self.logger.warning(
                     "Tavily query rewrite rate limited id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             else:
                 self.logger.exception(
                     "Tavily query rewrite failed id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             return {"tavily_results": []}
 
         if not search_query:
             self.logger.info(
                 "Tavily search skipped id=%s user_id=%s reason=insufficient_query",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
             )
             return {"tavily_results": []}
 
@@ -81,22 +81,22 @@ class TavilyRetrieverNode:
             if is_rate_limit_error(e):
                 self.logger.warning(
                     "Tavily search rate limited id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             else:
                 self.logger.exception(
                     "Tavily search failed id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             return {"tavily_results": []}
 
         self.logger.info(
             "Tavily retriever node completed id=%s user_id=%s "
             "search_query=%r results=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
             search_query,
             results,
         )

@@ -1,5 +1,72 @@
+import re
+
 from app.core.elasticsearch_schema import FusedResult, IndexedRecord
 from app.core.semantic_cache import CacheHit
+from app.rag.schema import normalize_chapter_key
+
+_CH_ABBREV_RE = re.compile(
+    r"^ch(?:apter)?\.?\s*([0-9]+|[ivxlcdm]+)\b(.*)$",
+    re.IGNORECASE,
+)
+
+
+def coerce_chapter_mention(raw: str) -> str:
+    text = (raw or "").strip()
+    match = _CH_ABBREV_RE.match(text)
+    if match:
+        rest = (match.group(2) or "").strip(" :.-—–")
+        base = f"chapter {match.group(1)}"
+        return f"{base}: {rest}" if rest else base
+    return text
+
+
+def match_section_keys(
+    mentions: list[str] | None,
+    available: list[str],
+) -> list[str] | None:
+    """Map model mentions onto chapter_splitter section keys only."""
+    if not mentions or not available:
+        return None
+
+    by_lower = {key.lower(): key for key in available}
+    matched: list[str] = []
+    seen: set[str] = set()
+
+    def _add(key: str) -> None:
+        if key not in seen:
+            seen.add(key)
+            matched.append(key)
+
+    for raw in mentions:
+        text = (raw or "").strip()
+        if not text:
+            continue
+
+        exact = by_lower.get(text.lower())
+        if exact is not None:
+            _add(exact)
+            continue
+
+        normalized = normalize_chapter_key(coerce_chapter_mention(text))
+        if normalized in by_lower:
+            _add(by_lower[normalized])
+
+    return matched or None
+
+
+def flatten_section_keys(
+    document_id: str | None,
+    document_sections: dict[str, list[str]],
+) -> list[str]:
+    if not document_id:
+        return []
+    keys: list[str] = []
+    seen: set[str] = set()
+    for key in document_sections.get(document_id, []):
+        if key and key not in seen:
+            seen.add(key)
+            keys.append(key)
+    return keys
 
 
 def format_history(

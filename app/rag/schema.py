@@ -96,7 +96,7 @@ def normalize_chapter_key(title: str) -> str:
       "Introduction" -> introduction
       "Conclusion" -> conclusion
       "Table of Contents" -> toc
-      "2. Methods" -> section_2
+      "2. Methods" -> chapter_2
     """
     raw = (title or "").strip()
     if not raw:
@@ -122,7 +122,7 @@ def normalize_chapter_key(title: str) -> str:
 
     numbered = _NUMBERED_SECTION_RE.match(lower)
     if numbered:
-        return f"section_{numbered.group(1).replace('.', '_')}"
+        return f"chapter_{numbered.group(1).replace('.', '_')}"
 
     slug = re.sub(r"[^a-z0-9]+", "_", lower).strip("_")
     return (slug[:80] or "section")

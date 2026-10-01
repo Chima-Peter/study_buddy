@@ -19,16 +19,16 @@ class RetrievalDeciderNode:
         is_first_message = len(messages) <= 1
         self.logger.info(
             "Retrieval decider started id=%s user_id=%s first_message=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
             is_first_message,
         )
 
         if state.get("retry_count", 1) > 3:
             self.logger.warning(
                 "Retrieval decider failed id=%s user_id=%s retry_count=%s",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
                 state.get("retry_count"),
             )
             return {
@@ -42,7 +42,7 @@ class RetrievalDeciderNode:
         context = format_history(messages, limit=SUMMARY_EVERY)
         summary = state.get("conversation_summary") or ""
 
-        prompt = retrieval_decider_prompt(state["query"], context, summary)
+        prompt = retrieval_decider_prompt(state.get("query"), context, summary)
         response: str | None = None
 
         try:
@@ -55,14 +55,14 @@ class RetrievalDeciderNode:
             if is_rate_limit_error(e):
                 self.logger.warning(
                     "Retrieval decider rate limited id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             else:
                 self.logger.exception(
                     "Retrieval decider failed id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             result = "both" if not is_first_message else "rag"
             retrieve_memory = False
@@ -72,8 +72,8 @@ class RetrievalDeciderNode:
             reply = (response or "").strip() or NON_ACADEMIC_FALLBACK
             self.logger.info(
                 "Retrieval decider ended discussion early id=%s user_id=%s",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
             )
             return {
                 "retrieve_rag": False,
@@ -98,8 +98,8 @@ class RetrievalDeciderNode:
             "Retrieval decider completed id=%s user_id=%s decision=%s "
             "retrieve_rag=%s retrieve_history=%s retrieve_memory=%s "
             "is_academic_discussion=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
             result,
             retrieve_rag,
             retrieve_history,

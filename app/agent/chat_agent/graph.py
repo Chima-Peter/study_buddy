@@ -121,7 +121,6 @@ class AgentGraph:
             ),
             "cleanup": CleanupNode(
                 logger=self.logger,
-                document_service=self.document_service,
                 semantic_cache=self.semantic_cache,
             ),
         }

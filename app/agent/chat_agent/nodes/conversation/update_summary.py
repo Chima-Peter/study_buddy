@@ -25,8 +25,8 @@ class UpdateConversationSummaryNode:
         if not state.get("is_academic_discussion", True):
             self.logger.info(
                 "Update summary node skipped id=%s user_id=%s reason=non_academic",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
             )
             return {}
 
@@ -36,8 +36,8 @@ class UpdateConversationSummaryNode:
             self.logger.info(
                 "Update summary node skipped id=%s user_id=%s reason=not_due "
                 "turn_count=%s",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
                 turn_count,
             )
             return {}
@@ -50,42 +50,42 @@ class UpdateConversationSummaryNode:
 
         self.logger.info(
             "Update summary node started id=%s user_id=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
         )
 
-        prompt = summary_prompt(state["conversation_summary"], recent_exchanges)
+        prompt = summary_prompt(state.get("conversation_summary"), recent_exchanges)
         try:
             summary_response = await self.model.ainvoke(prompt)
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
                     "Update summary node rate limited id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             else:
                 self.logger.exception(
                     "Update summary node failed id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             return {}
 
         summary = (
             (summary_response.text or "").strip().strip("\"'")[:SUMMARY_MAX_CHARS]
-            or state["conversation_summary"]
+            or state.get("conversation_summary")
         )
 
         await self.conversation_service.update_summary(
-            conversation_id=state["conversation_id"],
-            user_id=state["user_id"],
+            conversation_id=state.get("conversation_id"),
+            user_id=state.get("user_id"),
             summary=summary,
         )
         self.logger.info(
             "Update summary node completed id=%s user_id=%s summary_chars=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
             len(summary),
         )
         return {"conversation_summary": summary}

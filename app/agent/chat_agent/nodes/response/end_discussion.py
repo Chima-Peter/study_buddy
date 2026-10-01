@@ -14,15 +14,15 @@ class EndDiscussionNode:
     async def __call__(self, state: AgentState) -> AgentState:
         self.logger.info(
             "End discussion node started id=%s user_id=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
         )
 
         if state.get("retry_count", 1) > 3:
             self.logger.warning(
                 "End discussion node failed id=%s user_id=%s retry_count=%s",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
                 state.get("retry_count"),
             )
             return {}
@@ -33,7 +33,7 @@ class EndDiscussionNode:
             {
                 "type": "chat.response",
                 "response": response,
-                "conversation_id": state["conversation_id"],
+                "conversation_id": state.get("conversation_id"),
             }
         )
 

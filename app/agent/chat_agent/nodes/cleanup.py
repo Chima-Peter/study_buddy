@@ -1,5 +1,4 @@
 from logging import Logger
-from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -8,9 +7,6 @@ from app.agent.chat_agent.utils import format_rag_context
 
 from app.core.semantic_cache import SemanticCache
 
-if TYPE_CHECKING:
-    from app.system.document.service import DocumentService
-
 
 class CleanupNode:
     """Clears transient state and caches important information for later turns."""
@@ -18,45 +14,26 @@ class CleanupNode:
     def __init__(
         self,
         logger: Logger,
-        document_service: "DocumentService",
         semantic_cache: SemanticCache,
     ):
         self.logger = logger
-        self.document_service = document_service
         self.semantic_cache = semantic_cache
 
     async def __call__(self, state: AgentState) -> AgentState:
         self.logger.info(
             "Cleanup node started id=%s user_id=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
         )
-
-        document_sections = dict(state.get("document_sections") or {})
-        document_id = state.get("document_id")
-        if document_id and document_id not in document_sections:
-            try:
-                fetched = await self.document_service.get_sections_by_document(
-                    [document_id],
-                    state["user_id"],
-                )
-                document_sections.update(fetched)
-            except Exception:
-                self.logger.exception(
-                    "Cleanup failed caching section keys id=%s user_id=%s "
-                    "document_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
-                    document_id,
-                )
 
         await self._cache_rag_chunks(state)
 
+        document_sections = dict(state.get("document_sections") or {})
         self.logger.info(
             "Cleanup node completed id=%s user_id=%s "
             "document_sections=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
             {doc_id: keys for doc_id, keys in document_sections.items()},
         )
         return {
@@ -106,15 +83,15 @@ class CleanupNode:
             self.logger.info(
                 "Semantic cache put id=%s user_id=%s document_id=%s "
                 "chunks=%s",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
                 document_id,
                 len(chunk_ids),
             )
         except Exception:
             self.logger.exception(
                 "Semantic cache put failed id=%s user_id=%s document_id=%s",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
                 document_id,
             )

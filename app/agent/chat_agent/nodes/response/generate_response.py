@@ -22,18 +22,18 @@ class GenerateResponseNode:
         self.logger.info(
             "Generate response node started id=%s user_id=%s documents=%s "
             "messages=%s memories=%s",
-            state["conversation_id"],
-            state["user_id"],
-            len(state["rag_documents"]),
+            state.get("conversation_id"),
+            state.get("user_id"),
+            len(state.get("rag_documents") or []),
             len(messages),
             len(memories),
         )
 
-        rag_documents = state["rag_documents"]
+        rag_documents = state.get("rag_documents")
         if not rag_documents:
             self.logger.info(
                 "No relevant context found for the query. user_id=%s",
-                state["user_id"],
+                state.get("user_id"),
             )
             context = ""
         else:
@@ -46,7 +46,7 @@ class GenerateResponseNode:
         else:
             memories_text = ""
 
-        if state["retrieve_conversation_history"]:
+        if state.get("retrieve_conversation_history"):
             history_text = format_history(messages, limit=SUMMARY_EVERY)
         else:
             history_text = ""
@@ -70,8 +70,8 @@ class GenerateResponseNode:
         prompt = chat_response_prompt(
             context=context,
             conversation_history_prompt=history_text,
-            conversation_summary=state["conversation_summary"],
-            query=state["query"],
+            conversation_summary=state.get("conversation_summary"),
+            query=state.get("query"),
             memories=memories_text,
             student_name=state.get("student_name"),
             student_gender=state.get("student_gender"),
@@ -88,33 +88,33 @@ class GenerateResponseNode:
                 writer({
                     "type": "chat.response",
                     "response": text,
-                    "conversation_id": state["conversation_id"],
+                    "conversation_id": state.get("conversation_id"),
                 })
                 answer += text
         except Exception as e:
             if is_rate_limit_error(e):
                 self.logger.warning(
                     "Generate response node rate limited id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
                 writer({
                     "type": "chat.response",
                     "response": "I'm sorry, I'm experiencing a technical issue. Please try again later.",
-                    "conversation_id": state["conversation_id"],
+                    "conversation_id": state.get("conversation_id"),
                 })
             else:
                 self.logger.exception(
                     "Generate response node failed id=%s user_id=%s",
-                    state["conversation_id"],
-                    state["user_id"],
+                    state.get("conversation_id"),
+                    state.get("user_id"),
                 )
             raise
 
         self.logger.info(
             "Generate response node completed id=%s user_id=%s response_chars=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
             len(answer),
         )
         return {

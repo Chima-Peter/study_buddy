@@ -31,14 +31,14 @@ class RetrieveMemoryNode:
         if not memory_query and not need_profile:
             self.logger.info(
                 "Retrieve memory node skipped user_id=%s reason=nothing_to_fetch",
-                state["user_id"],
+                state.get("user_id"),
             )
             return {"memories": []}
 
         self.logger.info(
             "Retrieve memory node started user_id=%s has_query=%s "
             "need_profile=%s",
-            state["user_id"],
+            state.get("user_id"),
             bool(memory_query),
             need_profile,
         )
@@ -48,12 +48,12 @@ class RetrieveMemoryNode:
         async with asyncio.TaskGroup() as tg:
             if need_profile:
                 profile_task = tg.create_task(
-                    self.user_repository.get_by_id(state["user_id"])
+                    self.user_repository.get_by_id(state.get("user_id"))
                 )
             if memory_query:
                 turn_task = tg.create_task(
                     self.memory_service.retrieve_for_queries(
-                        state["user_id"],
+                        state.get("user_id"),
                         [MemoryRetrievalQuery(content=memory_query)],
                     )
                 )
@@ -74,7 +74,7 @@ class RetrieveMemoryNode:
         self.logger.info(
             "Retrieve memory node completed user_id=%s count=%s "
             "student_name=%s student_gender=%s",
-            state["user_id"],
+            state.get("user_id"),
             len(results),
             bool(student_name),
             bool(student_gender),

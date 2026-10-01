@@ -18,8 +18,8 @@ class StoreMemoryNode:
         if not state.get("is_academic_discussion", True):
             self.logger.info(
                 "Store memory node skipped id=%s user_id=%s reason=non_academic",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
             )
             return {}
 
@@ -27,8 +27,8 @@ class StoreMemoryNode:
         if not messages:
             self.logger.info(
                 "Store memory node skipped id=%s user_id=%s reason=no_messages",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
             )
             return {}
 
@@ -37,15 +37,15 @@ class StoreMemoryNode:
             memory.content for memory in (state.get("memories") or [])
         ]
         payload = MemoryExtractRequest(
-            user_id=state["user_id"],
+            user_id=state.get("user_id"),
             context=context,
-            conversation_id=state["conversation_id"],
+            conversation_id=state.get("conversation_id"),
             known_memories=known_memories,
         )
         self.logger.info(
             "Store memory node enqueue id=%s user_id=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
         )
         try:
             await self.rabbitmq.publish_message(
@@ -55,14 +55,14 @@ class StoreMemoryNode:
         except Exception:
             self.logger.exception(
                 "Store memory node enqueue failed id=%s user_id=%s",
-                state["conversation_id"],
-                state["user_id"],
+                state.get("conversation_id"),
+                state.get("user_id"),
             )
             return {}
 
         self.logger.info(
             "Store memory node enqueued id=%s user_id=%s",
-            state["conversation_id"],
-            state["user_id"],
+            state.get("conversation_id"),
+            state.get("user_id"),
         )
         return {}
