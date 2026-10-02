@@ -11,7 +11,6 @@ from app.agent.chat_agent.nodes import (
     RetrievalDeciderNode,
     RetrieveDocumentsNode,
     RetrieveMemoryNode,
-    RewriteQueryNode,
     SaveChatNode,
     StoreMemoryNode,
     UpdateConversationSummaryNode,
@@ -72,14 +71,10 @@ class AgentGraph:
             "retrieval_decider": RetrievalDeciderNode(
                 model=self.query_model,
                 logger=self.logger,
+                document_service=self.document_service,
             ),
             "end_discussion": EndDiscussionNode(
                 logger=self.logger,
-            ),
-            "rewrite_query": RewriteQueryNode(
-                model=self.query_model,
-                logger=self.logger,
-                document_service=self.document_service,
             ),
             "retrieve_documents": RetrieveDocumentsNode(
                 retriever=self.retriever,
@@ -133,13 +128,12 @@ class AgentGraph:
             "retrieval_decider",
             decide_retrieval_router,
             {
-                "rewrite_query": "rewrite_query",
+                "retrieve_documents": "retrieve_documents",
+                "retrieve_memory": "retrieve_memory",
                 "tavily_retriever": "tavily_retriever",
                 "end_discussion": "end_discussion",
             },
         )
-        graph.add_edge("rewrite_query", "retrieve_documents")
-        graph.add_edge("rewrite_query", "retrieve_memory")
         graph.add_edge(
             [
                 "retrieve_documents",

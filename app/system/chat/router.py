@@ -98,7 +98,7 @@ async def websocket_endpoint(
             done, pending = await asyncio.wait(
                 {chat_task, drain_task},
                 return_when=asyncio.FIRST_COMPLETED,
-                timeout=80,
+                timeout=200,
             )
 
             if drain_task in done:

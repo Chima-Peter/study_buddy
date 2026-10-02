@@ -13,7 +13,30 @@ NON_ACADEMIC_FALLBACK = (
     "to your studies!"
 )
 
+
+class MemoryRetrieval(BaseModel):
+    """One memory search intent for chat retrieval."""
+
+    query: str = Field(
+        description=(
+            "Partial statement for the memory index, phrased like stored "
+            "memories starting with 'The user'. "
+            "Example: 'The user prefers visual explanations'."
+        ),
+    )
+    category: MEMORY_CATEGORY | None = Field(
+        default=None,
+        description=(
+            "Optional category filter: learning_preferences, "
+            "academic_struggles, academic_progress, tests_exams, or "
+            "user_personality. Null to search all categories."
+        ),
+    )
+
+
 class DeciderResponse(BaseModel):
+    """Decide retrieval needs and rewrite queries in one step."""
+
     decision: Literal["rag", "history", "both", "none"] = Field(
         description=(
             "rag: academic/study question answered from uploaded study "
@@ -60,52 +83,20 @@ class DeciderResponse(BaseModel):
             "Null when is_academic_discussion is true."
         ),
     )
-
-    @model_validator(mode="after")
-    def clear_response_when_academic(self) -> Self:
-        if self.is_academic_discussion:
-            self.response = None
-        return self
-
-
-class MemoryRetrieval(BaseModel):
-    """One memory search intent for chat retrieval."""
-
-    query: str = Field(
-        description=(
-            "Partial statement for the memory index, phrased like stored "
-            "memories starting with 'The user'. "
-            "Example: 'The user prefers visual explanations'."
-        ),
-    )
-    category: MEMORY_CATEGORY | None = Field(
-        default=None,
-        description=(
-            "Optional category filter: learning_preferences, "
-            "academic_struggles, academic_progress, tests_exams, or "
-            "user_personality. Null to search all categories."
-        ),
-    )
-
-
-class RewriteQueryResponse(BaseModel):
-    """Structured rewrite for document and/or memory retrieval."""
-
     rag_query: str | None = Field(
         default=None,
         description=(
-            "Rewritten query for hybrid document search. "
-            "Null when document retrieval is not needed."
+            "Rewritten query for hybrid document search when decision is "
+            "rag or both. Null otherwise."
         ),
     )
     cache_query: str | None = Field(
         default=None,
         description=(
-            "Context-rich query for semantic cache lookup. "
-            "May include conversation context, resolved references, "
-            "topic, chapter scope, and clarifying details needed to "
-            "match prior similar questions. "
-            "Null when document retrieval is not needed."
+            "Context-rich query for semantic cache lookup when decision is "
+            "rag or both. May include conversation context, resolved "
+            "references, topic, chapter scope, and clarifying details. "
+            "Null otherwise."
         ),
     )
     chapters: list[str] | None = Field(
@@ -122,14 +113,35 @@ class RewriteQueryResponse(BaseModel):
     memory_queries: list[MemoryRetrieval] = Field(
         default_factory=list,
         description=(
-            "One or more memory retrieval intents. Each has a query "
-            "(partial statement starting with 'The user') and an optional "
-            "category. Use multiple entries when distinct aspects need "
-            "separate category-scoped searches. "
-            "Empty when memory retrieval is not needed. "
-            "Do not include name/gender lookups; those come from profile."
+            "One or more memory retrieval intents when retrieve_memory is "
+            "true. Each has a query (partial statement starting with "
+            "'The user') and an optional category. Empty when memory "
+            "retrieval is not needed. Do not include name/gender lookups; "
+            "those come from profile."
         ),
     )
+
+    @model_validator(mode="after")
+    def clear_fields_by_decision(self) -> Self:
+        if self.is_academic_discussion:
+            self.response = None
+        else:
+            self.rag_query = None
+            self.cache_query = None
+            self.chapters = None
+            self.memory_queries = []
+            self.retrieve_memory = False
+            return self
+
+        if self.decision not in ("rag", "both"):
+            self.rag_query = None
+            self.cache_query = None
+            self.chapters = None
+
+        if not self.retrieve_memory:
+            self.memory_queries = []
+
+        return self
 
 
 class TavilyQueryRewriteResponse(BaseModel):
