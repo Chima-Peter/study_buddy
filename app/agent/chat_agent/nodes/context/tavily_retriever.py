@@ -98,6 +98,6 @@ class TavilyRetrieverNode:
             state.get("conversation_id"),
             state.get("user_id"),
             search_query,
-            results,
+            len(results),
         )
         return {"tavily_results": results}
