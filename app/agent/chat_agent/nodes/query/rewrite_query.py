@@ -9,7 +9,7 @@ from app.agent.chat_agent.utils import (
     format_history,
     match_section_keys,
 )
-from app.agent.chat_agent.schema import RewriteQueryResponse
+from app.agent.chat_agent.schema import MemoryRetrieval, RewriteQueryResponse
 from app.agent.chat_agent.state import AgentState
 from app.utils.llm import is_rate_limit_error
 
@@ -45,7 +45,7 @@ class RewriteQueryNode:
             return {
                 "rewritten_query": query,
                 "cache_query": None,
-                "memory_query": None,
+                "memory_queries": [],
                 "chapter_keys": None,
             }
 
@@ -106,10 +106,13 @@ class RewriteQueryNode:
                     conversation_id,
                     user_id,
                 )
+            fallback_queries = (
+                [MemoryRetrieval(query=query)] if retrieve_memory else []
+            )
             return {
                 "rewritten_query": query,
                 "cache_query": query if retrieve_rag else None,
-                "memory_query": query if retrieve_memory else None,
+                "memory_queries": fallback_queries,
                 "chapter_keys": None,
                 "document_sections": document_sections,
             }
@@ -124,25 +127,37 @@ class RewriteQueryNode:
             )
             chapter_keys = match_section_keys(result.chapters, section_keys)
 
-        memory_query = None
+        memory_queries: list[MemoryRetrieval] = []
         if retrieve_memory:
-            memory_query = (result.memory_query or "").strip() or query
+            memory_queries = [
+                MemoryRetrieval(
+                    query=item.query.strip(),
+                    category=item.category,
+                )
+                for item in (result.memory_queries or [])
+                if item.query and item.query.strip()
+            ]
+            if not memory_queries:
+                memory_queries = [MemoryRetrieval(query=query)]
 
         self.logger.info(
             "Rewrite query node completed id=%s user_id=%s original=%r "
-            "rewritten=%r cache_query=%r chapter_keys=%s memory_query=%r",
+            "rewritten=%r cache_query=%r chapter_keys=%s memory_queries=%s",
             conversation_id,
             user_id,
             query,
             rewritten,
             cache_query,
             chapter_keys,
-            memory_query,
+            [
+                {"query": item.query, "category": item.category}
+                for item in memory_queries
+            ],
         )
         return {
             "rewritten_query": rewritten,
             "cache_query": cache_query,
-            "memory_query": memory_query,
+            "memory_queries": memory_queries,
             "chapter_keys": chapter_keys,
             "document_sections": document_sections,
         }

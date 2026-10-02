@@ -4,7 +4,7 @@ from typing import cast
 from app.core.elasticsearch import Elasticsearch
 from app.core.elasticsearch_schema import IndexedRecord, MemoryMetadata
 from app.core.retriever import Retriever
-from app.memory.schema import DUPLICATE_MIN_SCORE, DUPLICATE_TOP_K, MEMORY_INDEX, SEARCH_TOP_K, Memory, MemoryDuplicateSearch, MemorySearch
+from app.memory.schema import MEMORY_INDEX, SEARCH_TOP_K, Memory, MemorySearch
 
 
 
@@ -36,9 +36,11 @@ class MemoryRepository:
     async def retrieve(self, search: MemorySearch) -> list[Memory]:
         try:
             self.logger.info(
-                "MemoryRepository search start user_id=%s status=%s",
+                "MemoryRepository search start user_id=%s "
+                "category=%s document_id=%s",
                 search.user_id,
-                search.status,
+                search.category,
+                search.document_id,
             )
 
             results_lists = await self.elasticsearch.search_hybrid(
@@ -47,7 +49,8 @@ class MemoryRepository:
                 search.embedding,
                 index=MEMORY_INDEX,
                 min_score=None,
-                status=search.status,
+                category=search.category,
+                document_id=search.document_id,
             )
             fused = await self.retriever.reciprocal_rank_fusion(
                 results_lists,
@@ -66,39 +69,6 @@ class MemoryRepository:
         except Exception as e:
             self.logger.exception("MemoryRepository search failed: %s", e)
             raise ValueError("Failed to search") from e
-
-    async def search_for_duplicates(
-        self, search: MemoryDuplicateSearch
-    ) -> list[Memory]:
-        try:
-            self.logger.info(
-                "MemoryRepository search_for_duplicates start user_id=%s "
-                "category=%s",
-                search.user_id,
-                search.category,
-            )
-
-            results = await self.elasticsearch.search_vector(
-                user_id=search.user_id,
-                embedding=search.embedding,
-                index=MEMORY_INDEX,
-                k=DUPLICATE_TOP_K,
-                min_score=DUPLICATE_MIN_SCORE,
-                category=search.category,
-                status="active",
-            )
-
-            self.logger.info(
-                "MemoryRepository search_for_duplicates done user_id=%s hits=%s",
-                search.user_id,
-                len(results),
-            )
-            return [self._from_indexed_record(result) for result in results]
-        except Exception as e:
-            self.logger.exception(
-                "MemoryRepository search_for_duplicates failed: %s", e
-            )
-            raise ValueError("Failed to search for duplicates") from e
 
     async def store(self, memories: list[Memory]) -> tuple[int, int]:
         try:

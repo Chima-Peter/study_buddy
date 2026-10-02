@@ -23,17 +23,10 @@ class MemoryMetadata(TypedDict, total=False):
     id: str
     user_id: str
     category: str
-    status: str
-    importance: float
-    confidence: float
-    usage_count: int
-    last_used_at: str
-    source: str
+    document_id: str
     created_at: str
     updated_at: str
     expires_at: str
-    valid_from: str
-    valid_to: str
 
 
 IndexMetadata = DocumentMetadata | MemoryMetadata

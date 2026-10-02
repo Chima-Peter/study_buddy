@@ -40,6 +40,7 @@ class StoreMemoryNode:
             user_id=state.get("user_id"),
             context=context,
             conversation_id=state.get("conversation_id"),
+            document_id=state.get("document_id"),
             known_memories=known_memories,
         )
         self.logger.info(

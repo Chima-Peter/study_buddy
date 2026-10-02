@@ -5,23 +5,22 @@ from logging import Logger
 
 from langchain_core.documents import Document
 from langchain_google_genai import ChatGoogleGenerativeAI
+from trustcall import create_extractor
 
 from app.core.embedding import EmbeddingManager
 from app.utils.llm import is_rate_limit_error
-from app.memory.prompts import memory_deduplication_prompt, memory_extraction_prompt
+from app.memory.prompts import memory_search_query_prompt, memory_trustcall_prompt
 from app.memory.repository import MemoryRepository
 from app.memory.schema import (
-    CONFIDENCE_BUMP,
+    DOCUMENT_SCOPED_CATEGORIES,
     ExtractedMemory,
     Memory,
-    MemoryDeduplicationDecision,
-    MemoryDeduplicationResult,
-    MemoryDuplicateSearch,
-    MemoryExtractionResult,
-    MEMORY_STATUS,
     MemoryRetrievalQuery,
     MemorySearch,
+    MemorySearchQueryResult,
 )
+
+_EXTRACTED_MEMORY_TOOL = "ExtractedMemory"
 
 
 class MemoryService:
@@ -36,13 +35,22 @@ class MemoryService:
         self.model = model
         self.repository = repository
         self.embedding_manager = embedding_manager
+        self._extractor = create_extractor(
+            model,
+            tools=[ExtractedMemory],
+            tool_choice="any",
+            enable_inserts=True,
+            enable_deletes=True,
+        )
 
     async def retrieve(self, search: MemorySearch) -> list[Memory]:
         try:
             self.logger.info(
-                "MemoryService retrieve start user_id=%s status=%s",
+                "MemoryService retrieve start user_id=%s "
+                "category=%s document_id=%s",
                 search.user_id,
-                search.status,
+                search.category,
+                search.document_id,
             )
             results = await self.repository.retrieve(search)
             self.logger.info(
@@ -58,8 +66,6 @@ class MemoryService:
         self,
         user_id: str,
         queries: list[MemoryRetrievalQuery],
-        *,
-        status: MEMORY_STATUS = "active",
     ) -> list[Memory]:
         """Batch-embed queries, search in parallel, and dedupe by id."""
         if not queries:
@@ -84,7 +90,8 @@ class MemoryService:
                                 user_id=user_id,
                                 content=query.content,
                                 embedding=embedding,
-                                status=status,
+                                category=query.category,
+                                document_id=query.document_id,
                             )
                         )
                     )
@@ -113,228 +120,165 @@ class MemoryService:
         context: str,
         *,
         known_memories: list[str] | None = None,
+        document_id: str | None = None,
     ):
         try:
-            extracted = await self.extract_candidate_memories(
+            queries = await self.extract_search_queries(
                 context,
                 known_memories=known_memories,
+                document_id=document_id,
             )
-            if not extracted:
+            existing = await self.retrieve_for_queries(user_id, queries)
+            updated, created, deleted = await self.apply_trustcall(
+                user_id=user_id,
+                context=context,
+                existing=existing,
+                document_id=document_id,
+            )
+            if not updated and not created and not deleted:
                 return None
 
-            candidates = await self._to_memories(user_id, extracted)
-            related_by_candidate = await self.search_duplicates_for_candidates(
-                user_id, candidates
-            )
-            deduped = await self.deduplicate(
-                candidates=candidates,
-                related_by_candidate=related_by_candidate,
-            )
-
             async with asyncio.TaskGroup() as tg:
-                identical_task = tg.create_task(
-                    self.update_metadata(deduped.identical)
-                )
-                supersede_task = tg.create_task(
-                    self.update_metadata(
-                        [*deduped.superseded, *deduped.archived]
-                    )
-                )
-                create_task = tg.create_task(
-                    self.create(
-                        [
-                            *deduped.updated,
-                            *deduped.different,
-                            *deduped.contradict,
-                        ]
-                    )
-                )
+                update_task = tg.create_task(self.update_metadata(updated))
+                delete_task = tg.create_task(self.delete(deleted))
+                create_task = tg.create_task(self.create(created))
 
             return (
-                identical_task.result(),
-                supersede_task.result(),
+                update_task.result(),
+                delete_task.result(),
                 create_task.result(),
             )
         except Exception as e:
             self.logger.exception(f"MemoryService store failed: {e}")
             raise ValueError("Failed to store") from e
 
-    async def extract_candidate_memories(
+    async def extract_search_queries(
         self,
         context: str,
         *,
         known_memories: list[str] | None = None,
-    ) -> list[ExtractedMemory]:
-        prompt = memory_extraction_prompt(
+        document_id: str | None = None,
+    ) -> list[MemoryRetrievalQuery]:
+        prompt = memory_search_query_prompt(
             context=context,
             known_memories=known_memories,
+            document_id=document_id,
             now=datetime.now(timezone.utc),
         )
         try:
-            result: MemoryExtractionResult = (
+            result: MemorySearchQueryResult = (
                 await self.model.with_structured_output(
-                    MemoryExtractionResult
+                    MemorySearchQueryResult
                 ).ainvoke(prompt)
             )
         except Exception as e:
             if is_rate_limit_error(e):
-                self.logger.warning("Memory extraction rate limited")
+                self.logger.warning("Memory search query extraction rate limited")
             else:
-                self.logger.exception("Memory extraction failed")
+                self.logger.exception("Memory search query extraction failed")
             return []
 
-        self.logger.info("Extracted %s memory candidates", len(result.memories))
-        return result.memories
+        self.logger.info(
+            "Extracted %s memory search queries",
+            len(result.queries),
+        )
+        return result.queries
 
-    async def search_duplicates_for_candidates(
+    async def apply_trustcall(
         self,
         user_id: str,
-        candidates: list[Memory],
-    ) -> dict[str, list[Memory]]:
-        """Map each candidate id to its related active memories from vector search."""
-        if not candidates:
-            return {}
+        context: str,
+        existing: list[Memory],
+        *,
+        document_id: str | None = None,
+    ) -> tuple[list[Memory], list[Memory], list[Memory]]:
+        """Run trustcall over existing memories; return (updated, created, deleted)."""
+        now = datetime.now(timezone.utc)
+        prompt = memory_trustcall_prompt(
+            context=context,
+            existing=existing,
+            document_id=document_id,
+            now=now,
+        )
+        existing_payload = [
+            (
+                memory.id,
+                _EXTRACTED_MEMORY_TOOL,
+                ExtractedMemory(
+                    content=memory.content,
+                    category=memory.category,
+                    expires_at=memory.expires_at,
+                    document_id=memory.document_id,
+                ).model_dump(mode="json"),
+            )
+            for memory in existing
+        ]
 
-        async with asyncio.TaskGroup() as tg:
-            tasks = [
-                tg.create_task(
-                    self.search_for_duplicates(
-                        MemoryDuplicateSearch(
-                            user_id=user_id,
-                            content=candidate.content,
-                            embedding=candidate.embedding,
-                            category=candidate.category,
-                        )
-                    )
-                )
-                for candidate in candidates
-            ]
-
-        return {
-            candidate.id: task.result()
-            for candidate, task in zip(candidates, tasks)
-        }
-
-    async def deduplicate(
-        self,
-        candidates: list[Memory],
-        related_by_candidate: dict[str, list[Memory]],
-    ) -> MemoryDeduplicationResult:
         try:
-            related_count = sum(
-                len(related) for related in related_by_candidate.values()
-            )
-            self.logger.info(
-                "MemoryService deduplicate start candidates=%s related=%s",
-                len(candidates),
-                related_count,
-            )
-            decision: MemoryDeduplicationDecision = (
-                await self.model.with_structured_output(
-                    MemoryDeduplicationDecision
-                ).ainvoke(
-                    memory_deduplication_prompt(
-                        candidates, related_by_candidate
-                    )
-                )
-            )
-
-            candidates_by_id = {memory.id: memory for memory in candidates}
-            existing_by_id: dict[str, Memory] = {}
-            for related in related_by_candidate.values():
-                for memory in related:
-                    existing_by_id[memory.id] = memory
-
-            now = datetime.now(timezone.utc)
-            identical: list[Memory] = []
-            for item in decision.identical:
-                if not item.verified:
-                    continue
-                memory = existing_by_id.get(item.existing_id)
-                if memory is None:
-                    continue
-                memory.confidence = min(1.0, memory.confidence + CONFIDENCE_BUMP)
-                memory.updated_at = now
-                identical.append(memory)
-
-            superseded: list[Memory] = []
-            updated: list[Memory] = []
-            for item in decision.updated:
-                old = existing_by_id.get(item.existing_id)
-                candidate = candidates_by_id.get(item.candidate_id)
-                if old is None or candidate is None:
-                    continue
-                old.status = "superseded"
-                old.valid_to = now
-                old.updated_at = now
-                superseded.append(old)
-
-                candidate.valid_from = now
-                updated.append(candidate)
-
-            different = [
-                candidates_by_id[item.candidate_id]
-                for item in decision.different
-                if item.candidate_id in candidates_by_id
-            ]
-
-            archived: list[Memory] = []
-            contradict: list[Memory] = []
-            for item in decision.contradict:
-                old = existing_by_id.get(item.existing_id)
-                candidate = candidates_by_id.get(item.candidate_id)
-                if old is None or candidate is None:
-                    continue
-                old.status = "archived"
-                old.valid_to = now
-                old.updated_at = now
-                archived.append(old)
-                contradict.append(candidate)
-
-            self.logger.info(
-                "MemoryService deduplicate done identical=%s superseded=%s "
-                "archived=%s updated=%s different=%s contradict=%s",
-                len(identical),
-                len(superseded),
-                len(archived),
-                len(updated),
-                len(different),
-                len(contradict),
-            )
-            return MemoryDeduplicationResult(
-                identical=identical,
-                superseded=superseded,
-                archived=archived,
-                updated=updated,
-                different=different,
-                contradict=contradict,
+            result = await self._extractor.ainvoke(
+                {
+                    "messages": [{"role": "user", "content": prompt}],
+                    "existing": existing_payload or None,
+                }
             )
         except Exception as e:
             if is_rate_limit_error(e):
-                self.logger.warning("MemoryService deduplicate rate limited")
+                self.logger.warning("Memory trustcall rate limited")
             else:
-                self.logger.exception(f"MemoryService deduplicate failed: {e}")
-            raise ValueError("Failed to deduplicate") from e
+                self.logger.exception("Memory trustcall failed")
+            raise ValueError("Failed to apply trustcall") from e
 
-    async def search_for_duplicates(
-        self, search: MemoryDuplicateSearch
-    ) -> list[Memory]:
-        try:
-            self.logger.info(
-                "MemoryService search_for_duplicates start user_id=%s "
-                "category=%s",
-                search.user_id,
-                search.category,
+        existing_by_id = {memory.id: memory for memory in existing}
+        updated: list[Memory] = []
+        created_extracted: list[ExtractedMemory] = []
+        deleted: list[Memory] = []
+
+        for response, meta in zip(
+            result.get("responses") or [],
+            result.get("response_metadata") or [],
+        ):
+            # Delete trustcall responses only carry json_doc_id.
+            if not hasattr(response, "content"):
+                doc_id = getattr(response, "json_doc_id", None)
+                memory = existing_by_id.get(doc_id) if doc_id else None
+                if memory is None:
+                    continue
+                deleted.append(memory)
+                continue
+
+            extracted = (
+                response
+                if isinstance(response, ExtractedMemory)
+                else ExtractedMemory.model_validate(response)
             )
-            results = await self.repository.search_for_duplicates(search)
-            self.logger.info(
-                "MemoryService search_for_duplicates done results=%s",
-                len(results),
+            json_doc_id = meta.get("json_doc_id")
+            if json_doc_id and json_doc_id in existing_by_id:
+                memory = existing_by_id[json_doc_id]
+                memory.content = extracted.content
+                memory.category = extracted.category
+                memory.expires_at = extracted.expires_at
+                memory.document_id = _resolve_document_id(extracted)
+                memory.updated_at = now
+                updated.append(memory)
+            else:
+                created_extracted.append(extracted)
+
+        if updated:
+            embeddings = await self._embed_contents(
+                [memory.content for memory in updated]
             )
-            return results
-        except Exception as e:
-            self.logger.exception(f"MemoryService search_for_duplicates failed: {e}")
-            raise ValueError("Failed to search for duplicates") from e
+            for memory, embedding in zip(updated, embeddings):
+                memory.embedding = embedding
+
+        created = await self._to_memories(user_id, created_extracted)
+
+        self.logger.info(
+            "MemoryService trustcall done updated=%s created=%s deleted=%s",
+            len(updated),
+            len(created),
+            len(deleted),
+        )
+        return updated, created, deleted
 
     async def create(self, memories: list[Memory]) -> tuple[int, int]:
         try:
@@ -355,12 +299,6 @@ class MemoryService:
             self.logger.exception(f"MemoryService create failed: {e}")
             raise ValueError("Failed to create") from e
 
-    async def consolidate(self):
-        pass
-
-    async def reflect(self):
-        pass
-
     async def update_metadata(self, memories: list[Memory]) -> tuple[int, int]:
         try:
             if not memories:
@@ -378,24 +316,6 @@ class MemoryService:
             self.logger.exception(f"MemoryService update_metadata failed: {e}")
             raise ValueError("Failed to update metadata") from e
 
-    async def forget(self, memories: list[Memory]) -> tuple[int, int]:
-        try:
-            if not memories:
-                return 0, 0
-            self.logger.info(
-                "MemoryService forget start memories=%s",
-                len(memories),
-            )
-            for memory in memories:
-                memory.status = "archived"
-            success, failed = await self.update_metadata(memories)
-            self.logger.info(
-                "MemoryService forget done success=%s failed=%s",
-                success, failed)
-            return success, failed
-        except Exception as e:
-            self.logger.exception(f"MemoryService forget failed: {e}")
-            raise ValueError("Failed to forget") from e
 
     async def delete(self, memories: list[Memory]) -> tuple[int, int]:
         try:
@@ -439,7 +359,6 @@ class MemoryService:
         embeddings = await self._embed_contents(
             [candidate.content for candidate in candidates]
         )
-        now = datetime.now(timezone.utc)
         return [
             Memory(
                 id=str(uuid.uuid4()),
@@ -447,11 +366,14 @@ class MemoryService:
                 content=candidate.content,
                 embedding=embedding,
                 category=candidate.category,
-                importance=candidate.importance,
-                confidence=candidate.confidence,
-                source="conversation",
-                valid_from=now,
                 expires_at=candidate.expires_at,
+                document_id=_resolve_document_id(candidate),
             )
             for candidate, embedding in zip(candidates, embeddings)
         ]
+
+
+def _resolve_document_id(extracted: ExtractedMemory) -> str | None:
+    if extracted.category not in DOCUMENT_SCOPED_CATEGORIES:
+        return None
+    return extracted.document_id

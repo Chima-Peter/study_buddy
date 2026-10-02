@@ -707,7 +707,7 @@ class Container(containers.DeclarativeContainer):
         ChatGoogleGenerativeAI,
         model=settings.provided.summarizer_model_name,
         temperature=0.2,
-        max_tokens=1024,
+        max_tokens=4096,
         max_retries=3,
         google_api_key=settings.provided.google_api_key,
     )
@@ -716,7 +716,7 @@ class Container(containers.DeclarativeContainer):
         ChatGoogleGenerativeAI,
         model=settings.provided.query_model_name,
         temperature=0.2,
-        max_tokens=512,
+        max_tokens=1024,
         max_retries=3,
         google_api_key=settings.provided.google_api_key,
     )

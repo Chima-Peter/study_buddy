@@ -123,15 +123,22 @@ def rewrite_query_prompt(
 
     if retrieve_memory:
         parts.append(
-            "Set memory_query to ONE partial statement for the memory store.\n"
-            "Phrase like stored memories - start with 'The user'.\n"
-            "Combine needed aspects into a single phrase.\n"
-            "Good: 'The user is interested in and prefers'\n"
-            "Bad: 'What does the user like?' (question format won't match)\n"
+            "Set memory_queries to one or more memory retrieval intents.\n"
+            "Each item has:\n"
+            "- query: partial statement starting with 'The user'\n"
+            "- category: optional filter "
+            "(learning_preferences, academic_struggles, academic_progress, "
+            "tests_exams, user_personality); null to search all categories\n"
+            "Use multiple items when distinct aspects need separate searches.\n"
+            "Good query: 'The user prefers visual explanations'\n"
+            "Bad query: 'What does the user like?' (question format won't match)\n"
             "Do NOT include name/gender lookups - those come from profile.\n"
         )
     else:
-        parts.append("Set memory_query to null (memory retrieval disabled).\n")
+        parts.append(
+            "Set memory_queries to an empty list "
+            "(memory retrieval disabled).\n"
+        )
 
     parts.append(
         f"\nConversation summary: {conversation_summary or '(none)'}\n"

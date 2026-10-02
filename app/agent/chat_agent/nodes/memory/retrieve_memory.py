@@ -1,9 +1,11 @@
 import asyncio
 from logging import Logger
 
+from app.agent.chat_agent.schema import MemoryRetrieval
 from app.agent.chat_agent.state import AgentState
+from app.agent.chat_agent.utils import to_retrieval_query
 from app.system.user.repository import UserRepository
-from app.memory.schema import Memory, MemoryRetrievalQuery
+from app.memory.schema import DOCUMENT_SCOPED_CATEGORIES, Memory, MemoryRetrievalQuery
 from app.memory.service import MemoryService
 
 
@@ -22,25 +24,40 @@ class RetrieveMemoryNode:
         student_name = state.get("student_name")
         student_gender = state.get("student_gender")
         need_profile = not student_name or not student_gender
-        memory_query = (
-            state.get("memory_query")
+        memory_queries = (
+            [
+                item
+                if isinstance(item, MemoryRetrieval)
+                else MemoryRetrieval.model_validate(item)
+                for item in (state.get("memory_queries") or [])
+            ]
             if state.get("retrieve_memory")
-            else None
+            else []
         )
+        document_id = state.get("document_id")
 
-        if not memory_query and not need_profile:
+        if not memory_queries and not need_profile:
             self.logger.info(
                 "Retrieve memory node skipped user_id=%s reason=nothing_to_fetch",
                 state.get("user_id"),
             )
             return {"memories": []}
 
+        retrieval_queries = [
+            to_retrieval_query(item, document_id)
+            for item in memory_queries
+        ]
+
         self.logger.info(
-            "Retrieve memory node started user_id=%s has_query=%s "
-            "need_profile=%s",
+            "Retrieve memory node started user_id=%s queries=%s "
+            "need_profile=%s document_id=%s",
             state.get("user_id"),
-            bool(memory_query),
+            [
+                {"query": item.query, "category": item.category}
+                for item in memory_queries
+            ],
             need_profile,
+            document_id,
         )
 
         profile_task = None
@@ -50,11 +67,11 @@ class RetrieveMemoryNode:
                 profile_task = tg.create_task(
                     self.user_repository.get_by_id(state.get("user_id"))
                 )
-            if memory_query:
+            if retrieval_queries:
                 turn_task = tg.create_task(
                     self.memory_service.retrieve_for_queries(
                         state.get("user_id"),
-                        [MemoryRetrievalQuery(content=memory_query)],
+                        retrieval_queries,
                     )
                 )
 

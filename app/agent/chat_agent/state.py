@@ -1,5 +1,6 @@
 from langgraph.graph import MessagesState
 
+from app.agent.chat_agent.schema import MemoryRetrieval
 from app.core.elasticsearch_schema import FusedResult
 from app.memory.schema import Memory
 
@@ -24,7 +25,7 @@ class AgentState(MessagesState):
     retrieve_memory: bool
     is_academic_discussion: bool
 
-    memory_query: str | None
+    memory_queries: list[MemoryRetrieval]
     memories: list[Memory]
 
     student_name: str | None

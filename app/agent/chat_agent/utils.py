@@ -1,7 +1,9 @@
 import re
 
+from app.agent.chat_agent.schema import MemoryRetrieval
 from app.core.elasticsearch_schema import FusedResult, IndexedRecord
 from app.core.semantic_cache import CacheHit
+from app.memory.schema import DOCUMENT_SCOPED_CATEGORIES, MemoryRetrievalQuery
 from app.rag.schema import normalize_chapter_key
 
 _CH_ABBREV_RE = re.compile(
@@ -142,3 +144,19 @@ def cache_hit_to_fused(hit: CacheHit) -> FusedResult:
         ),
         score=max(0.0, 1.0 - hit.distance),
     )
+
+
+def to_retrieval_query(
+        item: MemoryRetrieval,
+        document_id: str | None,
+    ) -> MemoryRetrievalQuery:
+        scoped_document_id = (
+            document_id
+            if item.category in DOCUMENT_SCOPED_CATEGORIES
+            else None
+        )
+        return MemoryRetrievalQuery(
+            content=item.query,
+            category=item.category,
+            document_id=scoped_document_id,
+        )

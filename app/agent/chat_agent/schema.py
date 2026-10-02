@@ -2,6 +2,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.memory.schema import MEMORY_CATEGORY
+
 SUMMARY_EVERY = 10
 SUMMARY_MAX_CHARS = 1500
 
@@ -66,6 +68,26 @@ class DeciderResponse(BaseModel):
         return self
 
 
+class MemoryRetrieval(BaseModel):
+    """One memory search intent for chat retrieval."""
+
+    query: str = Field(
+        description=(
+            "Partial statement for the memory index, phrased like stored "
+            "memories starting with 'The user'. "
+            "Example: 'The user prefers visual explanations'."
+        ),
+    )
+    category: MEMORY_CATEGORY | None = Field(
+        default=None,
+        description=(
+            "Optional category filter: learning_preferences, "
+            "academic_struggles, academic_progress, tests_exams, or "
+            "user_personality. Null to search all categories."
+        ),
+    )
+
+
 class RewriteQueryResponse(BaseModel):
     """Structured rewrite for document and/or memory retrieval."""
 
@@ -97,13 +119,14 @@ class RewriteQueryResponse(BaseModel):
             "document retrieval is not needed."
         ),
     )
-    memory_query: str | None = Field(
-        default=None,
+    memory_queries: list[MemoryRetrieval] = Field(
+        default_factory=list,
         description=(
-            "One partial statement for the memory index, phrased like stored "
-            "memories starting with 'The user'. Combine needed aspects into "
-            "a single phrase, e.g. 'The user is interested in and prefers'. "
-            "Null when memory retrieval is not needed. "
+            "One or more memory retrieval intents. Each has a query "
+            "(partial statement starting with 'The user') and an optional "
+            "category. Use multiple entries when distinct aspects need "
+            "separate category-scoped searches. "
+            "Empty when memory retrieval is not needed. "
             "Do not include name/gender lookups; those come from profile."
         ),
     )

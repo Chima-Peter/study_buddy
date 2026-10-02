@@ -1,49 +1,115 @@
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
-
-CONFIDENCE_BUMP = 0.001
-IMPORTANCE_BUMP = 0.001
+from pydantic import BaseModel, Field, model_validator
 
 MEMORY_INDEX = "user_memories"
-DUPLICATE_TOP_K = 10
-DUPLICATE_MIN_SCORE = 0.5
 SEARCH_TOP_K = 10
 
-MEMORY_CATEGORY = Literal["personal", "study"]
-
-# Map legacy categories so existing Elasticsearch docs still load.
-_LEGACY_CATEGORY_MAP = {
-    "academic": "study",
-    "learning": "study",
-}
-
-CATEGORY_DESCRIPTIONS: dict[MEMORY_CATEGORY, str] = {
-    "personal": (
-        "Everything OUTSIDE school/studying: gender, work schedule, "
-        "job, hobbies, family, life goals, constraints, other people's names. "
-        "Never the user's own name (that's on their profile)."
-    ),
-    "study": (
-        "Everything ABOUT school/studying: topics, interests, courses, "
-        "exams, resources, strengths, weaknesses, learning style, pace, "
-        "study schedule, how they want material explained."
-    ),
-}
-
-MEMORY_STATUS = Literal[
-    "active", "candidate", "superseded", "expired", "archived"
+MEMORY_CATEGORY = Literal[
+    "learning_preferences",
+    "academic_struggles",
+    "academic_progress",
+    "tests_exams",
+    "user_personality",
 ]
 
-MEMORY_SOURCE = Literal["conversation", "inference"]
+CATEGORY_DESCRIPTIONS: dict[MEMORY_CATEGORY, str] = {
+    "learning_preferences": (
+        "How the user prefers to learn or study. "
+        "Includes preferred explanation style, pace, format "
+        "(examples, visuals, step-by-step), study habits, and "
+        "scheduling preferences for studying. "
+        "Examples: 'The user prefers step-by-step explanations.', "
+        "'The user prefers learning with practical examples.', "
+        "'The user prefers studying for two hours per day.' "
+        "Do NOT use for a specific academic topic the user is "
+        "struggling with or making progress on."
+    ),
+    "academic_struggles": (
+        "Academic topics, concepts, or skills that the user finds "
+        "difficult, does not understand, confuses, or needs extra "
+        "help with. "
+        "Examples: 'The user struggles with recursion.', "
+        "'The user finds dynamic programming difficult.', "
+        "'The user is confused about normalization in databases.' "
+        "Use for an ongoing difficulty, not simply because the user "
+        "asks a question about a topic."
+    ),
+    "academic_progress": (
+        "The user's academic progress, status, or milestones. "
+        "Includes topics started, currently studying, or finished; "
+        "skills mastered; courses or units completed; academic "
+        "milestones. "
+        "Examples: 'The user is currently studying binary trees.', "
+        "'The user has finished studying binary trees.', "
+        "'The user understands recursion after previously struggling "
+        "with it.', "
+        "'The user has completed the database systems course.' "
+        "When new information updates progress on an existing topic, "
+        "PATCH the existing memory rather than creating a duplicate."
+    ),
+    "tests_exams": (
+        "Specific tests, examinations, or exam-related milestones. "
+        "Includes upcoming or past tests/exams, preparation status, "
+        "scores, deadlines, exam-related goals, and explicit "
+        "exam-related concerns. "
+        "Examples: 'The user is preparing for the IELTS exam.', "
+        "'The user has completed the IELTS exam.', "
+        "'The user scored 8.0 in IELTS.', "
+        "'The user's exam is scheduled for July 14.' "
+        "Use for the exam itself and its associated status. "
+        "General academic progress stays in academic_progress."
+    ),
+    "user_personality": (
+        "Durable information about the user outside pure academic "
+        "learning. "
+        "Includes interests, personality traits explicitly described "
+        "by the user, motivation, work or life context, constraints, "
+        "hobbies, family-related information when relevant, and other "
+        "people's names when relevant. "
+        "Examples: 'The user is interested in fintech.', "
+        "'The user prefers backend engineering roles.', "
+        "'The user works remotely.', "
+        "'The user's brother is studying medicine.' "
+        "Never store the user's own name (already on their profile)."
+    ),
+}
+
+CATEGORY_SELECTION_RULES = """
+When multiple categories seem possible, classify by the primary meaning:
+- How the user wants to learn → learning_preferences
+- What the user finds difficult → academic_struggles
+- What the user has started, completed, or mastered → academic_progress
+- A specific test or exam and its status → tests_exams
+- Other durable information about the user → user_personality
+
+Do not create multiple memories for the same fact just because it could
+relate to multiple categories. Examples:
+- "The user struggles with recursion." → academic_struggles
+- "The user finally understands recursion." → academic_progress
+- "The user prefers recursion to be explained with diagrams."
+  → learning_preferences
+- "The user is preparing for a recursion exam." → tests_exams
+- "The user enjoys studying computer science." → user_personality
+""".strip()
+
+
+DOCUMENT_SCOPED_CATEGORIES: frozenset[MEMORY_CATEGORY] = frozenset(
+    {
+        "learning_preferences",
+        "academic_progress",
+        "tests_exams",
+    }
+)
 
 
 def taxonomy_description() -> str:
-    return "\n".join(
+    categories = "\n".join(
         f"- {category}: {description}"
         for category, description in CATEGORY_DESCRIPTIONS.items()
     )
+    return f"{categories}\n\n{CATEGORY_SELECTION_RULES}"
 
 
 class ExtractedMemory(BaseModel):
@@ -62,68 +128,41 @@ class ExtractedMemory(BaseModel):
     )
     category: MEMORY_CATEGORY = Field(
         description=(
-            "personal = everything OUTSIDE school/studying; "
-            "study = everything ABOUT school/studying."
-        ),
-    )
-
-    @field_validator("category", mode="before")
-    @classmethod
-    def coerce_legacy_category(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            return _LEGACY_CATEGORY_MAP.get(value, value)
-        return value
-
-    importance: float = Field(
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Importance of this memory for future tutoring (0-1): high for "
-            "core profile/goals/constraints; medium for useful preferences "
-            "or habits; low for minor details."
-        ),
-    )
-    confidence: float = Field(
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Confidence that this fact is true (0-1): high for explicit clear "
-            "statements; medium for strong implications; low for tentative "
-            "or ambiguous wording."
+            "Pick exactly one. "
+            "learning_preferences = how they prefer to learn/study; "
+            "academic_struggles = ongoing difficulty with a topic/skill; "
+            "academic_progress = started/studying/finished/mastered; "
+            "tests_exams = a specific test/exam and its status; "
+            "user_personality = durable non-academic facts about the user."
         ),
     )
     expires_at: datetime | None = Field(
         default=None,
         description=(
-            "UTC expiry datetime for temporary memories when the student "
-            "gives a time bound (e.g. next week, next month, tomorrow). "
-            "Null for durable memories with no expiry."
+            "Absolute UTC expiry datetime for temporary memories when the "
+            "student gives a time bound. Resolve relative or calendar phrases "
+            "against the prompt's reference time "
+            "(e.g. 'tomorrow', 'next week', '14th of July' → a concrete "
+            "UTC ISO datetime). Null for durable memories with no expiry."
         ),
     )
-
-
-class MemoryExtractionResult(BaseModel):
-    """Structured LLM output for memory extraction."""
-
-    memories: list[ExtractedMemory] = Field(
-        default_factory=list,
+    document_id: str | None = Field(
+        default=None,
         description=(
-            "Durable memories extracted from the conversation. "
-            "Return an empty list when nothing worth storing was said."
+            "Optional document this fact is about. Only for "
+            "learning_preferences, academic_progress, or tests_exams. "
+            "Null for global facts or other categories."
         ),
     )
 
-
-class MemoryExtractRequest(BaseModel):
-    """RabbitMQ payload for async LLM memory extraction."""
-
-    user_id: str
-    context: str
-    conversation_id: str | None = None
-    known_memories: list[str] = Field(
-        default_factory=list,
-        description="Facts already retrieved/known this turn; do not re-extract.",
-    )
+    @model_validator(mode="after")
+    def check_document_scope(self) -> "ExtractedMemory":
+        if (
+            self.document_id is not None
+            and self.category not in DOCUMENT_SCOPED_CATEGORIES
+        ):
+            self.document_id = None
+        return self
 
 
 class MemoryRetrievalQuery(BaseModel):
@@ -136,85 +175,56 @@ class MemoryRetrievalQuery(BaseModel):
             "Example: 'The user is interested in and prefers'."
         ),
     )
+    category: MEMORY_CATEGORY | None = Field(
+        default=None,
+        description=(
+            "Optional category filter for this search. "
+            "learning_preferences, academic_struggles, academic_progress, "
+            "tests_exams, or user_personality. Null to search all categories."
+        ),
+    )
+    document_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional document filter. Only meaningful for "
+            "learning_preferences, academic_progress, or tests_exams. "
+            "Null to include memories not scoped to a document."
+        ),
+    )
+
+
+class MemorySearchQueryResult(BaseModel):
+    """Structured LLM output for memory search-query generation."""
+
+    queries: list[MemoryRetrievalQuery] = Field(
+        default_factory=list,
+        description=(
+            "Search queries for finding existing memories related to new "
+            "facts in the conversation. Return an empty list when nothing "
+            "memory-worthy was said."
+        ),
+    )
+
+
+class MemoryExtractRequest(BaseModel):
+    """RabbitMQ payload for async LLM memory extraction."""
+
+    user_id: str
+    context: str
+    conversation_id: str | None = None
+    document_id: str | None = None
+    known_memories: list[str] = Field(
+        default_factory=list,
+        description="Facts already retrieved this turn; used for search queries only.",
+    )
 
 
 class MemorySearch(BaseModel):
     user_id: str
     content: str
     embedding: list[float]
-    status: MEMORY_STATUS = "active"
-
-
-class MemoryDuplicateSearch(BaseModel):
-    user_id: str
-    content: str
-    embedding: list[float]
-    category: MEMORY_CATEGORY
-
-
-class IdenticalDecision(BaseModel):
-    candidate_id: str = Field(description="ID of the candidate memory.")
-    existing_id: str = Field(description="ID of the matching existing memory.")
-    verified: bool = Field(
-        description=(
-            "True only after you verify both memories state the same fact. "
-            "If not verified, do not list this pair under identical."
-        ),
-    )
-
-
-class UpdatedDecision(BaseModel):
-    candidate_id: str = Field(
-        description="ID of the candidate memory that will be stored.",
-    )
-    existing_id: str = Field(
-        description="ID of the existing memory that will be superseded.",
-    )
-
-
-class DifferentDecision(BaseModel):
-    candidate_id: str = Field(
-        description="ID of a candidate that can coexist with existing memories.",
-    )
-
-
-class ContradictDecision(BaseModel):
-    candidate_id: str = Field(description="ID of the candidate memory.")
-    existing_id: str = Field(
-        description="ID of the existing memory it contradicts.",
-    )
-
-
-class MemoryDeduplicationDecision(BaseModel):
-    """Structured LLM output for memory deduplication."""
-
-    identical: list[IdenticalDecision] = Field(
-        default_factory=list,
-        description=(
-            "Candidate and existing state the same fact. Keep existing; "
-            "system will raise its confidence slightly when verified is true."
-        ),
-    )
-    updated: list[UpdatedDecision] = Field(
-        default_factory=list,
-        description=(
-            "Candidate revises an existing memory. The existing memory will be "
-            "superseded; the candidate will be stored."
-        ),
-    )
-    different: list[DifferentDecision] = Field(
-        default_factory=list,
-        description=(
-            "Candidate is a distinct fact that can coexist; store the candidate."
-        ),
-    )
-    contradict: list[ContradictDecision] = Field(
-        default_factory=list,
-        description=(
-            "Candidate conflicts with an existing memory. Existing will be "
-            "archived; the candidate will be stored as the new fact."
-        ),
-    )
+    category: MEMORY_CATEGORY | None = None
+    document_id: str | None = None
 
 
 class Memory(BaseModel):
@@ -223,40 +233,19 @@ class Memory(BaseModel):
     content: str
     embedding: list[float]
     category: MEMORY_CATEGORY
-    status: MEMORY_STATUS = "active"
-    importance: float
-    confidence: float
-    usage_count: int = 0
-    last_used_at: datetime | None = None
-    source: MEMORY_SOURCE
+    document_id: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime | None = None
     expires_at: datetime | None = None
-    valid_from: datetime | None = None
-    valid_to: datetime | None = None
 
-    @field_validator("category", mode="before")
-    @classmethod
-    def coerce_legacy_category(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            return _LEGACY_CATEGORY_MAP.get(value, value)
-        return value
 
     @model_validator(mode="after")
-    def check_validity_window(self) -> "Memory":
+    def check_document_scope(self) -> "Memory":
         if (
-            self.valid_from is not None
-            and self.valid_to is not None
-            and self.valid_from > self.valid_to
+            self.document_id is not None
+            and self.category not in DOCUMENT_SCOPED_CATEGORIES
         ):
-            raise ValueError("valid_from must be before or equal to valid_to")
+            self.document_id = None
         return self
 
 
-class MemoryDeduplicationResult(BaseModel):
-    identical: list[Memory]
-    superseded: list[Memory]
-    archived: list[Memory]
-    updated: list[Memory]
-    different: list[Memory]
-    contradict: list[Memory]
