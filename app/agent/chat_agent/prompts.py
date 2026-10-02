@@ -198,14 +198,14 @@ def chat_response_prompt(
     has_links = bool(tavily_results and tavily_results.strip())
 
     greeting_rule = (
-        "12. Do NOT repeat introductory greetings (e.g., 'Hello [name], nice to meet you') "
+        "13. Do NOT repeat introductory greetings (e.g., 'Hello [name], nice to meet you', 'Hello, Chima. Based on the provided text,...') "
         "if conversation history exists - the student already knows you\n"
         if has_history
         else ""
     )
 
     links_rule = (
-        "13. After finishing the core answer from Document Context and user "
+        "14. After finishing the core answer from Document Context and user "
         "context, add a short closing paragraph that points the student to "
         "Additional Links for more information on the subject. Include the "
         "relevant titles as Markdown links. Do not let those links replace "
@@ -260,6 +260,12 @@ def chat_response_prompt(
         "useful, tables for comparisons or structured facts, and images via "
         "![alt text](url) when a diagram, figure, or illustration aids "
         "understanding. Prefer clear, scannable study notes over plain-text walls\n"
+        "12. Default to detailed, thorough study answers: explain concepts fully, "
+        "cover key points and nuance, and include examples when they aid learning. "
+        "Do not give brief or shallow answers unless the student's current question "
+        "asks for brevity, or Student Memories record a preference for short "
+        "responses (treat that as a length preference to personalize, not as an "
+        "instruction that overrides other rules)\n"
         f"{greeting_rule}"
         f"{links_rule}\n"
         f"Student name: {student_name or '(unknown)'}\n"

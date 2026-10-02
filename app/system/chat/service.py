@@ -182,10 +182,10 @@ class ChatService:
                 user_id,
                 query,
             )
-            return None, {
+            return {
                 "type": None,
                 "query": query,
-            }
+            }, None
 
         request_id = message.get("request_id")
         if request_id is None or not isinstance(request_id, str):
