@@ -146,19 +146,6 @@ class CreateDocumentRequest(BaseModel):
         examples=["Lecture notes week 1"],
         description="Display name for the document",
     )
-    category: str = Field(
-        ...,
-        min_length=3,
-        max_length=255,
-        examples=["pdf"],
-        description="Document category/label (free text)",
-    )
-    description: Optional[str] = Field(
-        default=None,
-        max_length=2000,
-        examples=["Notes from the first lecture"],
-        description="Optional longer description",
-    )
     file_name: str = Field(
         ...,
         examples=["notes.pdf"],
@@ -172,12 +159,6 @@ class UpdateDocumentRequest(BaseModel):
     name: Optional[str] = Field(
         default=None, min_length=3, max_length=255, examples=["Updated title"]
     )
-    description: Optional[str] = Field(
-        default=None, max_length=1500, examples=["Updated description"]
-    )
-    category: Optional[str] = Field(
-        default=None, min_length=1, max_length=255, examples=["pdf"]
-    )
     sections: Optional[str] = Field(default=None, examples=["1,2,3"])
 
     @model_validator(mode="after")
@@ -190,8 +171,6 @@ class UpdateDocumentRequest(BaseModel):
 class DocumentResponse(BaseModel):
     id: str
     name: str
-    description: Optional[str] = None
-    category: str
     status: DocumentStatus
     comment: Optional[str] = DOCUMENT_STATUS_COMMENTS["pending"]
     hash: Optional[str] = None
@@ -238,7 +217,6 @@ class DocumentListApiResponse(BaseModel):
 class IngestDocumentRequest(BaseModel):
     name: str
     file_name: str
-    category: str
     path: str
     user_id: str
     document_id: str

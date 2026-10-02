@@ -154,7 +154,6 @@ class DocumentService:
         limit: int = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
         status: DocumentStatus | None = None,
-        category: str | None = None,
         name: str | None = None,
         created_after: datetime | None = None,
         created_before: datetime | None = None,
@@ -164,7 +163,6 @@ class DocumentService:
             limit=limit,
             cursor=cursor,
             status=status,
-            category=category,
             name=name,
             created_after=created_after,
             created_before=created_before,
@@ -374,7 +372,6 @@ class DocumentService:
         ingest_payload = IngestDocumentRequest(
             name=document.name,
             file_name=file_name,
-            category=document.category,
             path=document.path,
             user_id=user_id,
             document_id=document.id,

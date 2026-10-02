@@ -12,7 +12,6 @@ class DocumentMetadata(TypedDict, total=False):
     chunk_index: int
     page: int
     source: str
-    category: str
     name: str
     chapter: str
     chapter_key: str

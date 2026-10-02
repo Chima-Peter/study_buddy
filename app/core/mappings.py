@@ -12,7 +12,6 @@ DOCUMENTS_INDEX_MAPPINGS = {
                 "id": {"type": "keyword"},
                 "page": {"type": "integer"},
                 "source": {"type": "keyword"},
-                "category": {"type": "keyword"},
                 "name": {"type": "keyword"},
                 "chapter": {"type": "keyword"},
                 "chapter_key": {"type": "keyword"},

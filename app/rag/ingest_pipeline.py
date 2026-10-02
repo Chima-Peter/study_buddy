@@ -357,7 +357,6 @@ class IngestPipeline:
                 doc.metadata["source"] = payload.file_name
                 if page is not None:
                     doc.metadata["page"] = page
-                doc.metadata["category"] = payload.category
                 doc.metadata["name"] = payload.name
                 doc.metadata["user_id"] = payload.user_id
                 doc.metadata["document_id"] = payload.document_id

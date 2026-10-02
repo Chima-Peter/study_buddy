@@ -21,8 +21,6 @@ from app.system.document.schema import (
 class DocumentModel(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid_utils.uuid7()))
     name: str = Field(min_length=3, max_length=255)
-    description: Optional[str] = Field(max_length=2000, default="")
-    category: str = Field(min_length=3, max_length=255)
     user_id: str = Field(min_length=36, max_length=36)
     hash: Optional[str] = Field(max_length=255, default="")
     sections: Optional[str] = Field(default="")
@@ -54,8 +52,6 @@ class DocumentModel(BaseModel):
         return {
             "id": self.id,
             "name": self.name,
-            "description": self.description,
-            "category": self.category,
             "user_id": self.user_id,
             "hash": document_hash,
             "path": self.path,
@@ -69,10 +65,6 @@ class DocumentModel(BaseModel):
     def update_from_request(self, request: UpdateDocumentRequest) -> None:
         if request.name is not None:
             self.name = request.name
-        if request.description is not None:
-            self.description = request.description
-        if request.category is not None:
-            self.category = request.category
         if request.sections is not None:
             self.sections = request.sections
         self.updated_at = datetime.now(timezone.utc)
@@ -86,8 +78,6 @@ class DocumentModel(BaseModel):
     ) -> "DocumentModel":
         return cls(
             name=request.name,
-            description=request.description,
-            category=request.category,
             user_id=user_id,
             file_name=request.file_name,
             path=path,
@@ -99,8 +89,6 @@ class DocumentModel(BaseModel):
         return DocumentResponse(
             id=self.id,
             name=self.name,
-            description=self.description,
-            category=self.category,
             status=self.status,
             comment=self.comment,
             hash=self.hash,
@@ -119,9 +107,6 @@ class DocumentDBModel(Base):
 
     id: Mapped[str] = mapped_column(sa.UUID, primary_key=True)
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(
-        sa.String(), nullable=True)
-    category: Mapped[str] = mapped_column(sa.String(255), nullable=False)
     user_id: Mapped[str] = mapped_column(
         sa.UUID,
         ForeignKey("users.id"),
@@ -162,8 +147,6 @@ class DocumentDBModel(Base):
         return {
             "id": str(self.id),
             "name": self.name,
-            "description": self.description,
-            "category": self.category,
             "hash": self.hash,
             "sections": self.sections,
             "path": str(self.path),

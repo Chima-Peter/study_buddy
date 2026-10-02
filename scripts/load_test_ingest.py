@@ -850,8 +850,6 @@ def run_case(
         headers=auth,
         data={
             "name": doc_name,
-            "category": "load_test",
-            "description": f"load test {case.kind} {_human_size(case.target_bytes)}",
             "file_name": case.path.name,
         },
     )

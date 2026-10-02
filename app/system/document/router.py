@@ -340,10 +340,6 @@ async def list_documents(
         DocumentStatus | None,
         Query(alias="status", description="Filter by document status"),
     ] = None,
-    category: Annotated[
-        str | None,
-        Query(min_length=1, max_length=255, description="Filter by exact category"),
-    ] = None,
     name: Annotated[
         str | None,
         Query(min_length=1, max_length=255, description="Filter by name (partial match)"),
@@ -374,7 +370,6 @@ async def list_documents(
             limit=limit,
             cursor=cursor,
             status=status_filter,
-            category=category,
             name=name,
             created_after=created_after,
             created_before=created_before,
@@ -450,7 +445,7 @@ async def get_document(
     response_model=DocumentApiResponse,
     summary="Update document metadata",
     description=(
-        "Partial update of document name, description, category, and/or sections. "
+        "Partial update of document name and/or sections. "
         "Only provided fields are changed."
     ),
 )

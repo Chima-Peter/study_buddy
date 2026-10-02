@@ -518,11 +518,6 @@ def upload_and_ingest(
         headers=auth,
         data={
             "name": "History of Large Language Models",
-            "category": "history",
-            "description": (
-                "Five-chapter deep survey of LLM history: precursors, "
-                "statistical NLP, sequence models, Transformers, and alignment."
-            ),
             "file_name": pdf_path.name,
         },
     )

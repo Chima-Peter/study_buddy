@@ -125,7 +125,6 @@ class DocumentRepository:
         limit: int = DEFAULT_LIST_LIMIT,
         cursor: str | None = None,
         status: DocumentStatus | None = None,
-        category: str | None = None,
         name: str | None = None,
         created_after: datetime | None = None,
         created_before: datetime | None = None,
@@ -136,8 +135,6 @@ class DocumentRepository:
             filters = [DocumentDBModel.user_id == user_id]
             if status is not None:
                 filters.append(DocumentDBModel.status == status)
-            if category is not None:
-                filters.append(DocumentDBModel.category == category)
             if name is not None:
                 filters.append(DocumentDBModel.name.ilike(f"%{name}%"))
             if created_after is not None:
@@ -180,10 +177,6 @@ class DocumentRepository:
             
             if document.name is not None:
                 db_document.name = document.name
-            if document.description is not None:
-                db_document.description = document.description
-            if document.category is not None:
-                db_document.category = document.category
             if document.status is not None:
                 db_document.status = document.status
             if document.comment is not None:
