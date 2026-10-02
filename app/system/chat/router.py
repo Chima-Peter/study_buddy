@@ -134,6 +134,11 @@ async def websocket_endpoint(
                         user_id=user.id,
                     )
                     if error or not payload:
+                        logger.error(
+                            "Invalid message user_id=%s error=%s",
+                            user.id,
+                            error,
+                        )
                         await out_queue.put({
                             "type": "chat.error",
                             "message": error or "Invalid message",
@@ -158,12 +163,18 @@ async def websocket_endpoint(
                     if query == "ping":
                         await out_queue.put({
                             "type": "heartbeat",
-                            "message": "Pong",
+                            "message": "pong",
                         })
+                        continue
+                    elif query == "pong":
                         continue
 
                     if conversation_id is None:
                         if message_type in ("queue.delete", "queue.edit"):
+                            logger.error(
+                                "conversation_id is required for queue operations user_id=%s",
+                                user.id,
+                            )
                             await out_queue.put({
                                 "type": "chat.error",
                                 "message": "conversation_id is required for queue operations",

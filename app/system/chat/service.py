@@ -176,11 +176,16 @@ class ChatService:
             return None, "Message is not a JSON object"
 
         query = message.get("query")
-        if query == "ping":
-            return {
+        if query in ("ping", "pong"):
+            self.logger.info(
+                "Heartbeat received user_id=%s query=%s",
+                user_id,
+                query,
+            )
+            return None, {
                 "type": None,
-                "query": "ping",
-            }, None
+                "query": query,
+            }
 
         request_id = message.get("request_id")
         if request_id is None or not isinstance(request_id, str):
