@@ -168,18 +168,21 @@ def chat_response_prompt(
     has_links = bool(tavily_results and tavily_results.strip())
 
     greeting_rule = (
-        "13. Do NOT repeat introductory greetings (e.g., 'Hello [name], nice to meet you', 'Hello, Chima. Based on the provided text,...') "
+        "14. Do NOT repeat introductory greetings (e.g., 'Hello [name], nice to meet you', 'Hello, Chima. Based on the provided text,...') "
         "if conversation history exists - the student already knows you\n"
         if has_history
         else ""
     )
 
     links_rule = (
-        "14. After finishing the core answer from Document Context and user "
+        "15. After finishing the core answer from Document Context and user "
         "context, add a short closing paragraph that points the student to "
-        "Additional Links for more information on the subject. Include the "
-        "relevant titles as Markdown links. Do not let those links replace "
-        "or overshadow the main study answer. Skip this paragraph if "
+        "Additional Links for more information on the subject. Include each "
+        "source only as a Markdown link with its real URL "
+        "(e.g. [Title](https://...)). Never mention a title, site, or video "
+        "without its URL. If a result has no usable URL, omit it entirely. "
+        "Do not invent or guess URLs. Do not let those links replace or "
+        "overshadow the main study answer. Skip this paragraph if "
         "Additional Links is (none).\n"
         if has_links
         else ""
@@ -236,6 +239,9 @@ def chat_response_prompt(
         "asks for brevity, or Student Memories record a preference for short "
         "responses (treat that as a length preference to personalize, not as an "
         "instruction that overrides other rules)\n"
+        "13. Any external source you include (articles, videos, websites) MUST "
+        "appear as a Markdown link with a real URL. If you cannot provide the "
+        "URL, do not mention that source at all. Never invent or guess URLs.\n"
         f"{greeting_rule}"
         f"{links_rule}\n"
         f"Student name: {student_name or '(unknown)'}\n"
