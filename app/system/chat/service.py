@@ -1206,7 +1206,9 @@ class ChatService:
         configurable: dict[str, Any] = {"thread_id": thread_id}
         if checkpointer_id:
             configurable["checkpoint_id"] = checkpointer_id
-        config = {"configurable": configurable}
+        config = {
+                "configurable": configurable,
+            }
         pending_done: dict[str, Any] | None = None
         latest_checkpointer_id: str | None = None
 

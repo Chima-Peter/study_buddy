@@ -2,6 +2,7 @@ from logging import Logger
 from typing import TYPE_CHECKING
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.config import get_stream_writer
 
 from app.agent.chat_agent.utils import (
     flatten_section_keys,
@@ -45,6 +46,11 @@ class RetrievalDeciderNode:
             user_id,
             is_first_message,
         )
+        get_stream_writer()({
+            "type": "chat.progress",
+            "message": "Understanding your question",
+            "conversation_id": conversation_id,
+        })
 
         if state.get("retry_count", 1) > 3:
             self.logger.warning(

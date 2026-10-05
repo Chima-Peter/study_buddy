@@ -1,6 +1,7 @@
 from logging import Logger
 
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langgraph.config import get_stream_writer
 from tavily import TavilyClient
 
 from app.agent.chat_agent.utils import format_history
@@ -30,6 +31,12 @@ class TavilyRetrieverNode:
         query = (state.get("query") or "").strip()
         if not query:
             return {"tavily_results": []}
+
+        get_stream_writer()({
+            "type": "chat.progress",
+            "message": "Searching for relevant web articles",
+            "conversation_id": state.get("conversation_id"),
+        })
 
         recent_history = format_history(
             state.get("messages"),

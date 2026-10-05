@@ -79,6 +79,11 @@ class GenerateResponseNode:
         )
 
         writer = get_stream_writer()
+        writer({
+            "type": "chat.progress",
+            "message": "Compiling final response",
+            "conversation_id": state.get("conversation_id"),
+        })
         answer = ""
         try:
             async for chunk in self.model.astream(prompt):

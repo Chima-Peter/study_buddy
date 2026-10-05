@@ -1,5 +1,7 @@
 from logging import Logger
 
+from langgraph.config import get_stream_writer
+
 from app.agent.chat_agent.state import AgentState
 from app.agent.chat_agent.utils import cache_hit_to_fused
 from app.core.embedding import EmbeddingManager
@@ -40,6 +42,11 @@ class RetrieveDocumentsNode:
             state.get("user_id"),
             state.get("chapter_keys"),
         )
+        get_stream_writer()({
+            "type": "chat.progress",
+            "message": "Scanning document for relevant context",
+            "conversation_id": state.get("conversation_id"),
+        })
 
         cache_embedding = self.embedding_manager.embed_query(cache_query)
         cache_embedding_list = cache_embedding.tolist()

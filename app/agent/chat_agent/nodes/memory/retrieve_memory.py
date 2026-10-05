@@ -1,6 +1,8 @@
 import asyncio
 from logging import Logger
 
+from langgraph.config import get_stream_writer
+
 from app.agent.chat_agent.schema import MemoryRetrieval
 from app.agent.chat_agent.state import AgentState
 from app.agent.chat_agent.utils import to_retrieval_query
@@ -59,6 +61,11 @@ class RetrieveMemoryNode:
             need_profile,
             document_id,
         )
+        get_stream_writer()({
+            "type": "chat.progress",
+            "message": "Recalling what I know about you",
+            "conversation_id": state.get("conversation_id"),
+        })
 
         profile_task = None
         turn_task = None
