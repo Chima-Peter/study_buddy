@@ -7,7 +7,7 @@ from langgraph.config import get_stream_writer
 from app.agent.chat_agent.prompts import chat_response_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY
 from app.agent.chat_agent.state import AgentState
-from app.agent.chat_agent.utils import format_history, format_rag_context
+from app.agent.chat_agent.utils import format_history, format_rag_context, pick_progress
 from app.utils.llm import is_rate_limit_error
 
 
@@ -46,13 +46,14 @@ class GenerateResponseNode:
         else:
             memories_text = ""
 
-        if state.get("retrieve_conversation_history"):
+        answer_from_history = bool(state.get("answer_from_history"))
+        if state.get("retrieve_conversation_history") or answer_from_history:
             history_text = format_history(messages, limit=SUMMARY_EVERY)
         else:
             history_text = ""
 
         tavily_hits = state.get("tavily_results") or []
-        if tavily_hits:
+        if tavily_hits and not answer_from_history:
             link_lines: list[str] = []
             for hit in tavily_hits[:5]:
                 if not isinstance(hit, dict):
@@ -76,12 +77,15 @@ class GenerateResponseNode:
             student_name=state.get("student_name"),
             student_gender=state.get("student_gender"),
             tavily_results=tavily_text,
+            answer_from_history=answer_from_history,
         )
 
         writer = get_stream_writer()
         writer({
             "type": "chat.progress",
-            "message": "Compiling final response",
+            "message": pick_progress(
+                "generate_history" if answer_from_history else "generate"
+            ),
             "conversation_id": state.get("conversation_id"),
         })
         answer = ""

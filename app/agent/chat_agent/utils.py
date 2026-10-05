@@ -1,3 +1,4 @@
+import random
 import re
 
 from app.agent.chat_agent.schema import MemoryRetrieval
@@ -160,3 +161,57 @@ def to_retrieval_query(
             category=item.category,
             document_id=scoped_document_id,
         )
+
+
+_PROGRESS_MESSAGES = {
+    "decider": (
+        "Understanding your question",
+        "Reading your question carefully",
+        "Figuring out what you need",
+        "Parsing the question",
+        "Getting oriented on this question",
+        "Checking how this fits the conversation",
+    ),
+    "documents": (
+        "Scanning the document for relevant context",
+        "Looking through your study material",
+        "Pulling the most useful passages",
+        "Searching the notes for a match",
+        "Finding the sections that apply",
+        "Gathering context from the document",
+    ),
+    "memory": (
+        "Recalling what I know about you",
+        "Checking your study preferences",
+        "Looking up what has helped you before",
+        "Refreshing what I remember about you",
+        "Pulling in your learning context",
+    ),
+    "tavily": (
+        "Searching for relevant web articles",
+        "Looking up extra readings and videos",
+        "Finding useful links on this topic",
+        "Checking the web for supporting material",
+        "Gathering articles and YouTube resources",
+    ),
+    "generate": (
+        "Compiling the final response",
+        "Putting the answer together",
+        "Writing this up for you",
+        "Drafting a clear explanation",
+        "Turning the notes into an answer",
+        "Shaping the response",
+    ),
+    "generate_history": (
+        "Reusing the earlier answer",
+        "Pulling from what we already covered",
+        "Restating the previous explanation",
+        "Checking the last answer on this",
+        "Bringing back the prior response",
+    ),
+}
+
+
+def pick_progress(stage: str) -> str:
+    options = _PROGRESS_MESSAGES.get(stage) or _PROGRESS_MESSAGES["decider"]
+    return random.choice(options)

@@ -5,7 +5,7 @@ from langgraph.config import get_stream_writer
 
 from app.agent.chat_agent.schema import MemoryRetrieval
 from app.agent.chat_agent.state import AgentState
-from app.agent.chat_agent.utils import to_retrieval_query
+from app.agent.chat_agent.utils import to_retrieval_query, pick_progress
 from app.system.user.repository import UserRepository
 from app.memory.schema import DOCUMENT_SCOPED_CATEGORIES, Memory, MemoryRetrievalQuery
 from app.memory.service import MemoryService
@@ -63,7 +63,7 @@ class RetrieveMemoryNode:
         )
         get_stream_writer()({
             "type": "chat.progress",
-            "message": "Recalling what I know about you",
+            "message": pick_progress("memory"),
             "conversation_id": state.get("conversation_id"),
         })
 

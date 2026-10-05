@@ -13,9 +13,10 @@ class EndDiscussionNode:
 
     async def __call__(self, state: AgentState) -> AgentState:
         self.logger.info(
-            "End discussion node started id=%s user_id=%s",
+            "End discussion node started id=%s user_id=%s academic=%s",
             state.get("conversation_id"),
             state.get("user_id"),
+            state.get("is_academic_discussion"),
         )
 
         if state.get("retry_count", 1) > 3:

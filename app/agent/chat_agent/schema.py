@@ -41,11 +41,13 @@ class DeciderResponse(BaseModel):
         description=(
             "rag: academic/study question answered from uploaded study "
             "documents; "
-            "history: non-academic question that refers only to prior chat, "
-            "or a question that can be accurately answered from prior chat "
-            "turns alone; "
-            "both: academic/study question needing documents and prior chat; "
+            "history: only a true repeat of a prior question whose prior "
+            "answer can be reused as-is, or a non-academic recap of chat; "
+            "both: academic/study question needing documents and prior chat "
+            "(including deepen/expand follow-ups that resolve the topic "
+            "from chat); "
             "none: non-academic/general question needing neither. "
+            "When answer_from_history is true, use history. "
             "Academic questions must not be classified as none just because "
             "the answer is common general knowledge—use rag to ground in "
             "study documents."
@@ -56,7 +58,8 @@ class DeciderResponse(BaseModel):
             "True when answering needs stored facts about the user "
             "(personal: life outside school; study: topics, courses, learning style). "
             "False for greetings/small talk, pure document lookup, general "
-            "knowledge, or chat that does not depend on stored student facts. "
+            "knowledge, chat that does not depend on stored student facts, "
+            "or when answer_from_history is true. "
             "Name and gender come from the user profile automatically."
         ),
     )
@@ -70,17 +73,28 @@ class DeciderResponse(BaseModel):
             "jokes and unacademic talk—never classify them as true even if "
             "they continue a study session. Prefer true only when unsure "
             "whether a study-related query is academic; never prefer true "
-            "for jokes or off-topic chat."
+            "for jokes or off-topic chat. "
+            "Repeated academic questions still count as true."
+        ),
+    )
+    answer_from_history: bool = Field(
+        description=(
+            "True only for a true repeat: same intent and same depth as a "
+            "question already asked, so the prior assistant answer can be "
+            "reused. False for any request for more depth, detail, "
+            "examples, a new angle, or fresh document/web retrieval "
+            "(e.g. 'dive deeper', 'tell me more', 'explain further')."
         ),
     )
     response: str | None = Field(
         default=None,
         description=(
-            "When is_academic_discussion is false, a brief friendly reply "
+            "When is_academic_discussion is false: a brief friendly reply "
             "that declines the joke or off-topic request and redirects the "
             "user back to studying without engaging with that content. "
             "Required when is_academic_discussion is false. "
-            "Null when is_academic_discussion is true."
+            "Null when is_academic_discussion is true or "
+            "answer_from_history is true."
         ),
     )
     rag_query: str | None = Field(
@@ -120,9 +134,32 @@ class DeciderResponse(BaseModel):
             "those come from profile."
         ),
     )
+    tavily_query: str | None = Field(
+        default=None,
+        description=(
+            "Search query for external YouTube and Google article results "
+            "in the form: 'provide some articles and youtube videos on "
+            "this: <topic>. stick only to youtube and google website urls'. "
+            "Insert the student's topic; do not answer it. "
+            "Null when the question (even with history/summary) lacks a "
+            "clear topic worth searching for, when answer_from_history is "
+            "true, or when is_academic_discussion is false."
+        ),
+    )
 
     @model_validator(mode="after")
     def clear_fields_by_decision(self) -> Self:
+        if self.answer_from_history:
+            self.decision = "history"
+            self.response = None
+            self.rag_query = None
+            self.cache_query = None
+            self.chapters = None
+            self.memory_queries = []
+            self.tavily_query = None
+            self.retrieve_memory = False
+            return self
+
         if self.is_academic_discussion:
             self.response = None
         else:
@@ -130,6 +167,7 @@ class DeciderResponse(BaseModel):
             self.cache_query = None
             self.chapters = None
             self.memory_queries = []
+            self.tavily_query = None
             self.retrieve_memory = False
             return self
 
@@ -142,18 +180,3 @@ class DeciderResponse(BaseModel):
             self.memory_queries = []
 
         return self
-
-
-class TavilyQueryRewriteResponse(BaseModel):
-    """Tavily search query for YouTube and Google article results."""
-
-    search_query: str | None = Field(
-        default=None,
-        description=(
-            "Search query in the form: 'provide some articles and youtube "
-            "videos on this: <topic>. stick only to youtube and google "
-            "website urls'. Insert the student's topic; do not answer it. "
-            "Null when the question (even with history/summary) lacks a clear "
-            "topic worth searching for."
-        ),
-    )

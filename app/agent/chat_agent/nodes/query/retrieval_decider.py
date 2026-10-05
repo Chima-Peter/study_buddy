@@ -8,6 +8,7 @@ from app.agent.chat_agent.utils import (
     flatten_section_keys,
     format_history,
     match_section_keys,
+    pick_progress,
 )
 from app.agent.chat_agent.prompts import retrieval_decider_prompt
 from app.agent.chat_agent.schema import (
@@ -48,7 +49,7 @@ class RetrievalDeciderNode:
         )
         get_stream_writer()({
             "type": "chat.progress",
-            "message": "Understanding your question",
+            "message": pick_progress("decider"),
             "conversation_id": conversation_id,
         })
 
@@ -64,9 +65,11 @@ class RetrievalDeciderNode:
                 "retrieve_conversation_history": False,
                 "retrieve_memory": False,
                 "is_academic_discussion": False,
+                "answer_from_history": False,
                 "rag_documents": [],
                 "rewritten_query": query,
                 "cache_query": None,
+                "tavily_query": None,
                 "memory_queries": [],
                 "chapter_keys": None,
             }
@@ -103,6 +106,7 @@ class RetrievalDeciderNode:
             result = decision.decision
             retrieve_memory = decision.retrieve_memory
             is_academic_discussion = decision.is_academic_discussion
+            answer_from_history = decision.answer_from_history
             response = decision.response
         except Exception as e:
             if is_rate_limit_error(e):
@@ -120,7 +124,29 @@ class RetrievalDeciderNode:
             result = "both" if not is_first_message else "rag"
             retrieve_memory = False
             is_academic_discussion = True
+            answer_from_history = False
             response = None
+
+        if answer_from_history:
+            self.logger.info(
+                "Retrieval decider routed to history answer id=%s user_id=%s",
+                conversation_id,
+                user_id,
+            )
+            return {
+                "retrieve_rag": False,
+                "retrieve_conversation_history": True,
+                "retrieve_memory": False,
+                "is_academic_discussion": is_academic_discussion,
+                "answer_from_history": True,
+                "rag_documents": [],
+                "rewritten_query": query,
+                "cache_query": None,
+                "tavily_query": None,
+                "memory_queries": [],
+                "chapter_keys": None,
+                "document_sections": document_sections,
+            }
 
         if not is_academic_discussion:
             reply = (response or "").strip() or NON_ACADEMIC_FALLBACK
@@ -134,10 +160,12 @@ class RetrievalDeciderNode:
                 "retrieve_conversation_history": False,
                 "retrieve_memory": False,
                 "is_academic_discussion": False,
+                "answer_from_history": False,
                 "response": reply,
                 "rag_documents": [],
                 "rewritten_query": query,
                 "cache_query": None,
+                "tavily_query": None,
                 "memory_queries": [],
                 "chapter_keys": None,
                 "document_sections": document_sections,
@@ -158,6 +186,7 @@ class RetrievalDeciderNode:
 
         rewritten = query
         cache_query = None
+        tavily_query = None
         chapter_keys = None
         memory_queries: list[MemoryRetrieval] = []
 
@@ -171,6 +200,7 @@ class RetrievalDeciderNode:
                     decision.chapters,
                     section_keys,
                 )
+            tavily_query = (decision.tavily_query or "").strip() or None
             if retrieve_memory:
                 memory_queries = [
                     MemoryRetrieval(
@@ -191,8 +221,9 @@ class RetrievalDeciderNode:
         self.logger.info(
             "Retrieval decider completed id=%s user_id=%s decision=%s "
             "retrieve_rag=%s retrieve_history=%s retrieve_memory=%s "
-            "is_academic_discussion=%s rewritten=%r cache_query=%r "
-            "chapter_keys=%s memory_queries=%s",
+            "is_academic_discussion=%s answer_from_history=%s rewritten=%s "
+            "cache_query=%s tavily_query=%s chapter_keys=%s "
+            "memory_queries=%s",
             conversation_id,
             user_id,
             result,
@@ -200,13 +231,12 @@ class RetrievalDeciderNode:
             retrieve_history,
             retrieve_memory,
             is_academic_discussion,
-            rewritten,
-            cache_query,
-            chapter_keys,
-            [
-                {"query": item.query, "category": item.category}
-                for item in memory_queries
-            ],
+            answer_from_history,
+            rewritten is not None,
+            cache_query is not None,
+            tavily_query is not None,
+            chapter_keys is not None,
+            bool(memory_queries),
         )
 
         return {
@@ -214,8 +244,10 @@ class RetrievalDeciderNode:
             "retrieve_conversation_history": retrieve_history,
             "retrieve_memory": retrieve_memory,
             "is_academic_discussion": is_academic_discussion,
+            "answer_from_history": False,
             "rewritten_query": rewritten,
             "cache_query": cache_query,
+            "tavily_query": tavily_query,
             "memory_queries": memory_queries,
             "chapter_keys": chapter_keys,
             "document_sections": document_sections,

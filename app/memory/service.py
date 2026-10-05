@@ -128,6 +128,7 @@ class MemoryService:
                 context,
                 known_memories=known_memories,
                 document_id=document_id,
+                conversation_id=conversation_id,
             )
             existing = await self.retrieve_for_queries(user_id, queries)
             updated, created, deleted = await self.apply_trustcall(
@@ -160,6 +161,7 @@ class MemoryService:
         *,
         known_memories: list[str] | None = None,
         document_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> list[MemoryRetrievalQuery]:
         prompt = memory_search_query_prompt(
             context=context,
@@ -167,11 +169,20 @@ class MemoryService:
             document_id=document_id,
             now=datetime.now(timezone.utc),
         )
+        config = None
+        if conversation_id:
+            config = {
+                "configurable": {"thread_id": conversation_id},
+                "metadata": {"thread_id": conversation_id},
+            }
         try:
             result: MemorySearchQueryResult = (
                 await self.model.with_structured_output(
                     MemorySearchQueryResult
-                ).ainvoke(prompt)
+                ).ainvoke(
+                    prompt,
+                    config,
+                )
             )
         except Exception as e:
             if is_rate_limit_error(e):

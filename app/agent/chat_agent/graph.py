@@ -85,7 +85,6 @@ class AgentGraph:
             "tavily_retriever": TavilyRetrieverNode(
                 tavily=self.tavily,
                 logger=self.logger,
-                query_model=self.query_model,
             ),
             "retrieve_memory": RetrieveMemoryNode(
                 memory_service=self.memory_service,
@@ -131,6 +130,7 @@ class AgentGraph:
                 "retrieve_documents": "retrieve_documents",
                 "retrieve_memory": "retrieve_memory",
                 "tavily_retriever": "tavily_retriever",
+                "generate_response": "generate_response",
                 "end_discussion": "end_discussion",
             },
         )

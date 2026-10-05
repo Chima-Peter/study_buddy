@@ -8,6 +8,7 @@ class AgentState(MessagesState):
     query: str
     rewritten_query: str
     cache_query: str | None
+    tavily_query: str | None
     conversation_id: str
     user_id: str
     document_id: str | None
@@ -24,6 +25,7 @@ class AgentState(MessagesState):
     retrieve_conversation_history: bool
     retrieve_memory: bool
     is_academic_discussion: bool
+    answer_from_history: bool
 
     memory_queries: list[MemoryRetrieval]
     memories: list[Memory]

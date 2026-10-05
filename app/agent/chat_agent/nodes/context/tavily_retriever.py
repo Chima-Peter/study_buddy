@@ -1,13 +1,10 @@
 from logging import Logger
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.config import get_stream_writer
 from tavily import TavilyClient
 
-from app.agent.chat_agent.utils import format_history
-from app.agent.chat_agent.prompts import tavily_query_rewriter_prompt
-from app.agent.chat_agent.schema import SUMMARY_EVERY, TavilyQueryRewriteResponse
 from app.agent.chat_agent.state import AgentState
+from app.agent.chat_agent.utils import pick_progress
 from app.utils.llm import is_rate_limit_error
 
 
@@ -16,11 +13,9 @@ class TavilyRetrieverNode:
         self,
         tavily: TavilyClient,
         logger: Logger,
-        query_model: ChatGoogleGenerativeAI,
     ):
         self.tavily = tavily
         self.logger = logger
-        self.model = query_model.with_structured_output(TavilyQueryRewriteResponse)
 
     async def __call__(self, state: AgentState) -> AgentState:
         self.logger.info(
@@ -28,46 +23,7 @@ class TavilyRetrieverNode:
             state.get("conversation_id"),
             state.get("user_id"),
         )
-        query = (state.get("query") or "").strip()
-        if not query:
-            return {"tavily_results": []}
-
-        get_stream_writer()({
-            "type": "chat.progress",
-            "message": "Searching for relevant web articles",
-            "conversation_id": state.get("conversation_id"),
-        })
-
-        recent_history = format_history(
-            state.get("messages"),
-            limit=SUMMARY_EVERY,
-        )
-        summary = state.get("conversation_summary") or ""
-
-        try:
-            rewritten: TavilyQueryRewriteResponse = await self.model.ainvoke(
-                tavily_query_rewriter_prompt(
-                    query,
-                    recent_history=recent_history or "(none)",
-                    summary=summary,
-                )
-            )
-            search_query = (rewritten.search_query or "").strip() or None
-        except Exception as e:
-            if is_rate_limit_error(e):
-                self.logger.warning(
-                    "Tavily query rewrite rate limited id=%s user_id=%s",
-                    state.get("conversation_id"),
-                    state.get("user_id"),
-                )
-            else:
-                self.logger.exception(
-                    "Tavily query rewrite failed id=%s user_id=%s",
-                    state.get("conversation_id"),
-                    state.get("user_id"),
-                )
-            return {"tavily_results": []}
-
+        search_query = (state.get("tavily_query") or "").strip()
         if not search_query:
             self.logger.info(
                 "Tavily search skipped id=%s user_id=%s reason=insufficient_query",
@@ -75,6 +31,12 @@ class TavilyRetrieverNode:
                 state.get("user_id"),
             )
             return {"tavily_results": []}
+
+        get_stream_writer()({
+            "type": "chat.progress",
+            "message": pick_progress("tavily"),
+            "conversation_id": state.get("conversation_id"),
+        })
 
         try:
             raw = self.tavily.search(

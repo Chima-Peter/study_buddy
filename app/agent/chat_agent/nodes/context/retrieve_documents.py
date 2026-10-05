@@ -3,7 +3,7 @@ from logging import Logger
 from langgraph.config import get_stream_writer
 
 from app.agent.chat_agent.state import AgentState
-from app.agent.chat_agent.utils import cache_hit_to_fused
+from app.agent.chat_agent.utils import cache_hit_to_fused, pick_progress
 from app.core.embedding import EmbeddingManager
 from app.core.semantic_cache import CacheHit, SemanticCache
 from app.rag.rag_retriever import RAGRetriever
@@ -44,7 +44,7 @@ class RetrieveDocumentsNode:
         )
         get_stream_writer()({
             "type": "chat.progress",
-            "message": "Scanning document for relevant context",
+            "message": pick_progress("documents"),
             "conversation_id": state.get("conversation_id"),
         })
 
