@@ -1,13 +1,11 @@
 import asyncio
 from logging import Logger
 
-from langgraph.config import get_stream_writer
-
 from app.agent.chat_agent.schema import MemoryRetrieval
 from app.agent.chat_agent.state import AgentState
-from app.agent.chat_agent.utils import to_retrieval_query, pick_progress
+from app.agent.chat_agent.utils import progress_pulse, to_retrieval_query
 from app.system.user.repository import UserRepository
-from app.memory.schema import DOCUMENT_SCOPED_CATEGORIES, Memory, MemoryRetrievalQuery
+from app.memory.schema import Memory
 from app.memory.service import MemoryService
 
 
@@ -61,26 +59,23 @@ class RetrieveMemoryNode:
             need_profile,
             document_id,
         )
-        get_stream_writer()({
-            "type": "chat.progress",
-            "message": pick_progress("memory"),
-            "conversation_id": state.get("conversation_id"),
-        })
+        conversation_id = state.get("conversation_id")
 
         profile_task = None
         turn_task = None
-        async with asyncio.TaskGroup() as tg:
-            if need_profile:
-                profile_task = tg.create_task(
-                    self.user_repository.get_by_id(state.get("user_id"))
-                )
-            if retrieval_queries:
-                turn_task = tg.create_task(
-                    self.memory_service.retrieve_for_queries(
-                        state.get("user_id"),
-                        retrieval_queries,
+        async with progress_pulse("memory", conversation_id):
+            async with asyncio.TaskGroup() as tg:
+                if need_profile:
+                    profile_task = tg.create_task(
+                        self.user_repository.get_by_id(state.get("user_id"))
                     )
-                )
+                if retrieval_queries:
+                    turn_task = tg.create_task(
+                        self.memory_service.retrieve_for_queries(
+                            state.get("user_id"),
+                            retrieval_queries,
+                        )
+                    )
 
         by_id: dict[str, Memory] = {}
         if profile_task is not None:

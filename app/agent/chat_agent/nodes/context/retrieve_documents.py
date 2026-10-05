@@ -1,9 +1,7 @@
 from logging import Logger
 
-from langgraph.config import get_stream_writer
-
 from app.agent.chat_agent.state import AgentState
-from app.agent.chat_agent.utils import cache_hit_to_fused, pick_progress
+from app.agent.chat_agent.utils import cache_hit_to_fused, progress_pulse
 from app.core.embedding import EmbeddingManager
 from app.core.semantic_cache import CacheHit, SemanticCache
 from app.rag.rag_retriever import RAGRetriever
@@ -37,45 +35,42 @@ class RetrieveDocumentsNode:
         document_id = state.get("document_id")
         rag_query = state.get("rewritten_query")
         cache_query = (state.get("cache_query") or "").strip() or rag_query
+        conversation_id = state.get("conversation_id")
         self.logger.info(
             "Retrieve documents node started user_id=%s chapter_keys=%s",
             state.get("user_id"),
             state.get("chapter_keys"),
         )
-        get_stream_writer()({
-            "type": "chat.progress",
-            "message": pick_progress("documents"),
-            "conversation_id": state.get("conversation_id"),
-        })
 
-        cache_embedding = self.embedding_manager.embed_query(cache_query)
-        cache_embedding_list = cache_embedding.tolist()
+        async with progress_pulse("documents", conversation_id):
+            cache_embedding = self.embedding_manager.embed_query(cache_query)
+            cache_embedding_list = cache_embedding.tolist()
 
-        if document_id and cache_query:
-            cached = await self.semantic_cache.lookup(
-                cache_embedding, document_id=document_id
-            )
-            if isinstance(cached, CacheHit):
-                self.logger.info(
-                    "Semantic cache hit user_id=%s document_id=%s "
-                    "distance=%.3f chunks=%s",
-                    state.get("user_id"),
-                    document_id,
-                    cached.distance,
-                    len(cached.chunk_ids),
+            if document_id and cache_query:
+                cached = await self.semantic_cache.lookup(
+                    cache_embedding, document_id=document_id
                 )
-                return {
-                    "rag_documents": [cache_hit_to_fused(cached)],
-                    "semantic_cache_hit": True,
-                    "query_embedding": None,
-                }
+                if isinstance(cached, CacheHit):
+                    self.logger.info(
+                        "Semantic cache hit user_id=%s document_id=%s "
+                        "distance=%.3f chunks=%s",
+                        state.get("user_id"),
+                        document_id,
+                        cached.distance,
+                        len(cached.chunk_ids),
+                    )
+                    return {
+                        "rag_documents": [cache_hit_to_fused(cached)],
+                        "semantic_cache_hit": True,
+                        "query_embedding": None,
+                    }
 
-        results = await self.retriever.retrieve(
-            user_id=state.get("user_id"),
-            query=rag_query,
-            document_ids=[document_id] if document_id else None,
-            chapter_keys=state.get("chapter_keys"),
-        )
+            results = await self.retriever.retrieve(
+                user_id=state.get("user_id"),
+                query=rag_query,
+                document_ids=[document_id] if document_id else None,
+                chapter_keys=state.get("chapter_keys"),
+            )
 
         self.logger.info(
             "Retrieve documents node completed user_id=%s count=%s",

@@ -1,10 +1,10 @@
+import asyncio
 from logging import Logger
 
-from langgraph.config import get_stream_writer
 from tavily import TavilyClient
 
 from app.agent.chat_agent.state import AgentState
-from app.agent.chat_agent.utils import pick_progress
+from app.agent.chat_agent.utils import progress_pulse
 from app.utils.llm import is_rate_limit_error
 
 
@@ -32,17 +32,14 @@ class TavilyRetrieverNode:
             )
             return {"tavily_results": []}
 
-        get_stream_writer()({
-            "type": "chat.progress",
-            "message": pick_progress("tavily"),
-            "conversation_id": state.get("conversation_id"),
-        })
-
+        conversation_id = state.get("conversation_id")
         try:
-            raw = self.tavily.search(
-                search_query,
-                search_depth="advanced",
-            )
+            async with progress_pulse("tavily", conversation_id):
+                raw = await asyncio.to_thread(
+                    self.tavily.search,
+                    search_query,
+                    search_depth="advanced",
+                )
             results = raw.get("results", []) if isinstance(raw, dict) else (raw or [])
             if not isinstance(results, list):
                 results = []

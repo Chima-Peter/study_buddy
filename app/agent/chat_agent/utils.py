@@ -1,5 +1,9 @@
+import asyncio
 import random
 import re
+from contextlib import asynccontextmanager, suppress
+
+from langgraph.config import get_stream_writer
 
 from app.agent.chat_agent.schema import MemoryRetrieval
 from app.core.elasticsearch_schema import FusedResult, IndexedRecord
@@ -164,54 +168,127 @@ def to_retrieval_query(
 
 
 _PROGRESS_MESSAGES = {
-    "decider": (
-        "Understanding your question",
-        "Reading your question carefully",
-        "Figuring out what you need",
-        "Parsing the question",
-        "Getting oriented on this question",
-        "Checking how this fits the conversation",
-    ),
-    "documents": (
-        "Scanning the document for relevant context",
-        "Looking through your study material",
-        "Pulling the most useful passages",
-        "Searching the notes for a match",
-        "Finding the sections that apply",
-        "Gathering context from the document",
-    ),
-    "memory": (
-        "Recalling what I know about you",
-        "Checking your study preferences",
-        "Looking up what has helped you before",
-        "Refreshing what I remember about you",
-        "Pulling in your learning context",
-    ),
-    "tavily": (
-        "Searching for relevant web articles",
-        "Looking up extra readings and videos",
-        "Finding useful links on this topic",
-        "Checking the web for supporting material",
-        "Gathering articles and YouTube resources",
-    ),
-    "generate": (
-        "Compiling the final response",
-        "Putting the answer together",
-        "Writing this up for you",
-        "Drafting a clear explanation",
-        "Turning the notes into an answer",
-        "Shaping the response",
-    ),
-    "generate_history": (
-        "Reusing the earlier answer",
-        "Pulling from what we already covered",
-        "Restating the previous explanation",
-        "Checking the last answer on this",
-        "Bringing back the prior response",
-    ),
+    "decider": {
+        "start": (
+            "Understanding your question...",
+            "Reading your question...",
+            "Making sense of what you asked...",
+            "Figuring out what you need...",
+        ),
+        "continue": (
+            "Still working that out...",
+            "Checking how this fits the conversation...",
+            "Almost ready to search...",
+            "Hang on, still parsing this...",
+        ),
+    },
+    "documents": {
+        "start": (
+            "Scanning your study material...",
+            "Looking through the document...",
+            "Searching the notes for a match...",
+        ),
+        "continue": (
+            "Still searching your material...",
+            "Narrowing down the best passages...",
+            "Almost done with the document search...",
+            "Hang on, still gathering context...",
+        ),
+    },
+    "memory": {
+        "start": (
+            "Recalling what I know about you...",
+            "Checking your study preferences...",
+            "Looking up what has helped you before...",
+        ),
+        "continue": (
+            "Still matching this to your profile...",
+            "Almost got your context...",
+            "Hang on, still recalling...",
+        ),
+    },
+    "tavily": {
+        "start": (
+            "Searching for articles and videos...",
+            "Looking up extra readings...",
+            "Finding useful links on this topic...",
+        ),
+        "continue": (
+            "Still looking for good sources...",
+            "Sorting through the results...",
+            "Almost done with the web search...",
+            "Hang on, still checking the web...",
+        ),
+    },
+    "generate": {
+        "start": (
+            "Writing your answer...",
+            "Putting this together...",
+            "Drafting a clear explanation...",
+        ),
+        "continue": (
+            "Still shaping the response...",
+            "Almost ready to share this...",
+            "Hang on, still writing...",
+        ),
+    },
+    "generate_history": {
+        "start": (
+            "Revisiting the earlier answer...",
+            "Pulling from what we already covered...",
+        ),
+        "continue": (
+            "Still matching this to the last explanation...",
+            "Hang on, restating that now...",
+        ),
+    },
 }
 
 
-def pick_progress(stage: str) -> str:
-    options = _PROGRESS_MESSAGES.get(stage) or _PROGRESS_MESSAGES["decider"]
+def pick_progress(stage: str, kind: str = "start") -> str:
+    pool = _PROGRESS_MESSAGES.get(stage) or _PROGRESS_MESSAGES["decider"]
+    options = pool.get(kind) or pool["start"]
     return random.choice(options)
+
+
+def emit_progress(
+    stage: str,
+    conversation_id: str | None,
+    kind: str = "start",
+) -> None:
+    get_stream_writer()({
+        "type": "chat.progress",
+        "message": pick_progress(stage, kind),
+        "conversation_id": conversation_id,
+    })
+
+
+@asynccontextmanager
+async def progress_pulse(
+    stage: str,
+    conversation_id: str | None,
+    interval: float = 2.0,
+):
+    writer = get_stream_writer()
+
+    def emit(kind: str) -> None:
+        writer({
+            "type": "chat.progress",
+            "message": pick_progress(stage, kind),
+            "conversation_id": conversation_id,
+        })
+
+    emit("start")
+    task = asyncio.create_task(_pulse(lambda: emit("continue"), interval))
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
+async def _pulse(emit, interval: float) -> None:
+    while True:
+        await asyncio.sleep(interval)
+        emit()

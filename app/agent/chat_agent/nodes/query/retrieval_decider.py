@@ -2,13 +2,12 @@ from logging import Logger
 from typing import TYPE_CHECKING
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langgraph.config import get_stream_writer
 
 from app.agent.chat_agent.utils import (
     flatten_section_keys,
     format_history,
     match_section_keys,
-    pick_progress,
+    progress_pulse,
 )
 from app.agent.chat_agent.prompts import retrieval_decider_prompt
 from app.agent.chat_agent.schema import (
@@ -47,11 +46,6 @@ class RetrievalDeciderNode:
             user_id,
             is_first_message,
         )
-        get_stream_writer()({
-            "type": "chat.progress",
-            "message": pick_progress("decider"),
-            "conversation_id": conversation_id,
-        })
 
         if state.get("retry_count", 1) > 3:
             self.logger.warning(
@@ -76,33 +70,34 @@ class RetrievalDeciderNode:
 
         document_sections = dict(state.get("document_sections") or {})
         document_id = state.get("document_id")
-        if document_id and document_id not in document_sections:
-            try:
-                fetched = await self.document_service.get_sections_by_document(
-                    [document_id],
-                    user_id,
-                )
-                document_sections.update(fetched)
-            except Exception:
-                self.logger.exception(
-                    "Failed loading section keys id=%s user_id=%s",
-                    conversation_id,
-                    user_id,
-                )
-        section_keys = flatten_section_keys(document_id, document_sections)
-
-        context = format_history(messages, limit=SUMMARY_EVERY)
-        summary = state.get("conversation_summary") or ""
-        prompt = retrieval_decider_prompt(
-            query,
-            context,
-            summary,
-            section_keys=section_keys or None,
-        )
-
         decision: DeciderResponse | None = None
         try:
-            decision = await self.model.ainvoke(prompt)
+            async with progress_pulse("decider", conversation_id):
+                if document_id and document_id not in document_sections:
+                    try:
+                        fetched = await self.document_service.get_sections_by_document(
+                            [document_id],
+                            user_id,
+                        )
+                        document_sections.update(fetched)
+                    except Exception:
+                        self.logger.exception(
+                            "Failed loading section keys id=%s user_id=%s",
+                            conversation_id,
+                            user_id,
+                        )
+                section_keys = flatten_section_keys(document_id, document_sections)
+
+                context = format_history(messages, limit=SUMMARY_EVERY)
+                summary = state.get("conversation_summary") or ""
+                prompt = retrieval_decider_prompt(
+                    query,
+                    context,
+                    summary,
+                    section_keys=section_keys or None,
+                )
+
+                decision = await self.model.ainvoke(prompt)
             result = decision.decision
             retrieve_memory = decision.retrieve_memory
             is_academic_discussion = decision.is_academic_discussion

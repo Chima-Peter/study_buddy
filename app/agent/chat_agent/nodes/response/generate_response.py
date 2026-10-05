@@ -7,7 +7,11 @@ from langgraph.config import get_stream_writer
 from app.agent.chat_agent.prompts import chat_response_prompt
 from app.agent.chat_agent.schema import SUMMARY_EVERY
 from app.agent.chat_agent.state import AgentState
-from app.agent.chat_agent.utils import format_history, format_rag_context, pick_progress
+from app.agent.chat_agent.utils import (
+    emit_progress,
+    format_history,
+    format_rag_context,
+)
 from app.utils.llm import is_rate_limit_error
 
 
@@ -81,13 +85,10 @@ class GenerateResponseNode:
         )
 
         writer = get_stream_writer()
-        writer({
-            "type": "chat.progress",
-            "message": pick_progress(
-                "generate_history" if answer_from_history else "generate"
-            ),
-            "conversation_id": state.get("conversation_id"),
-        })
+        emit_progress(
+            "generate_history" if answer_from_history else "generate",
+            state.get("conversation_id"),
+        )
         answer = ""
         try:
             async for chunk in self.model.astream(prompt):
