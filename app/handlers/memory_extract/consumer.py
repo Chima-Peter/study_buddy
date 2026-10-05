@@ -36,6 +36,7 @@ async def handle_memory_extract(
                 context=request.context,
                 known_memories=request.known_memories,
                 document_id=request.document_id,
+                conversation_id=request.conversation_id,
             )
             logger.info(
                 "Memory extract completed user_id=%s conversation_id=%s",

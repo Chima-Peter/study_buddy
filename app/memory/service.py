@@ -121,6 +121,7 @@ class MemoryService:
         *,
         known_memories: list[str] | None = None,
         document_id: str | None = None,
+        conversation_id: str | None = None,
     ):
         try:
             queries = await self.extract_search_queries(
@@ -134,6 +135,7 @@ class MemoryService:
                 context=context,
                 existing=existing,
                 document_id=document_id,
+                conversation_id=conversation_id,
             )
             if not updated and not created and not deleted:
                 return None
@@ -191,6 +193,7 @@ class MemoryService:
         existing: list[Memory],
         *,
         document_id: str | None = None,
+        conversation_id: str | None = None,
     ) -> tuple[list[Memory], list[Memory], list[Memory]]:
         """Run trustcall over existing memories; return (updated, created, deleted)."""
         now = datetime.now(timezone.utc)
@@ -214,12 +217,20 @@ class MemoryService:
             for memory in existing
         ]
 
+        config = None
+        if conversation_id:
+            config = {
+                "configurable": {"thread_id": conversation_id},
+                "metadata": {"thread_id": conversation_id},
+            }
+
         try:
             result = await self._extractor.ainvoke(
                 {
                     "messages": [{"role": "user", "content": prompt}],
                     "existing": existing_payload or None,
-                }
+                },
+                config=config,
             )
         except Exception as e:
             if is_rate_limit_error(e):

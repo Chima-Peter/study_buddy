@@ -1208,6 +1208,9 @@ class ChatService:
             configurable["checkpoint_id"] = checkpointer_id
         config = {
                 "configurable": configurable,
+                "metadata": {
+                    "thread_id": thread_id,
+                }
             }
         pending_done: dict[str, Any] | None = None
         latest_checkpointer_id: str | None = None
