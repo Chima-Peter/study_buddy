@@ -1212,7 +1212,6 @@ class ChatService:
                     "thread_id": thread_id,
                 }
             }
-        pending_done: dict[str, Any] | None = None
         latest_checkpointer_id: str | None = None
 
         try:
@@ -1225,7 +1224,29 @@ class ChatService:
                     isinstance(chunk, dict)
                     and chunk.get("type") == "chat.done"
                 ):
-                    pending_done = chunk
+                    chat_id = chunk.get("chat_id")
+                    if chat_id:
+                        (
+                            continuation_key,
+                            latest_checkpointer_id,
+                        ) = await self._issue_continuation_key(
+                            graph=graph,
+                            chat_id=chat_id,
+                            thread_id=thread_id,
+                            user_id=user_id,
+                            query_message_id=chunk.get("query_message_id"),
+                            response_message_id=chunk.get(
+                                "response_message_id"
+                            ),
+                        )
+                        if continuation_key:
+                            chunk = {
+                                **chunk,
+                                "continuation_key": continuation_key,
+                            }
+                    await queue.put(
+                        self._event_with_request_id(chunk, request_id)
+                    )
                     continue
                 if isinstance(chunk, dict):
                     await queue.put(
@@ -1233,32 +1254,6 @@ class ChatService:
                     )
                 else:
                     await queue.put(chunk)
-
-            if pending_done is not None:
-                chat_id = pending_done.get("chat_id")
-                continuation_key = None
-                if chat_id:
-                    (
-                        continuation_key,
-                        latest_checkpointer_id,
-                    ) = await self._issue_continuation_key(
-                        graph=graph,
-                        chat_id=chat_id,
-                        thread_id=thread_id,
-                        user_id=user_id,
-                        query_message_id=pending_done.get("query_message_id"),
-                        response_message_id=pending_done.get(
-                            "response_message_id"
-                        ),
-                    )
-                if continuation_key:
-                    pending_done = {
-                        **pending_done,
-                        "continuation_key": continuation_key,
-                    }
-                await queue.put(
-                    self._event_with_request_id(pending_done, request_id)
-                )
         except Exception:
             self.logger.exception(
                 "Error running graph user_id=%s conversation_id=%s",
