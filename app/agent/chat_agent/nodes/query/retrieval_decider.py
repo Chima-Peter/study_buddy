@@ -47,27 +47,6 @@ class RetrievalDeciderNode:
             is_first_message,
         )
 
-        if state.get("retry_count", 1) > 3:
-            self.logger.warning(
-                "Retrieval decider failed id=%s user_id=%s retry_count=%s",
-                conversation_id,
-                user_id,
-                state.get("retry_count"),
-            )
-            return {
-                "retrieve_rag": False,
-                "retrieve_conversation_history": False,
-                "retrieve_memory": False,
-                "is_academic_discussion": False,
-                "answer_from_history": False,
-                "rag_documents": [],
-                "rewritten_query": query,
-                "cache_query": None,
-                "tavily_query": None,
-                "memory_queries": [],
-                "chapter_keys": None,
-            }
-
         document_sections = dict(state.get("document_sections") or {})
         document_id = state.get("document_id")
         decision: DeciderResponse | None = None

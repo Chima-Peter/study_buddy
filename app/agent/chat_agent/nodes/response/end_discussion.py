@@ -19,15 +19,6 @@ class EndDiscussionNode:
             state.get("is_academic_discussion"),
         )
 
-        if state.get("retry_count", 1) > 3:
-            self.logger.warning(
-                "End discussion node failed id=%s user_id=%s retry_count=%s",
-                state.get("conversation_id"),
-                state.get("user_id"),
-                state.get("retry_count"),
-            )
-            return {}
-
         response = (state.get("response") or "").strip() or NON_ACADEMIC_FALLBACK
         writer = get_stream_writer()
         writer(
@@ -42,5 +33,4 @@ class EndDiscussionNode:
             "response": response,
             "messages": [AIMessage(content=response)],
             "rag_documents": [],
-            "retry_count": state.get("retry_count", 1) + 1,
         }
