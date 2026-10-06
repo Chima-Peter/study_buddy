@@ -24,15 +24,32 @@ user_router = APIRouter(prefix="/users", tags=["users"])
 @inject
 async def get_profile(
     user: Annotated[UserResponse, Depends(get_current_user)],
+    service: UserService = Depends(Provide[Container.user_service]),
     logger: Logger = Depends(Provide[Container.logger]),
 ) -> BasicResponse:
     logger.info("Processing get profile user_id=%s", user.id)
-    response = BasicResponse(
-        data=user.model_dump(mode="json"),
+    try:
+        profile = await service.get_user_by_id(user.id)
+    except Exception:
+        logger.exception(
+            "Unexpected error getting profile user_id=%s", user.id
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error",
+        )
+
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    logger.info("Processed get profile user_id=%s", user.id)
+    return BasicResponse(
+        data=profile.model_dump(mode="json"),
         message="Profile retrieved successfully",
     )
-    logger.info("Processed get profile user_id=%s", user.id)
-    return response
 
 
 @user_router.patch(

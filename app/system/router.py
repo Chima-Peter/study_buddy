@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.memory.router import memory_router
 from app.system.chat.router import chat_router
 from app.system.conversation.router import conversation_router
 from app.system.document.router import document_router
@@ -16,3 +17,4 @@ system_router.include_router(notification_router)
 system_router.include_router(study_cards_router)
 system_router.include_router(question_bank_router)
 system_router.include_router(user_router)
+system_router.include_router(memory_router)

@@ -471,6 +471,67 @@ class Elasticsearch:
         )
         return hits
 
+    async def list_by_user(
+        self,
+        user_id: str,
+        index: str,
+        *,
+        limit: int = 20,
+        search_after: list[Any] | None = None,
+    ) -> tuple[list[IndexedRecord], list[Any] | None, bool]:
+        """List user records newest-first with search_after cursor pagination."""
+        index = self._resolve_index(index)
+        self.logger.info(
+            "ES list_by_user start user_id=%s index=%s limit=%s has_cursor=%s",
+            user_id,
+            index,
+            limit,
+            search_after is not None,
+        )
+        request: dict[str, Any] = {
+            "index": index,
+            "query": self._user_filter(user_id),
+            "sort": [
+                {"metadata.created_at": {"order": "desc"}},
+                {"metadata.id": {"order": "desc"}},
+            ],
+            "size": limit + 1,
+            "_source": {"excludes": ["embedding"]},
+        }
+        if search_after is not None:
+            request["search_after"] = search_after
+
+        response = await self.elasticsearch.search(**request)
+        raw_hits = response.get("hits", {}).get("hits", [])
+        has_more = len(raw_hits) > limit
+        page_hits = raw_hits[:limit]
+
+        records: list[IndexedRecord] = []
+        next_sort: list[Any] | None = None
+        for hit in page_hits:
+            records.append(
+                IndexedRecord(
+                    content=hit["_source"]["content"],
+                    metadata=cast(
+                        IndexMetadata, hit["_source"].get("metadata", {})
+                    ),
+                    embedding=hit["_source"].get("embedding", []),
+                )
+            )
+            next_sort = hit.get("sort")
+
+        if not has_more:
+            next_sort = None
+
+        self.logger.info(
+            "ES list_by_user done user_id=%s index=%s hits=%s has_more=%s",
+            user_id,
+            index,
+            len(records),
+            has_more,
+        )
+        return records, next_sort, has_more
+
     # --- delete ---
 
     async def bulk_delete(

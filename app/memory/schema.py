@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
 MEMORY_INDEX = "user_memories"
 SEARCH_TOP_K = 10
+DEFAULT_LIST_LIMIT = 20
+MAX_LIST_LIMIT = 20
 
 MEMORY_CATEGORY = Literal[
     "learning_preferences",
@@ -247,5 +249,29 @@ class Memory(BaseModel):
         ):
             self.document_id = None
         return self
+
+
+class MemoryResponse(BaseModel):
+    id: str
+    content: str
+    category: MEMORY_CATEGORY
+    document_id: str | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+    expires_at: datetime | None = None
+
+
+class MemoryListResponseData(BaseModel):
+    items: list[MemoryResponse]
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+    limit: int
+
+
+class MemoryListApiResponse(BaseModel):
+    data: Optional[MemoryListResponseData] = None
+    success: bool = True
+    message: Optional[str] = None
+    error: Optional[str] = None
 
 

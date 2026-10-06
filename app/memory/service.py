@@ -13,8 +13,12 @@ from app.memory.prompts import memory_search_query_prompt, memory_trustcall_prom
 from app.memory.repository import MemoryRepository
 from app.memory.schema import (
     DOCUMENT_SCOPED_CATEGORIES,
+    DEFAULT_LIST_LIMIT,
+    MAX_LIST_LIMIT,
     ExtractedMemory,
     Memory,
+    MemoryListResponseData,
+    MemoryResponse,
     MemoryRetrievalQuery,
     MemorySearch,
     MemorySearchQueryResult,
@@ -61,6 +65,55 @@ class MemoryService:
         except Exception as e:
             self.logger.exception(f"MemoryService retrieve failed: {e}")
             raise ValueError("Failed to retrieve") from e
+
+    async def list_by_user(
+        self,
+        user_id: str,
+        *,
+        limit: int = DEFAULT_LIST_LIMIT,
+        cursor: str | None = None,
+    ) -> MemoryListResponseData:
+        try:
+            self.logger.info(
+                "MemoryService list start user_id=%s limit=%s has_cursor=%s",
+                user_id,
+                limit,
+                cursor is not None,
+            )
+            memories, next_cursor, has_more = await self.repository.list_by_user(
+                user_id,
+                limit=limit,
+                cursor=cursor,
+            )
+            clamped = min(max(limit, 1), MAX_LIST_LIMIT)
+            self.logger.info(
+                "MemoryService list done user_id=%s count=%s has_more=%s",
+                user_id,
+                len(memories),
+                has_more,
+            )
+            return MemoryListResponseData(
+                items=[
+                    MemoryResponse(
+                        id=memory.id,
+                        content=memory.content,
+                        category=memory.category,
+                        document_id=memory.document_id,
+                        created_at=memory.created_at,
+                        updated_at=memory.updated_at,
+                        expires_at=memory.expires_at,
+                    )
+                    for memory in memories
+                ],
+                next_cursor=next_cursor,
+                has_more=has_more,
+                limit=clamped,
+            )
+        except ValueError:
+            raise
+        except Exception as e:
+            self.logger.exception(f"MemoryService list failed: {e}")
+            raise ValueError("Failed to list memories") from e
 
     async def retrieve_for_queries(
         self,
